@@ -39,9 +39,9 @@ unit-tests:
     - fsl-ci
     - docker
   rules:
-    - if '$CI_COMMIT_TAG == null'
+    - if: '$CI_COMMIT_TAG == null'
   script:
-    - true
+    - echo "todo"
 
 
 # Generate FSL conda environment specifications on new tags
@@ -52,10 +52,10 @@ generate-environment-specs:
     - fsl-ci
     - docker
   rules:
-    - if '$CI_COMMIT_TAG != null'
+    - if: '$CI_COMMIT_TAG != null'
 
   variables:
-    - PREFIX: fsl-$CI_COMMIT_TAG
+    PREFIX: fsl-$CI_COMMIT_TAG
 
   script:
     - python utils/generate_environment_spec.py ${PREFIX}-linux-64.yml           linux-64
@@ -79,7 +79,7 @@ test-release:
   dependencies:
     - generate-environment-specs
   script:
-    - true
+    - echo "todo"
 
 
 # Deploy FSL conda environment specifications and installer script
