@@ -1,0 +1,97 @@
+# CI / CD for the fsl/conda/installer project.
+#
+# Two pipelines may be executed:
+#
+#   - Commits pushed to any branch cause the test stage to run, which runs a
+#     set of unit tests.
+#
+#   - New tags cause the release-* stages to run:
+#
+#      1.A set of FSL conda environment specifications (conda YAML environment
+#         files) are generated
+#      2. The environment specifications are sanity-checked for validity
+#      3. The environment specifications and the fslinstaller.py script are
+#         deployed to a server to be made available for download (this job must
+#         be manually triggered).
+
+
+stages:
+  - test
+  - release-build
+  - release-test
+  - release-deploy
+
+
+variables:
+
+  # Path to the FSL installer directory where the installer
+  # script and environment files are deployed to - assumed
+  # to be locally accessible to docker jobs that are
+  # executed by the fslconda-channel-host gitlab runner.
+  FSL_INSTALLER_DIRECTORY: /fslinstaller
+
+
+# Unit tests run on every push to any branch
+unit-tests:
+  stage: test
+  image: continuumio/miniconda3
+  tags:
+    - fsl-ci
+    - docker
+  rules:
+    - if '$CI_COMMIT_TAG == null'
+  script:
+    - true
+
+
+# Generate FSL conda environment specifications on new tags
+generate-environment-specs:
+  stage: release-build
+  image: python:3.9
+  tags:
+    - fsl-ci
+    - docker
+  rules:
+    - if '$CI_COMMIT_TAG != null'
+
+  variables:
+    - PREFIX: fsl-$CI_COMMIT_TAG
+
+  script:
+    - python utils/generate_environment_spec.py ${PREFIX}-linux-64.yml           linux-64
+    - python utils/generate_environment_spec.py ${PREFIX}-macos-64.yml           macos-64
+    - python utils/generate_environment_spec.py ${PREFIX}-linux-64-cuda-9.2.yml  linux-64  9.2
+    - python utils/generate_environment_spec.py ${PREFIX}-linux-64-cuda-10.2.yml linux-64 10.2
+    - python utils/generate_environment_spec.py ${PREFIX}-linux-64-cuda-11.0.yml linux-64 11.0
+
+  artifacts:
+    paths:
+      - ${PREFIX}*.yml
+
+
+# Validate newly generated FSL conda environment specifications
+test-release:
+  stage: release-test
+  image: continuumio/miniconda3
+  tags:
+    - fsl-ci
+    - docker
+  dependencies:
+    - generate-environment-specs
+  script:
+    - true
+
+
+# Deploy FSL conda environment specifications and installer script
+upload-installer-and-environment-specs:
+  stage: release-deploy
+  image: python:3.9
+  when:  manual
+  tags:
+    - fsl-ci
+    - fslconda-channel-host
+  dependencies:
+    - generate-environment-specs
+
+  script:
+    - cp fsl-*.yml fslinstaller.py ${FSL_INSTALLER_DIRECTORY}
