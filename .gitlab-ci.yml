@@ -76,6 +76,8 @@ test-release:
   tags:
     - fsl-ci
     - docker
+  rules:
+    - if: '$CI_COMMIT_TAG != null'
   dependencies:
     - generate-environment-specs
   script:
@@ -86,10 +88,13 @@ test-release:
 upload-installer-and-environment-specs:
   stage: release-deploy
   image: python:3.9
-  when:  manual
   tags:
     - fsl-ci
     - fslconda-channel-host
+  rules:
+    - if:    '$CI_COMMIT_TAG != null'
+      when:  manual
+
   dependencies:
     - generate-environment-specs
 
