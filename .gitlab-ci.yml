@@ -58,11 +58,11 @@ generate-environment-specs:
     PREFIX: fsl-$CI_COMMIT_TAG
 
   script:
-    - python utils/generate_environment_spec.py ${PREFIX}-linux-64.yml           linux-64
-    - python utils/generate_environment_spec.py ${PREFIX}-macos-64.yml           macos-64
-    - python utils/generate_environment_spec.py ${PREFIX}-linux-64-cuda-9.2.yml  linux-64  9.2
-    - python utils/generate_environment_spec.py ${PREFIX}-linux-64-cuda-10.2.yml linux-64 10.2
-    - python utils/generate_environment_spec.py ${PREFIX}-linux-64-cuda-11.0.yml linux-64 11.0
+    - python generate_environment_spec.py ${PREFIX}-linux-64.yml           linux-64
+    - python generate_environment_spec.py ${PREFIX}-macos-64.yml           macos-64
+    - python generate_environment_spec.py ${PREFIX}-linux-64-cuda-9.2.yml  linux-64  9.2
+    - python generate_environment_spec.py ${PREFIX}-linux-64-cuda-10.2.yml linux-64 10.2
+    - python generate_environment_spec.py ${PREFIX}-linux-64-cuda-11.0.yml linux-64 11.0
 
   artifacts:
     paths:
@@ -81,7 +81,7 @@ test-release:
   dependencies:
     - generate-environment-specs
   script:
-    - echo "todo"
+    - ls -l
 
 
 # Deploy FSL conda environment specifications and installer script
