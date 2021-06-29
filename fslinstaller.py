@@ -175,10 +175,14 @@ class Context(object):
                 if response == '':
                     response = DEFAULT_INSTALLATION_DIRECTORY
                     break
+                response  = op.abspath(response)
                 parentdir = op.dirname(response)
-                if not op.exists(parentdir):
+                if op.exists(parentdir):
+                    break
+                else:
                     printmsg('Destination directory {} does not '
                              'exist!'.format(parentdir), ERROR)
+
             self.__destdir = response
         return self.__destdir
 
@@ -288,14 +292,22 @@ class Context(object):
             proc.communicate()
             return proc.returncode == 0
 
-        for _ in range(3):
-            printmsg('Your administrator password is needed to '
-                     'install FSL: ', IMPORTANT, end='', flush=True)
+        for attempt in range(3):
+            if attempt == 0:
+                msg = 'Your administrator password is needed to ' \
+                      'install FSL: '
+            else:
+                msg = 'Your administrator password is needed to ' \
+                      'install FSL [attempt {} of 3]:'.format(attempt + 1)
+            printmsg(msg, IMPORTANT, end='', flush=True)
             password = getpass.getpass('')
             valid    = validate_admin_password(password)
 
-            if valid: break
-            else:     printmsg('Incorrect password', WARNING)
+            if valid:
+                printmsg('Password accempted', INFO)
+                break
+            else:
+                printmsg('Incorrect password', WARNING)
 
         if not valid:
             raise InvalidPassword()
@@ -469,6 +481,59 @@ def sha256(filename, check_against=None, blocksize=1048576):
 
     return checksum
 
+class Progress(object):
+    def __init__(self, label='', transform=None, total=None, width=None):
+
+        if transform is None:
+            transform = Progress.default_transform
+
+        self.width     = width
+        self.total     = total
+        self.label     = label
+        self.transform = transform
+
+    @staticmethod
+    def default_transform(val):
+        return val
+
+    @staticmethod
+    def bytes_to_mb(val):
+        return val / 1048576
+
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        print()
+
+    def update(self, value, total=None):
+
+        if self.width is None: width = 50 # TODO auto detect
+        else:                  width = self.width
+
+        if total is None:
+            total = self.total
+
+        value = self.transform(value)
+
+        if total is not None:
+
+            total     = self.transform(total)
+            completed = int(round(width * (value  / total)))
+            remaining = width - completed
+            line      = '[{}{}] {:.1f} / {:.1f} {}'.format(
+                '#' * completed,
+                ' ' * remaining,
+                value,
+                total,
+                self.label).rstrip()
+
+        else:
+            line = '{}{} ...'.format(value, self.label)
+
+        printmsg(line, end='\r')
+
 
 class DownloadFailed(Exception):
     """Exception type raised by the download_file function if a
@@ -476,7 +541,7 @@ class DownloadFailed(Exception):
     """
 
 
-def download_file(url, destination, blocksize=1048576, progress=None):
+def download_file(url, destination, progress=None, blocksize=1048576):
     """Download a file from url, saving it to destination. """
 
     def default_progress(downloaded, total):
@@ -484,15 +549,6 @@ def download_file(url, destination, blocksize=1048576, progress=None):
 
     if progress is None:
         progress = default_progress
-
-    # def report_progress(downloaded, total):
-    #     downloaded = downloaded / 1048576
-    #     total      = total      / 1048576
-    #     if total is not None:
-    #         msg = '{:.1f} / {:.1f}MB ...'.format(downloaded, total)
-    #     else:
-    #         msg = '{:.1f}MB ...'.format(downloaded)
-    #     printmsg(msg, end='\r')
 
     log.debug('Downloading %s ...', url)
 
@@ -505,6 +561,7 @@ def download_file(url, destination, blocksize=1048576, progress=None):
 
             downloaded = 0
 
+            progress(downloaded, total)
             while True:
                 block = req.read(blocksize)
                 if len(block) == 0:
@@ -577,7 +634,9 @@ def install_miniconda(ctx):
 
     printmsg('Downloading miniconda from {}...'.format(url))
 
-    download_file(url, 'miniforge.sh')
+    with Progress('MB', transform=Progress.bytes_to_mb) as prog:
+        download_file(url, 'miniforge.sh', prog.update)
+
     sha256('miniforge.sh', checksum)
     cmd = 'sh miniforge.sh -b -p {}'.format(ctx.destdir)
     run(ctx, cmd, admin=ctx.need_admin)
@@ -744,7 +803,7 @@ def main(argv=None):
 
     ctx.finalise_settings()
 
-    printmsg('Installing FSL into {}'.format(ctx.destdir))
+    printmsg('Installing FSL into {}'.format(ctx.destdir), EMPHASIS)
 
     with tempdir():
         install_miniconda(ctx)
