@@ -4,7 +4,7 @@
 #
 
 
-from __future__ import print_function, division
+from __future__ import print_function, division, unicode_literals
 
 
 import functools      as ft
@@ -44,9 +44,11 @@ DEFAULT_INSTALLATION_DIRECTORY = '/usr/local/fsl'
 
 FSL_INSTALLER_MANIFEST = 'http://18.133.213.73/installer/manifest,json'
 """URL to download the FSL installer manifest file from. The installer
-manifest file is a JSON file which contains information about available
-FSL versions. See the download_installer_manifest function for more
-details.
+manifest file is a JSON file which contains information about available FSL
+versions.
+
+See the Context.download_manifest function, and an example manifest file
+in test/data/manifest.json, for more details.
 """
 
 
@@ -56,46 +58,147 @@ class InvalidPassword(Exception):
     """
 
 
+class UnknownVersion(Exception):
+    """Exception raised by Context.build if the user has requested a FSL
+    version that does not exist.
+    """
+
+
+class BuildNotAvailable(Exception):
+    """Exception raised by Context.build if there is no available FSL version
+    that matches the target platform and/or requested CUDA version.
+    """
+
+
 class Context(object):
     """Bag of information and settings created in main, and passed around
     this script.
+
+    Several settings are lazily evaluated on first access, but once evaluated,
+    their values are immutable.
     """
 
     def __init__(self, args):
-        self.args     = args
-        self.platform = Context.identify_platform()
-        self.cuda     = Context.identify_cuda()
+
+        self.args = args
 
         # These attributes are updated on-demand via
-        # the property accessors defined below.
-        self.__destdir        = args.dest
+        # the property accessors defined below, or all
+        # all updated via the finalise-settings method.
+        self.__platform       = None
+        self.__cuda           = None
+        self.__manifest       = None
+        self.__build          = None
+        self.__destdir        = None
         self.__need_admin     = None
         self.__admin_password = None
-        self.__manifest       = None
+
+
+    def finalise_settings(self):
+        self.platform
+        self.cuda
+        self.manifest
+        self.build
+        self.destdir
+        self.need_admin
+        self.admin_password
+
+
+    @property
+    def platform(self):
+        """The platform we are running on, e.g. "linux-64", "macos-64". """
+        if self.__platform is None:
+            self.__platform = Context.identify_platform()
+        return self.__platform
+
+
+    @property
+    def cuda(self):
+        """The available CUDA version, or a CUDA version requested by the user.
+        """
+        if self.__cuda is not None:
+            return self.__cuda
+        if self.args.cuda is not None:
+            self.__cuda = self.args.cuda
+        if self.__cuda is None:
+            self.__cuda = Context.identify_cuda()
+        return self.__cuda
+
+
+    @property
+    def build(self):
+        """Returns a suitable FSL build (a dictionary entry from the FSL
+        installer manifest) for the target platform and CUDA version.
+        """
+
+        fslversion = self.args.fslversion
+        if fslversion is None:
+            fslversion = 'latest'
+
+        if fslversion not in self.manifest['versions']:
+            raise UnknownVersion(
+                'FSL version {} is not available'.format(args.fslversion))
+
+        if fslversion == 'latest':
+            fslversion = self.manifest['versions']['latest']
+
+        match = None
+
+        for build in self.manifest['versions'][fslversion]:
+            if build['platform']       == self.platform and \
+               build.get('cuda', None) == self.cuda:
+                match = build
+                break
+        else:
+            raise BuildNotAvailable(
+                'Cannot find a version of FSL matching platform '
+                '{} and CUDA {}'.format(self.platform, self.cuda))
+
+        return match
 
 
     @property
     def destdir(self):
+        """Installation directory. If not specified at the command line, the
+        user is prompted to enter a directory.
+        """
+        if self.args.dest is not None:
+            self.__destdir = op.abspath(self.args.dest)
         if self.__destdir is None:
-            printmsg('Where do you want to install FSL?', IMPORTANT, EMPHASIS)
-            printmsg('Press enter to install to the default '
-                     'location [{}]'.format(DEFAULT_INSTALLATION_DIRECTORY),
-                     INFO)
-            self.__destdir = prompt('FSL installation directory:', QUESTION)
+            while True:
+                printmsg('Where do you want to install FSL?',
+                         IMPORTANT, EMPHASIS)
+                printmsg('Press enter to install to the default location [{}]'
+                         .format(DEFAULT_INSTALLATION_DIRECTORY), INFO)
+                response = prompt('FSL installation directory:', QUESTION)
+                response = response.rstrip(op.sep)
+                if response == '':
+                    response = DEFAULT_INSTALLATION_DIRECTORY
+                    break
+                parentdir = op.dirname(response)
+                if not op.exists(parentdir):
+                    printmsg('Destination directory {} does not '
+                             'exist!'.format(parentdir), ERROR)
+            self.__destdir = response
         return self.__destdir
 
 
     @property
     def need_admin(self):
+        """Returns True if administrator privileges will be needed to install
+        FSL.
+        """
         if self.__need_admin is not None:
             return self.__need_admin
-        if self.__destdir is None:
-            raise RuntimeError('Destination directory has not been set')
-        self.__need_admin = Context.check_need_admin(self.destdir)
+        parentdir = op.dirname(self.destdir)
+        self.__need_admin = Context.check_need_admin(parentdir)
+        return self.__need_admin
 
 
     @property
     def admin_password(self):
+        """Returns the user's administrator password, prompting them if needed.
+        """
         if self.__admin_password is not None:
             return self.__admin_password
         if self.__need_admin == False:
@@ -107,6 +210,7 @@ class Context(object):
 
     @property
     def manifest(self):
+        """Returns the FSL installer manifest as a dictionary. """
         if self.__manifest is None:
             self.__manifest = Context.download_manifest(self.args.manifest)
         return self.__manifest
@@ -124,7 +228,9 @@ class Context(object):
         platforms = {
             ('linux',  'x86_64') : 'linux-64',
             ('darwin', 'x86_64') : 'linux-64',
-            # ARM builds will be added in the future
+
+            # M1 builds (and possbily ARM for Linux)
+            # will be added in the future
             ('darwin', 'arm64')  : 'macos-64',
         }
 
@@ -141,7 +247,8 @@ class Context(object):
     @staticmethod
     def identify_cuda():
         """Identifies the CUDA version supported on the platform. Returns a
-        string containing the 'X.Y' CUDA version, or None if CUDA is not supported.
+        string containing the 'X.Y' CUDA version, or None if CUDA is not
+        supported.
         """
 
         try:
@@ -149,16 +256,15 @@ class Context(object):
         except (sp.CalledProcessError, FileNotFoundError):
             return None
 
-        cudaver = '9.2'  # todo
-        cudaver = float(output)
+        cudaver = '9.2'  # TODO
         match   = None
 
         # Return the most suitable CUDA
         # version that we have a build for
-        supported_cudas = [9.2, 10.2, 11.1]
-        for supported in reversed(supported_cudas):
-            if cudaver <= supported:
-                match = supported
+        available_cudas = ['9.2', '10.2', '11.1']
+        for available in reversed(supported_cudas):
+            if float(cudaver) <= float(available):
+                match = available
                 break
 
         return match
@@ -178,25 +284,18 @@ class Context(object):
         """Prompt the user for their administrator password."""
 
         def validate_admin_password(password):
-            printmsg("Checking sudo password", INFO)
-            cmd = sp.Popen(shlex.split('sudo -S true'),
-                           stdin=PIPE,
-                           stdout=DEVNULL,
-                           stderr=DEVNULL)
-            cmd.stdin.write(sudo_pwd + '\n')
-            cmd.stdin.flush()
-            cmd.communicate()
-            return cmd.returncode == 0
-
-        printmsg('We need your administrator password to install FSL: ',
-                 IMPORTANT, end='', flush=True)
+            proc = sudo_popen(['true'], password)
+            proc.communicate()
+            return proc.returncode == 0
 
         for _ in range(3):
+            printmsg('Your administrator password is needed to '
+                     'install FSL: ', IMPORTANT, end='', flush=True)
             password = getpass.getpass('')
             valid    = validate_admin_password(password)
 
             if valid: break
-            else:     printmsg("Incorrect password", WARNING)
+            else:     printmsg('Incorrect password', WARNING)
 
         if not valid:
             raise InvalidPassword()
@@ -210,19 +309,50 @@ class Context(object):
         about available FSL vesrions, and the most recent version number of the
         installer (this script).
 
-        The manifest file is a JSON file with the following structure:
+        The manifest file is a JSON file with the following structure (lines
+        beginning with two forward-slashes are ignored):
 
-            {
+          {
               "installer" : {
-                "version" : "1.2.3",         # Latest version of installer script
-                "url"     : "http://abc.com" # URL to download installer script
-                "sha256"  : "ab238........." # SHA256 checksum of installer script
-              }
+
+                  // Latest version of installer script
+                  "version" : "1.2.3",
+
+                  // URL to download installer script
+                  "url"     : "http://abc.com/fslinstaller.py"
+
+                  // SHA256 checksum of installer script
+                  "sha256"  : "ab238........."
+              },
               "versions" : {
 
-                # TODO
+                  // Latest must be present, and must
+                  // contain the version number of the
+                  // latest release
+                  "latest" : "6.1.0",
+                  "6.1.0"  : {
+                      'linux-64' : {
+                          "environment" : "http;//abc.com/fsl-6.1.0-linux-64.yml",
+                          "sha256"      : "ab23456...",
+                      }
+                      'macos-64' : {
+                          "environment" : "http;//abc.com/fsl-6.1.0-macos-64.yml",
+                          "sha256"      : "ab23456...",
+                      }
+                      'linux-64-cuda9.2' : {
+                          "environment" : "http;//abc.com/fsl-6.1.0-linux-64-cuda9.2.yml",
+                          "sha256"      : "ab23456...",
+                      }
+                      'linux-64-cuda10.2' : {
+                          "environment" : "http;//abc.com/fsl-6.1.0-linux-64-cuda10.2.yml",
+                          "sha256"      : "ab23456...",
+                      }
+                  }
+                  "6.1.1" : {
+                      ...
+                  }
               }
-            }
+          }
         """
 
         log.debug('Downloading FSL installer manifest from %s', url)
@@ -230,9 +360,12 @@ class Context(object):
         with tempdir():
             download_file(url, 'manifest.json')
             with open('manifest.json') as f:
-                manifest = f.read()
+                lines = f.readlines()
 
-        return json.loads(manifest)
+        # Drop comments
+        lines = [l for l in lines if not l.lstrip().startswith('//')]
+
+        return json.loads('\n'.join(lines))
 
 
 # List of modifiers which can be used to change how
@@ -247,15 +380,15 @@ EMPHASIS  = 7
 UNDERLINE = 8
 RESET     = 9
 ANSICODES = {
-    INFO      : '\033[37m',
-    IMPORTANT : '\033[92m',
-    QUESTION  : '\033[36m\033[4m',
-    PROMPT    : '\033[36m\033[1m',
-    WARNING   : '\033[93m',
-    ERROR     : '\033[91m',
-    EMPHASIS  : '\033[1m',
-    UNDERLINE : '\033[4m',
-    RESET     : '\033[0m',
+    INFO      : '\033[37m',         # Light grey
+    IMPORTANT : '\033[92m',         # Green
+    QUESTION  : '\033[36m\033[4m',  # Blue+underline
+    PROMPT    : '\033[36m\033[1m',  # Bright blue+bold
+    WARNING   : '\033[93m',         # Yellow
+    ERROR     : '\033[91m',         # Red
+    EMPHASIS  : '\033[1m',          # White+bold
+    UNDERLINE : '\033[4m',          # Underline
+    RESET     : '\033[0m',          # Used internally
 }
 
 
@@ -312,7 +445,7 @@ class ChecksumError(Exception):
     """
 
 
-def sha256(filename, blocksize=1048576, check_against=None):
+def sha256(filename, check_against=None, blocksize=1048576):
     """Calculate the SHA256 checksum of the given file. If check_against
     is provided, it is compared against the calculated checksum, and an
     error is raised if they are not the same.
@@ -329,10 +462,12 @@ def sha256(filename, blocksize=1048576, check_against=None):
 
     checksum = hashobj.hexdigest()
 
-    if check_against:
+    if check_against is not None:
         if checksum != check_against:
-            raise ChecksumError('File {} does not match expected checksum: '
-                                '{}'.format(filename, check_against))
+            raise ChecksumError('File {} does not match expected checksum '
+                                '({})'.format(filename, check_against))
+
+    return checksum
 
 
 class DownloadFailed(Exception):
@@ -341,19 +476,25 @@ class DownloadFailed(Exception):
     """
 
 
-def download_file(url, destination, blocksize=1048576):
+def download_file(url, destination, blocksize=1048576, progress=None):
     """Download a file from url, saving it to destination. """
 
-    def report_progress(downloaded, total):
-        downloaded = downloaded / 1048576
-        total      = total      / 1048576
-        if total is not None:
-            msg = '{:.1f} / {:.1f}MB ...'.format(downloaded, total)
-        else:
-            msg = '{:.1f}MB ...'.format(downloaded)
-        printmsg(msg, end='\r')
+    def default_progress(downloaded, total):
+        pass
 
-    printmsg('Downloading {} ...'.format(url))
+    if progress is None:
+        progress = default_progress
+
+    # def report_progress(downloaded, total):
+    #     downloaded = downloaded / 1048576
+    #     total      = total      / 1048576
+    #     if total is not None:
+    #         msg = '{:.1f} / {:.1f}MB ...'.format(downloaded, total)
+    #     else:
+    #         msg = '{:.1f}MB ...'.format(downloaded)
+    #     printmsg(msg, end='\r')
+
+    log.debug('Downloading %s ...', url)
 
     try:
         with urlrequest.urlopen(url) as req, \
@@ -370,16 +511,115 @@ def download_file(url, destination, blocksize=1048576):
                     break
                 downloaded += len(block)
                 outf.write(block)
-                report_progress(downloaded, total)
+                progress(downloaded, total)
 
     except urllib.error.HTTPError as e:
         raise DownloadFailed(f'A network error has occurred while '
                              f'trying to download {destname}') from e
 
 
+def sudo_popen(cmd, password, **kwargs):
+    """Runs "sudo cmd" using subprocess.Popen. """
+
+    cmd  = ['sudo', '-S', '-k'] + cmd
+    proc = sp.Popen(
+        cmd, stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.PIPE, **kwargs)
+    proc.stdin.write('{}\n'.format(password).encode())
+    return proc
+
+
+def run(ctx, cmd, display_output=False, admin=False):
+    """Runs the given command, as administrator if requested. """
+
+    admin = admin and os.getuid() != 0
+
+    log.debug('Running %s [as admin: %s]', cmd, admin)
+
+    cmd = shlex.split(cmd)
+
+    if admin:
+        proc = sudo_popen(cmd, password)
+    else:
+        proc = sp.Popen(cmd, stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.PIPE)
+
+    (output, error) = proc.communicate()
+
+
+class UnsupportedPlatform(Exception):
+    """Exception raised by the identify_platform function if FSL is not
+    available on this platform.
+    """
+
+
+def list_available_versions(ctx):
+    """Lists available FSL versions. """
+    printmsg('Available FSL versions:', EMPHASIS)
+    for version in ctx.manifest['versions']:
+        if version == 'latest':
+            continue
+        printmsg(version, IMPORTANT, EMPHASIS)
+        for build in ctx.manifest['versions'][version]:
+            if build.get('cuda', '').strip() != '':
+                template = '  {platform} [CUDA {cuda}]'
+            else:
+                template = '  {platform}'
+            printmsg(template.format(**build), EMPHASIS, end=' ')
+            printmsg(build['environment'], INFO)
+
+
+def install_miniconda(ctx):
+    """Downloads the miniconda/miniforge installer, and installs it to the
+    destination directory.
+    """
+
+    url      = ctx.manifest['installer']['miniconda'][ctx.platform]['url']
+    checksum = ctx.manifest['installer']['miniconda'][ctx.platform]['sha256']
+
+    printmsg('Downloading miniconda from {}...'.format(url))
+
+    download_file(url, 'miniforge.sh')
+    sha256('miniforge.sh', checksum)
+    cmd = 'sh miniforge.sh -b -p {}'.format(ctx.destdir)
+    run(ctx, cmd, admin=ctx.need_admin)
+    # TODO create .condarc
+
+
+def install_fsl(ctx):
+    """Install FSL into ctx.destdir (which is assumed to be a miniforge
+    installation.
+    """
+
+    builds = ctx.manifest['versions'][ctx.args.fslversion][ctx.platform]
+    for build in builds:
+        if ctx.cuda == build.get('cuda', None):
+            break
+    else:
+        raise
+
+    if cudaver is not None:
+        filename = 'fsl-{}-{}-cuda-{}.yml'.format(fslversion,
+                                                  platform,
+                                                  cudaver)
+    else:
+        filename = 'fsl-{}-{}.yml'.format(fslversion, platform)
+
+    download_file(base + filename, 'environment.yml')
+
+    conda = op.join(destdir, 'bin', 'conda')
+
+    run(ctx, conda + ' env update -n base -f environment.yml',
+        admin=ctx.need_admin)
+
+
+def configure_environment(ctx):
+    """Configures the user's shell environment (e.g. ~/.bash_profile). """
+    # TODO
+    pass
+
+
 def self_update(ctx):
     """Checks to see if a newer version of the installer (this script) is
-    available and if so, downloads it as a temporary file, and runs it in
+    available and if so, downloads it to a temporary file, and runs it in
     place of this script.
     """
 
@@ -426,79 +666,13 @@ def self_update(ctx):
     tmpf = tmpf.name
 
     download_file(ctx.manifest['installer']['url'], tmpf)
-    sha256(tmpf, check_against=ctx.manifest['installer']['sha256'])
+
+    if not ctx.args.disable_checksum:
+        sha256(tmpf, ctx.manifest['installer']['sha256'])
 
     cmd = [sys.executable, tmpf] + sys.argv[1:]
     log.debug('Running new installer: %s', cmd)
     os.execv(sys.executable, cmd)
-
-
-def run(cmd, admin=False, display_output=False):
-    """Runs the given command, as administrator if requested. """
-    admin = admin and os.getuid() != 0
-    cmd   = shlex.split(cmd)
-
-    if admin:
-        password = get_admin_password()
-        cmd      = ['sudo', '-S'] + cmd
-        proc     = sp.Popen(cmd, stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.PIPE)
-
-        proc.stdin.write(password + '\n')
-        proc.stdin.flush()
-    else:
-        proc = sp.Popen(cmd, stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.PIPE)
-
-    (output, error) = proc.communicate()
-
-
-class UnsupportedPlatform(Exception):
-    """Exception raised by the identify_platform function if FSL is not
-    available on this platform.
-    """
-
-
-def list_available_versions(ctx):
-    """Lists available FSL versions. """
-    manifest = download_installer_manifest()
-
-
-def install_miniforge(platform, destdir, **kwargs):
-    """Downloads the miniforge installer, and installs it to destdir.
-    Keyword arguments are passed through to the run function.
-    """
-
-    url_base = 'https://github.com/conda-forge/miniforge/' \
-               'releases/latest/download/'
-    urls     = {
-        'linux-64' : url_base + 'Miniforge3-Linux-x86_64.sh',
-        'macos-64' : url_base + 'Miniforge3-MacOSX-x86_64.sh',
-    }
-
-    download_file(urls[platform], 'miniforge.sh')
-
-    run('sh miniforge.sh -b -p {}'.format(destdir), **kwargs)
-
-
-def install_fsl(destdir, fslversion, platform, cudaver, **kwargs):
-    """Install FSL into destdir (which is assumed to be a miniforge
-    installation.
-
-    Keyword arguments are passed through to the run function.
-    """
-    base = 'http://18.133.213.73/fslinstaller/'
-
-    if cudaver is not None:
-        filename = 'fsl-{}-{}-cuda-{}.yml'.format(fslversion,
-                                                  platform,
-                                                  cudaver)
-    else:
-        filename = 'fsl-{}-{}.yml'.format(fslversion, platform)
-
-    download_file(base + filename, 'environment.yml')
-
-    conda = op.join(destdir, 'bin', 'conda')
-
-    run(conda + ' env update -n base -f environment.yml', **kwargs)
 
 
 def parse_args(argv=None):
@@ -520,6 +694,9 @@ def parse_args(argv=None):
 
         # Print debugging messages
         'debug'               : argparse.SUPPRESS,
+
+        # Disable SHA256 checksum validation of downloaded files
+        'disable_checksum'    : argparse.SUPPRESS,
     }
 
     parser = argparse.ArgumentParser()
@@ -533,20 +710,19 @@ def parse_args(argv=None):
                         help=helps['disable_self_update'])
     parser.add_argument('-d', '--dest', metavar='DESTDIR',
                         help=helps['dest'])
+    parser.add_argument('-s', '--disable_checksum', action='store_true',
+                        help=helps['disable_checksum'])
     parser.add_argument('-l', '--listversions', action='store_true',
                         help=helps['listversions'])
     parser.add_argument('-V', '--fslversion', default='latest',
                         help=helps['version'])
-    parser.add_argument('-c', '--cuda', default='latest',
-                        help=helps['cuda'])
+    parser.add_argument('-c', '--cuda', help=helps['cuda'])
 
     args = parser.parse_args(argv)
 
     logging.basicConfig()
-    if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
-    else:
-        logging.getLogger().setLevel(logging.WARNING)
+    if args.debug: logging.getLogger().setLevel(logging.DEBUG)
+    else:          logging.getLogger().setLevel(logging.WARNING)
 
     return args
 
@@ -559,18 +735,19 @@ def main(argv=None):
     if not args.disable_self_update:
         self_update(ctx)
 
-    printmsg('FSL installer version: ', EMPHASIS, end='')
-    printmsg(__version__ + '\n')
+    printmsg('FSL installer version:', EMPHASIS, UNDERLINE, end='')
+    printmsg(' ' + __version__ + '\n')
 
     if args.listversions:
         list_available_versions(ctx)
         sys.exit(0)
 
-    ctx.need_admin     = need_admin(args.dest)
-    ctx.admin_password = get_admin_password()
+    ctx.finalise_settings()
+
+    printmsg('Installing FSL into {}'.format(ctx.destdir))
 
     with tempdir():
-        install_miniforge(ctx)
+        install_miniconda(ctx)
         install_fsl(ctx)
 
 
