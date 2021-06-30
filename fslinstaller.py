@@ -6,10 +6,10 @@
 
 from __future__ import print_function, division, unicode_literals
 
-
 import functools      as ft
 import os.path        as op
 import subprocess     as sp
+import textwrap       as tw
 import                   os
 import                   sys
 import                   argparse
@@ -22,11 +22,19 @@ import                   platform
 import                   shlex
 import                   shutil
 import                   tempfile
+import                   threading
+import                   time
 
 # TODO check py2/3
 import                   urllib
 import urllib.parse   as urlparse
 import urllib.request as urlrequest
+
+try:                import queue
+except ImportError: import Queue as queue
+
+
+PY2 = sys.version[0] == '2'
 
 
 log = logging.getLogger(__name__)
@@ -79,6 +87,9 @@ class Context(object):
     """
 
     def __init__(self, args):
+        """Create the context with the argparse.Namespace object containing
+        parsed command-line arguments.
+        """
 
         self.args = args
 
@@ -95,6 +106,8 @@ class Context(object):
 
 
     def finalise_settings(self):
+        """Finalise values for all information and settings in the Context.
+        """
         self.platform
         self.cuda
         self.manifest
@@ -216,7 +229,8 @@ class Context(object):
     def manifest(self):
         """Returns the FSL installer manifest as a dictionary. """
         if self.__manifest is None:
-            self.__manifest = Context.download_manifest(self.args.manifest)
+            self.__manifest = Context.download_manifest(self.args.manifest,
+                                                        self.args.workdir)
         return self.__manifest
 
 
@@ -304,7 +318,7 @@ class Context(object):
             valid    = validate_admin_password(password)
 
             if valid:
-                printmsg('Password accempted', INFO)
+                printmsg('Password accepted', INFO)
                 break
             else:
                 printmsg('Incorrect password', WARNING)
@@ -316,7 +330,7 @@ class Context(object):
 
 
     @staticmethod
-    def download_manifest(url):
+    def download_manifest(url, workdir=None):
         """Downloads the installer manifest file, which contains information
         about available FSL vesrions, and the most recent version number of the
         installer (this script).
@@ -369,7 +383,7 @@ class Context(object):
 
         log.debug('Downloading FSL installer manifest from %s', url)
 
-        with tempdir():
+        with tempdir(workdir):
             download_file(url, 'manifest.json')
             with open('manifest.json') as f:
                 lines = f.readlines()
@@ -404,13 +418,14 @@ ANSICODES = {
 }
 
 
-def printmsg(msg, *msgtypes, **kwargs):
+def printmsg(msg='', *msgtypes, **kwargs):
     """Prints msg according to the ANSI codes provided in msgtypes.
     All other keyword arguments are passed through to the print function.
     """
     msgcodes = [ANSICODES[t] for t in msgtypes]
     msgcodes = ''.join(msgcodes)
     print('{}{}{}'.format(msgcodes, msg, ANSICODES[RESET]), **kwargs)
+    sys.stdout.flush()
 
 
 def prompt(prompt, *msgtypes, **kwargs):
@@ -421,22 +436,167 @@ def prompt(prompt, *msgtypes, **kwargs):
     return input().strip()
 
 
-@contextlib.contextmanager
-def tempdir():
-    """Returns a context manager which creates and returns a temporary
-    directory, and then deletes it on exit.
+class Progress(object):
+    """Simple progress reporter. Displays one of the following:
+
+       - If both a value and total are provided, a progress bar is shown
+       - If only a value is provided, a cumulative count is shown
+       - If nothing is provided, a spinner is shown.
+
+    Use as a context manager, and call the update method to report progress,
+    e,g:
+
+        with Progress('%') as p:
+            for i in range(100):
+                p.update(i + 1, 100)
     """
 
-    testdir = tempfile.mkdtemp()
+    def __init__(self,
+                 label='',
+                 transform=None,
+                 fmt='{:.1f}',
+                 total=None,
+                 width=None):
+        """Create a Progress reporter.
+
+        :arg label:     Units (e.g. "MB", "%",)
+
+        :arg transform: Function to transform values (see e.g.
+                        Progress.bytes_to_mb)
+
+        :arg fmt:       Template string used to format value / total.
+
+        :arg total:     Maximum value - overrides the total value passed to
+                        the update method.
+
+        :arg width:     Maximum width, if a progress bar is displayed. Default
+                        is to automatically infer the terminal width (see
+                        Progress.get_terminal_width).
+        """
+
+        if transform is None:
+            transform = Progress.default_transform
+
+        self.width     = width
+        self.fmt       = fmt.format
+        self.total     = total
+        self.label     = label
+        self.transform = transform
+
+        # used by the spin function
+        self.__last_spin = None
+
+    @staticmethod
+    def default_transform(val, total):
+        return val, total
+
+    @staticmethod
+    def bytes_to_mb(val, total):
+        if val   is not None: val   = val   / 1048576
+        if total is not None: total = total / 1048576
+        return val, total
+
+    @staticmethod
+    def percent(val, total):
+        if val is None or total is None:
+            return val, total
+        return 100 * (val / total), 100
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        printmsg()
+
+    def update(self, value=None, total=None):
+
+        if total is None:
+            total = self.total
+
+        value, total = self.transform(value, total)
+
+        if value is None and total is None:
+            self.spin()
+        elif value is not None and total is None:
+            self.count(value)
+        elif value is not None and total is not None:
+            self.progress(value, total)
+
+    def spin(self):
+
+        symbols = ['|', '/', '-',  '\\']
+
+        if self.__last_spin is not None: last = self.__last_spin
+        else:                            last = symbols[-1]
+
+        idx  = symbols.index(last)
+        idx  = (idx + 1) % len(symbols)
+        this = symbols[idx]
+
+        printmsg(this, end='\r')
+        self.__last_spin = this
+
+    def count(self, value):
+        value = self.fmt(value)
+        line  = '{}{} ...'.format(value, self.label)
+        printmsg(line, end='\r')
+
+    def progress(self, value, total):
+
+        fvalue = self.fmt(value)
+        ftotal = self.fmt(total)
+        suffix = '{} / {} {}'.format(fvalue, ftotal, self.label).rstrip()
+
+        # arbitrary fallback of 50 columns if
+        # terminal width cannot be determined
+        if self.width is None: width = Progress.get_terminal_width(50)
+        else:                  width = self.width
+
+        width     = width - (len(suffix) + 3)
+        completed = int(round(width * (value  / total)))
+        remaining = width - completed
+        line      = '[{}{}] {}'.format(
+            '#' * completed,
+            ' ' * remaining,
+            suffix)
+
+        printmsg(line, end='\r')
+
+
+    @staticmethod
+    def get_terminal_width(fallback=None):
+        """Return the number of columns in the current terminal, or fallback
+        if it cannot be determined.
+        """
+        # os.get_terminal_size added in python 3.3
+        try:
+            return int(sp.check_output('tput cols'.split()).strip())
+        except (OSError, FileNotFoundError):
+            return fallback
+
+
+@contextlib.contextmanager
+def tempdir(override_dir=None):
+    """Returns a context manager which creates, changes into, and returns a
+    temporary directory, and then deletes it on exit.
+
+    If override_dir is not None, instead of creating and changing into a
+    temporary directory, this function just changes into override_dir.
+    """
+
+    if override_dir is None: tmpdir = tempfile.mkdtemp()
+    else:                    tmpdir = override_dir
+
     prevdir = os.getcwd()
 
     try:
-        os.chdir(testdir)
-        yield testdir
+        os.chdir(tmpdir)
+        yield tmpdir
 
     finally:
         os.chdir(prevdir)
-        shutil.rmtree(testdir)
+        if override_dir is None:
+            shutil.rmtree(tmpdir)
 
 
 def memoize(f):
@@ -481,59 +641,6 @@ def sha256(filename, check_against=None, blocksize=1048576):
 
     return checksum
 
-class Progress(object):
-    def __init__(self, label='', transform=None, total=None, width=None):
-
-        if transform is None:
-            transform = Progress.default_transform
-
-        self.width     = width
-        self.total     = total
-        self.label     = label
-        self.transform = transform
-
-    @staticmethod
-    def default_transform(val):
-        return val
-
-    @staticmethod
-    def bytes_to_mb(val):
-        return val / 1048576
-
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args, **kwargs):
-        print()
-
-    def update(self, value, total=None):
-
-        if self.width is None: width = 50 # TODO auto detect
-        else:                  width = self.width
-
-        if total is None:
-            total = self.total
-
-        value = self.transform(value)
-
-        if total is not None:
-
-            total     = self.transform(total)
-            completed = int(round(width * (value  / total)))
-            remaining = width - completed
-            line      = '[{}{}] {:.1f} / {:.1f} {}'.format(
-                '#' * completed,
-                ' ' * remaining,
-                value,
-                total,
-                self.label).rstrip()
-
-        else:
-            line = '{}{} ...'.format(value, self.label)
-
-        printmsg(line, end='\r')
-
 
 class DownloadFailed(Exception):
     """Exception type raised by the download_file function if a
@@ -575,31 +682,117 @@ def download_file(url, destination, progress=None, blocksize=1048576):
                              f'trying to download {destname}') from e
 
 
-def sudo_popen(cmd, password, **kwargs):
-    """Runs "sudo cmd" using subprocess.Popen. """
+class Process(object):
+    """Container for a subprocess.Popen object, allowing non-blocking access
+    to its standard output and error streams via separate queues.
+    """
 
-    cmd  = ['sudo', '-S', '-k'] + cmd
-    proc = sp.Popen(
-        cmd, stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.PIPE, **kwargs)
-    proc.stdin.write('{}\n'.format(password).encode())
-    return proc
+    def __init__(self, ctx, cmd, admin, **kwargs):
+
+        self.ctx     = ctx
+        self.cmd     = cmd
+        self.admin   = admin
+        self.stdoutq = queue.Queue()
+        self.stderrq = queue.Queue()
+        self.popen   = Process.run(self.ctx, self.cmd, self.admin)
+
+        # threads for gathering stdout/stderr
+        self.stdout_thread = threading.Thread(
+            target=Process.forward_stream,
+            args=(self.popen, self.popen.stdout, self.stdoutq))
+        self.stderr_thread = threading.Thread(
+            target=Process.forward_stream,
+            args=(self.popen, self.popen.stderr, self.stderrq))
+
+        self.stdout_thread.daemon = True
+        self.stderr_thread.daemon = True
+        self.stdout_thread.start()
+        self.stderr_thread.start()
 
 
-def run(ctx, cmd, display_output=False, admin=False):
-    """Runs the given command, as administrator if requested. """
+    @staticmethod
+    def forward_stream(popen, stream, queue):
+        """Runs cmd, and pushes lines from its stdout to the queue. """
 
-    admin = admin and os.getuid() != 0
+        while popen.returncode is None:
+            line = stream.readline()
+            popen.poll()
+            if line == '':
+                break
+            else:
+                queue.put(line)
 
-    log.debug('Running %s [as admin: %s]', cmd, admin)
+        # process finished, flush the stream
+        line = stream.readline()
+        while line != '':
+            queue.put(line)
+            line = stream.readline()
 
-    cmd = shlex.split(cmd)
 
-    if admin:
-        proc = sudo_popen(cmd, password)
-    else:
-        proc = sp.Popen(cmd, stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.PIPE)
+    @staticmethod
+    def sudo_popen(cmd, password, **kwargs):
+        """Runs "sudo cmd" using subprocess.Popen.
+        Assumes that kwargs contains stdin=sp.PIPE
+        """
 
-    (output, error) = proc.communicate()
+        cmd  = ['sudo', '-S', '-k'] + cmd
+        proc = sp.Popen(cmd, **kwargs)
+        proc.stdin.write('{}\n'.format(password))
+        return proc
+
+
+    @staticmethod
+    def run(ctx, cmd, admin=False):
+        """Starts the given command, as administrator if requested. Returns
+        the subprocess.Popen object.
+        """
+
+        admin = admin and os.getuid() != 0
+
+        if admin: password = ctx.password
+        else:     password = None
+
+        log.debug('Running %s [as admin: %s]', cmd, admin)
+
+        cmd = shlex.split(cmd)
+
+        # set universal_newlines to force text
+        # based stdin/out on both py2 and py3
+        kwargs = dict(stdin=sp.PIPE,
+                      stdout=sp.PIPE,
+                      stderr=sp.PIPE,
+                      universal_newlines=True)
+
+        if admin: proc = Process.sudo_popen(cmd, password, **kwargs)
+        else:     proc = sp.Popen(          cmd, **kwargs)
+
+        return proc
+
+
+    @staticmethod
+    def monitor_progress(ctx, cmd, total=None, **kwargs):
+        """Creates a Process object to run cmd, and shows a progress bar
+        under the assumption that cmd will produce "total" number of lines
+        of output.
+        """
+        if total is None: label = None
+        else:             label = '%'
+
+        with Progress(label=label,
+                      fmt='{:.0f}',
+                      transform=Progress.percent) as prog:
+
+            proc   = Process(ctx, cmd, **kwargs)
+            nlines = 0
+            while proc.popen.returncode is None:
+
+                try:
+                    line = proc.stdoutq.get(timeout=1)
+                except queue.Empty:
+                    continue
+
+                nlines += 1
+                prog.update(nlines, total)
 
 
 class UnsupportedPlatform(Exception):
@@ -627,20 +820,65 @@ def list_available_versions(ctx):
 def install_miniconda(ctx):
     """Downloads the miniconda/miniforge installer, and installs it to the
     destination directory.
+
+    This function assumes that it is run within a temporary/scratch directory.
     """
 
-    url      = ctx.manifest['installer']['miniconda'][ctx.platform]['url']
-    checksum = ctx.manifest['installer']['miniconda'][ctx.platform]['sha256']
+    metadata = ctx.manifest['installer']['miniconda'][ctx.platform]
 
+    url      = metadata['url']
+    checksum = metadata['sha256']
+    output   = metadata.get('output', '').strip()
+
+    if output == '': output = None
+    else:            output = int(output)
+
+    # Download
     printmsg('Downloading miniconda from {}...'.format(url))
-
-    with Progress('MB', transform=Progress.bytes_to_mb) as prog:
-        download_file(url, 'miniforge.sh', prog.update)
-
+    # with Progress('MB', transform=Progress.bytes_to_mb) as prog:
+    #     download_file(url, 'miniforge.sh', prog.update)
     sha256('miniforge.sh', checksum)
+
+    # Install
+    printmsg('Installing miniconda to {}...'.format(ctx.destdir))
     cmd = 'sh miniforge.sh -b -p {}'.format(ctx.destdir)
-    run(ctx, cmd, admin=ctx.need_admin)
-    # TODO create .condarc
+    Process.monitor_progress(ctx, cmd, output, admin=ctx.need_admin)
+
+    # Create .condarc config file
+    condarc = tw.dedent("""
+    # Putting a .condarc file into the root environment
+    # directory will override ~/.condarc if it exists,
+    # but will not override a system condarc (e.g. at
+    # /etc/condarc/condarc). There is currently no
+    # workaround for this - see:
+    #  - https://github.com/conda/conda/issues/8599
+    #  - https://github.com/conda/conda/issues/8804
+
+    # Try and make package downloads more robust
+    remote_read_timeout_secs:    240
+    remote_connect_timeout_secs: 20
+    remote_max_retries:          10
+    remote_backoff_factor:       5
+    safety_checks:               warn
+
+    # Channel priority is important. In older versions
+    # of FSL we placed the FSL conda channel at the
+    # bottom (lowest priority) for legacy reasons (to
+    # ensure that conda-forge versions of e.g. VTK were
+    # preferred over legacy FSL conda versions).
+    #
+    # https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-channels.html
+    channel_priority: strict
+    channels:
+      - http://18.133.213.73/production/
+      - conda-forge
+      - defaults
+    """)
+
+    with open('.condarc', 'wt') as f:
+        f.write(condarc)
+
+    Process.run(ctx, 'mv .condarc {}'.format(ctx.destdir, admin=ctx.need_admin))
 
 
 def install_fsl(ctx):
@@ -734,6 +972,25 @@ def self_update(ctx):
     os.execv(sys.executable, cmd)
 
 
+def overwrite_destdir(ctx):
+    """Called by main if the destination directory already exists.
+    Asks the user if they want to overwrite it and, if they say yes,
+    removes the existing destination directory. Otherwise exits.
+    """
+    printmsg('Destination directory [{}] already exists!'
+             .format(ctx.destdir), WARNING, EMPHASIS)
+    response = prompt('Do you want to overwrite it [N/y]?',
+                      WARNING, EMPHASIS)
+    if response.lower() not in ('y', 'yes'):
+        printmsg('Aborting installation', ERROR, EMPHASIS)
+        sys.exit(1)
+
+    printmsg('Deleting directory {}'.format(ctx.destdir), IMPORTANT)
+    Process.run(ctx, 'rm -r {}'.format(ctx.destdir), admin=ctx.need_admin)
+
+
+
+
 def parse_args(argv=None):
     """Parse command-line arguments, returns an argparse.Namespace object. """
 
@@ -756,6 +1013,10 @@ def parse_args(argv=None):
 
         # Disable SHA256 checksum validation of downloaded files
         'disable_checksum'    : argparse.SUPPRESS,
+
+        # Store temp files in this directory (must already
+        # exist) rather than in a temporary directory
+        'workdir'             : argparse.SUPPRESS,
     }
 
     parser = argparse.ArgumentParser()
@@ -771,6 +1032,7 @@ def parse_args(argv=None):
                         help=helps['dest'])
     parser.add_argument('-s', '--disable_checksum', action='store_true',
                         help=helps['disable_checksum'])
+    parser.add_argument('-w', '--workdir', help=helps['workdir'])
     parser.add_argument('-l', '--listversions', action='store_true',
                         help=helps['listversions'])
     parser.add_argument('-V', '--fslversion', default='latest',
@@ -803,11 +1065,14 @@ def main(argv=None):
 
     ctx.finalise_settings()
 
-    printmsg('Installing FSL into {}'.format(ctx.destdir), EMPHASIS)
+    if op.exists(ctx.destdir):
+        overwrite_destdir(ctx)
 
-    with tempdir():
+    printmsg('Installing FSL into {}\n'.format(ctx.destdir), EMPHASIS)
+
+    with tempdir(args.workdir):
         install_miniconda(ctx)
-        install_fsl(ctx)
+        #install_fsl(ctx)
 
 
 if __name__ == '__main__':
