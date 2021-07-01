@@ -543,24 +543,33 @@ class Progress(object):
 
     def progress(self, value, total):
 
-        fvalue = self.fmt(value)
-        ftotal = self.fmt(total)
-        suffix = '{} / {} {}'.format(fvalue, ftotal, self.label).rstrip()
+        overflow = value > total
+        value    = min(value, total)
 
         # arbitrary fallback of 50 columns if
         # terminal width cannot be determined
         if self.width is None: width = Progress.get_terminal_width(50)
         else:                  width = self.width
 
-        width     = width - (len(suffix) + 3)
+        fvalue = self.fmt(value)
+        ftotal = self.fmt(total)
+        suffix = '{} / {} {}'.format(fvalue, ftotal, self.label).rstrip()
+
+        # +5: - square brackets around bar
+        #     - space between bar and tally
+        #     - space+spin in case of overflow
+        width     = width - (len(suffix) + 5)
         completed = int(round(width * (value  / total)))
         remaining = width - completed
-        line      = '[{}{}] {}'.format(
-            '#' * completed,
-            ' ' * remaining,
-            suffix)
+        progress  = '[{}{}] {}'.format('#' * completed,
+                                       ' ' * remaining,
+                                       suffix)
 
-        printmsg(line, end='\r')
+        printmsg(progress, end='')
+        if overflow:
+            printmsg(' ', end='')
+            self.spin()
+        printmsg(end='\r')
 
 
     @staticmethod
