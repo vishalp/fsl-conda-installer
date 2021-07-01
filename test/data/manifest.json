@@ -22,25 +22,25 @@
         "url" : "http://localhost:8888/fslinstaller.py",
 
         // SHA256 checksum of installer script
-        "sha256"  : "f6b234c11ccabd6454b0c5b2bdf1a2a69e521c596187d887d69938a3c344af3e",
+        "sha256"  : "f6b234c11ccabd6454b0c5b2bdf1a2a69e521c596187d887d69938a3c344af3e"
+    },
 
-        // URLs to download miniconda/miniforge
-        "miniconda" : {
-            "linux-64" : {
-                "url"    : "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-4.10.2-0-Linux-x86_64.sh",
-                "sha256" : "d2d66f09811c0d846ffb2f04c1827854aa4333624a0dc841389230291d944c30",
+    // URLs to download miniconda/miniforge
+    "miniconda" : {
+        "linux-64" : {
+            "url"    : "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-4.10.2-0-Linux-x86_64.sh",
+            "sha256" : "d2d66f09811c0d846ffb2f04c1827854aa4333624a0dc841389230291d944c30",
 
-                // Number of lines of output to expect
-                // when running the miniconda installer
-                // script - used to report progress to
-                // the user.
-                "output" : "194"
-            },
-            "macos-64" : {
-                "url"    : "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-4.10.2-0-MacOSX-x86_64.sh",
-                "sha256" : "60aaecd1681633e84bad0520479e938a0a0c671fa7d78d2aa607d4807c670975",
-                "output" : "87"
-            }
+            // Number of lines of output to expect
+            // when running the miniconda installer
+            // script - used to report progress to
+            // the user.
+            "output" : "194"
+        },
+        "macos-64" : {
+            "url"    : "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-4.10.2-0-MacOSX-x86_64.sh",
+            "sha256" : "60aaecd1681633e84bad0520479e938a0a0c671fa7d78d2aa607d4807c670975",
+            "output" : "87"
         }
     },
 
