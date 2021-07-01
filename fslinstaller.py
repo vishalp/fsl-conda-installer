@@ -26,16 +26,20 @@ import                   threading
 import                   time
 
 # TODO check py2/3
-import                   urllib
-import urllib.parse   as urlparse
-import urllib.request as urlrequest
+try:
+    import                   urllib
+    import urllib.parse   as urlparse
+    import urllib.request as urlrequest
+except ImportError:
+    import urllib2 as urllib
+    import urllib2 as urlparse
+    import urllib2 as urlrequest
 
 try:                import queue
 except ImportError: import Queue as queue
 
 
 PY2 = sys.version[0] == '2'
-
 
 log = logging.getLogger(__name__)
 
@@ -277,7 +281,7 @@ class Context(object):
 
         try:
             output = sp.check_output('nvidia-smi')
-        except (sp.CalledProcessError, FileNotFoundError):
+        except Exception:
             return None
 
         cudaver = '9.2'  # TODO
@@ -439,7 +443,9 @@ def prompt(prompt, *msgtypes, **kwargs):
     through to the printmsg function.
     """
     printmsg(prompt, *msgtypes, end='', **kwargs)
-    return input(' ').strip()
+
+    if PY2: return raw_input(' ').strip()
+    else:   return input(    ' ').strip()
 
 
 class Progress(object):
@@ -586,7 +592,7 @@ class Progress(object):
         # os.get_terminal_size added in python 3.3
         try:
             return int(sp.check_output('tput cols'.split()).strip())
-        except (OSError, FileNotFoundError):
+        except Exception:
             return fallback
 
 
@@ -675,8 +681,10 @@ def download_file(url, destination, progress=None, blocksize=1048576):
     log.debug('Downloading %s ...', url)
 
     try:
-        with urlrequest.urlopen(url) as req, \
-             open(destination, 'wb') as outf:
+        # py2: urlopen result cannot be
+        # used as a context manager
+        req = urlrequest.urlopen(url)
+        with open(destination, 'wb') as outf:
 
             try:             total = int(req.headers['content-length'])
             except KeyError: total = None
@@ -692,9 +700,12 @@ def download_file(url, destination, progress=None, blocksize=1048576):
                 outf.write(block)
                 progress(downloaded, total)
 
-    except urllib.error.HTTPError as e:
-        raise DownloadFailed('A network error has occurred while trying '
-                             'to download {}'.format(destname))
+    except Exception:
+        raise
+        raise DownloadFailed('A network error has occurred while '
+                             'trying to download {}'.format(url))
+    finally:
+        req.close()
 
 
 class Process(object):
@@ -1217,6 +1228,13 @@ def parse_args(argv=None):
     logging.basicConfig()
     if args.debug: logging.getLogger().setLevel(logging.DEBUG)
     else:          logging.getLogger().setLevel(logging.WARNING)
+
+    args.homedir = op.abspath(args.homedir)
+
+    if not op.isdir(args.homedir):
+        printmsg('Home directory {} does not exist!'.format(args.homedir),
+                 ERROR, EMPHASIS)
+        sys.exit(1)
 
     if os.getuid() == 0:
         printmsg('Running the installer script as root user - disabling '
