@@ -19,20 +19,27 @@
         "version" : "1.2.3",
 
         // URL to download fslinstaller script
-        "url" : "file:///home/paulmc/Projects/fsl-conda/installer/test/data/fslinstaller.py",
+        "url" : "http://localhost:8888/fslinstaller.py",
 
         // SHA256 checksum of installer script
-        "sha256"  : "d89fb602533763f3fad5d9a4645794dc22a83781b195f77dc3424795f5da8006",
+        "sha256"  : "f6b234c11ccabd6454b0c5b2bdf1a2a69e521c596187d887d69938a3c344af3e",
 
         // URLs to download miniconda/miniforge
         "miniconda" : {
             "linux-64" : {
                 "url"    : "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-4.10.2-0-Linux-x86_64.sh",
-                "sha256" : "d2d66f09811c0d846ffb2f04c1827854aa4333624a0dc841389230291d944c30"
+                "sha256" : "d2d66f09811c0d846ffb2f04c1827854aa4333624a0dc841389230291d944c30",
+
+                // Number of lines of output to expect
+                // when running the miniconda installer
+                // script - used to report progress to
+                // the user.
+                "output" : "194"
             },
             "macos-64" : {
                 "url"    : "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-4.10.2-0-MacOSX-x86_64.sh",
-                "sha256" : "60aaecd1681633e84bad0520479e938a0a0c671fa7d78d2aa607d4807c670975"
+                "sha256" : "60aaecd1681633e84bad0520479e938a0a0c671fa7d78d2aa607d4807c670975",
+                "output" : "87"
             }
         }
     },
@@ -47,49 +54,59 @@
         "latest" : "6.1.0",
 
         // Builds available for this version. A build
-        // entry contains three or four fields:
+        // entry contains the following fields:
         //
         //   - "platform"    Architecture/platform  - currently one of
         //                   "linux-64" or "macos-64"
         //   - "cuda"        Version of CUDA that this build was built
-        //                   against. Must not be present for non-CUDA
+        //                   against. MUST NOT be present for non-CUDA
         //                   builds.
         //   - "environment" Conda environment.yml file
         //   - "sha256"      SHA256 checksum of environment.yml file
+        //   - "output"      Optional. Number of lines of output to
+        //                   expect when installing the conda
+        //                   environment - used to report progress
+        //                   to the user.
         "6.1.0"  : [
             {
                 "platform"    : "linux-64",
-                "environment" : "file:///home/paulmc/Projects/fsl-conda/installer/test/data/fsl-6.1.0-linux-64.yml",
-                "sha256"      : "e07a28933e653eedc06f9e077a0e03ff11bd96fa2bfe1c9349ca636895dc12fa"
+                "environment" : "http://localhost:8888/fsl-6.1.0-linux-64.yml",
+                "sha256"      : "952a0101fc19948e785572f8c06436c59f19c4ef92df9425f2e2033d4b986918",
+                "output"      : "493"
             },
             {
                 "platform"    : "macos-64",
-                "environment" : "file:///home/paulmc/Projects/fsl-conda/installer/test/data/fsl-6.1.0-macos-64.yml",
-                "sha256"      : "e07a28933e653eedc06f9e077a0e03ff11bd96fa2bfe1c9349ca636895dc12fa"
+                "environment" : "http://localhost:8888/fsl-6.1.0-macos-64.yml",
+                "sha256"      : "952a0101fc19948e785572f8c06436c59f19c4ef92df9425f2e2033d4b986918",
+                "output"      : "493"
             },
             {
                 "platform"    : "linux-64",
                 "cuda"        : "9.2",
-                "environment" : "file:///home/paulmc/Projects/fsl-conda/installer/test/data/fsl-6.1.0-linux-64-cuda9.2.yml",
-                "sha256"      : "e07a28933e653eedc06f9e077a0e03ff11bd96fa2bfe1c9349ca636895dc12fa"
+                "environment" : "http://localhost:8888/fsl-6.1.0-linux-64-cuda9.2.yml",
+                "sha256"      : "952a0101fc19948e785572f8c06436c59f19c4ef92df9425f2e2033d4b986918",
+                "output"      : "493"
             }
         ],
         "6.2.0" : [
             {
                 "platform"    : "linux-64",
-                "environment" : "file:///home/paulmc/Projects/fsl-conda/installer/test/data/fsl-6.2.0-linux-64.yml",
-                "sha256"      : "e07a28933e653eedc06f9e077a0e03ff11bd96fa2bfe1c9349ca636895dc12fa"
+                "environment" : "http://localhost:8888/fsl-6.2.0-linux-64.yml",
+                "sha256"      : "952a0101fc19948e785572f8c06436c59f19c4ef92df9425f2e2033d4b986918",
+                "output"      : "493"
             },
             {
                 "platform"    : "macos-64",
-                "environment" : "file:///home/paulmc/Projects/fsl-conda/installer/test/data/fsl-6.2.0-macos-64.yml",
-                "sha256"      : "e07a28933e653eedc06f9e077a0e03ff11bd96fa2bfe1c9349ca636895dc12fa"
+                "environment" : "http://localhost:8888/fsl-6.2.0-macos-64.yml",
+                "sha256"      : "952a0101fc19948e785572f8c06436c59f19c4ef92df9425f2e2033d4b986918",
+                "output"      : "493"
             },
             {
                 "platform"    : "linux-64",
                 "cuda"        : "9.2",
-                "environment" : "file:///home/paulmc/Projects/fsl-conda/installer/test/data/fsl-6.2.0-linux-64-cuda9.2.yml",
-                "sha256"      : "e07a28933e653eedc06f9e077a0e03ff11bd96fa2bfe1c9349ca636895dc12fa"
+                "environment" : "http://localhost:8888/fsl-6.2.0-linux-64-cuda9.2.yml",
+                "sha256"      : "952a0101fc19948e785572f8c06436c59f19c4ef92df9425f2e2033d4b986918",
+                "output"      : "493"
             }
         ]
     }
