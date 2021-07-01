@@ -937,7 +937,7 @@ def post_install_cleanup(ctx):
     conda = op.join(ctx.destdir, 'bin', 'conda')
     cmd   = conda + ' clean -y --all'
 
-    Process.run(ctx, cmd, output, admin=ctx.need_admin)
+    Process.run(ctx, cmd, admin=ctx.need_admin)
 
 
 def patch_file(filename, searchline, numlines, content):
