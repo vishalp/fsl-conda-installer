@@ -10,17 +10,18 @@ import functools      as ft
 import os.path        as op
 import subprocess     as sp
 import textwrap       as tw
-import                   os
-import                   sys
 import                   argparse
 import                   contextlib
 import                   getpass
 import                   hashlib
 import                   json
 import                   logging
+import                   os
 import                   platform
+import                   re
 import                   shlex
 import                   shutil
+import                   sys
 import                   tempfile
 import                   threading
 import                   time
@@ -61,6 +62,12 @@ versions.
 
 See the Context.download_manifest function, and an example manifest file
 in test/data/manifest.json, for more details.
+"""
+
+
+SUPPORTED_CUDAS = ['9.2', '10.2', '11.1']
+"""Versions of CUDA that CUDA-capable FSL packages are built for. Used
+by Context.identify_cuda. Must be in increasing order.
 """
 
 
@@ -280,22 +287,27 @@ class Context(object):
         """
 
         try:
-            output = sp.check_output('nvidia-smi')
+            output = Process.run('nvidia-smi', check_output=True)
         except Exception:
             return None
 
-        cudaver = '9.2'  # TODO
-        match   = None
+        pat   = r'CUDA Version: (\S+)'
+        lines = output.split('\n')
+        for line in lines:
+            match = re.search(pat, line)
+            if match:
+                cudaver = match.group(1)
+                break
+        else:
+            return None
 
         # Return the most suitable CUDA
         # version that we have a build for
-        available_cudas = ['9.2', '10.2', '11.1']
-        for available in reversed(supported_cudas):
-            if float(cudaver) <= float(available):
-                match = available
-                break
+        for supported in reversed(SUPPORTED_CUDAS):
+            if float(cudaver) >= float(supported):
+                return supported
 
-        return match
+        return None
 
 
     @staticmethod
@@ -589,9 +601,10 @@ class Progress(object):
         """Return the number of columns in the current terminal, or fallback
         if it cannot be determined.
         """
-        # os.get_terminal_size added in python 3.3
+        # os.get_terminal_size added in python
+        # 3.3, so we try and call tput instead
         try:
-            result = sp.check_output('tput cols'.split(), stderr=sp.PIPE)
+            result = Process.run('tput cols', check_output=True)
             return int(result.strip())
         except Exception:
             return fallback
@@ -728,7 +741,7 @@ class Process(object):
         self.admin   = admin
         self.stdoutq = queue.Queue()
         self.stderrq = queue.Queue()
-        self.popen   = Process.run(self.ctx, self.cmd, self.admin)
+        self.popen   = Process.run(self.cmd, self.admin, self.ctx)
 
         # threads for gathering stdout/stderr
         self.stdout_thread = threading.Thread(
@@ -778,9 +791,21 @@ class Process(object):
 
 
     @staticmethod
-    def run(ctx, cmd, admin=False):
+    def run(cmd, admin=False, ctx=None, check_output=False):
         """Starts the given command, as administrator if requested. Returns
-        the subprocess.Popen object.
+        the subprocess.Popen object (unless check_output is True).
+
+        :arg cmd:          The command to run, as a string
+
+        :arg admin:        Whether to run with administrative privileges
+
+        :arg ctx:          The installer Context object. Only required if
+                           admin is True.
+
+        :arg check_output: Behave like subprocess.check_output - wait until
+                           command has finished, and return its standard
+                           output. An error is raised if the process returns
+                           a non-zero exit code.
         """
 
         admin = admin and os.getuid() != 0
@@ -801,6 +826,12 @@ class Process(object):
 
         if admin: proc = Process.sudo_popen(cmd, password, **kwargs)
         else:     proc = sp.Popen(          cmd, **kwargs)
+
+        if check_output:
+            proc.wait()
+            if proc.returncode != 0:
+                raise RuntimeError(cmd)
+            return proc.stdout.read()
 
         return proc
 
@@ -911,8 +942,7 @@ def install_miniconda(ctx):
     with open('.condarc', 'wt') as f:
         f.write(condarc)
 
-    Process.run(
-        ctx, 'cp .condarc {}'.format(ctx.destdir, admin=ctx.need_admin))
+    Process.run('cp .condarc {}'.format(ctx.destdir), ctx.need_admin, ctx)
 
 
 def install_fsl(ctx):
@@ -951,7 +981,7 @@ def post_install_cleanup(ctx):
     conda = op.join(ctx.destdir, 'bin', 'conda')
     cmd   = conda + ' clean -y --all'
 
-    Process.run(ctx, cmd, admin=ctx.need_admin)
+    Process.run(cmd, ctx.need_admin, ctx)
 
 
 def patch_file(filename, searchline, numlines, content):
@@ -1148,7 +1178,7 @@ def overwrite_destdir(ctx):
             sys.exit(1)
 
     printmsg('Deleting directory {}'.format(ctx.destdir), IMPORTANT)
-    Process.run(ctx, 'rm -r {}'.format(ctx.destdir), admin=ctx.need_admin)
+    Process.run('rm -r {}'.format(ctx.destdir), ctx.need_admin, ctx)
 
 
 def parse_args(argv=None):
