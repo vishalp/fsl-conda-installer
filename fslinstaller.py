@@ -78,6 +78,12 @@ class BuildNotAvailable(Exception):
     """
 
 
+class UnsupportedPlatform(Exception):
+    """Exception raised by the identify_platform function if FSL is not
+    available on this platform.
+    """
+
+
 class Context(object):
     """Bag of information and settings created in main, and passed around
     this script.
@@ -91,7 +97,8 @@ class Context(object):
         parsed command-line arguments.
         """
 
-        self.args = args
+        self.args  = args
+        self.shell = op.basename(os.environ['SHELL'])
 
         # These attributes are updated on-demand via
         # the property accessors defined below, or all
@@ -141,12 +148,11 @@ class Context(object):
     @property
     def build(self):
         """Returns a suitable FSL build (a dictionary entry from the FSL
-        installer manifest) for the target platform and CUDA version.
+        installer manifest) for the target platform and requested FSL/CUDA
+        versions.
         """
 
         fslversion = self.args.fslversion
-        if fslversion is None:
-            fslversion = 'latest'
 
         if fslversion not in self.manifest['versions']:
             raise UnknownVersion(
@@ -432,8 +438,8 @@ def prompt(prompt, *msgtypes, **kwargs):
     """Prompts the user for some input. msgtypes and kwargs are passed
     through to the printmsg function.
     """
-    printmsg(prompt + ' ', *msgtypes, end='', **kwargs)
-    return input().strip()
+    printmsg(prompt, *msgtypes, end='', **kwargs)
+    return input(' ').strip()
 
 
 class Progress(object):
@@ -687,16 +693,23 @@ def download_file(url, destination, progress=None, blocksize=1048576):
                 progress(downloaded, total)
 
     except urllib.error.HTTPError as e:
-        raise DownloadFailed(f'A network error has occurred while '
-                             f'trying to download {destname}') from e
+        raise DownloadFailed('A network error has occurred while trying '
+                             'to download {}'.format(destname))
 
 
 class Process(object):
-    """Container for a subprocess.Popen object, allowing non-blocking access
-    to its standard output and error streams via separate queues.
+    """Container for a subprocess.Popen object, allowing non-blocking
+    access to its standard output and error streams via separate queues.
     """
 
     def __init__(self, ctx, cmd, admin, **kwargs):
+        """Run the specified command.
+
+        :arg ctx:    The installer Context
+        :arg cmd:    Command to run - passed directly to subprocess.Popen
+        :arg admin:  Run the command with administrative privileges
+        :arg kwargs: Passed to subprocess.Popen
+        """
 
         self.ctx     = ctx
         self.cmd     = cmd
@@ -793,6 +806,9 @@ class Process(object):
 
             proc   = Process(ctx, cmd, **kwargs)
             nlines = 0
+
+            prog.update(nlines, total)
+
             while proc.popen.returncode is None:
 
                 try:
@@ -802,12 +818,6 @@ class Process(object):
 
                 nlines += 1
                 prog.update(nlines, total)
-
-
-class UnsupportedPlatform(Exception):
-    """Exception raised by the identify_platform function if FSL is not
-    available on this platform.
-    """
 
 
 def list_available_versions(ctx):
@@ -834,7 +844,6 @@ def install_miniconda(ctx):
     """
 
     metadata = ctx.manifest['installer']['miniconda'][ctx.platform]
-
     url      = metadata['url']
     checksum = metadata['sha256']
     output   = metadata.get('output', '').strip()
@@ -844,12 +853,13 @@ def install_miniconda(ctx):
 
     # Download
     printmsg('Downloading miniconda from {}...'.format(url))
-    # with Progress('MB', transform=Progress.bytes_to_mb) as prog:
-    #     download_file(url, 'miniforge.sh', prog.update)
-    sha256('miniforge.sh', checksum)
+    with Progress('MB', transform=Progress.bytes_to_mb) as prog:
+        download_file(url, 'miniforge.sh', prog.update)
+    if not ctx.args.no_checksum:
+        sha256('miniforge.sh', checksum)
 
     # Install
-    printmsg('Installing miniconda to {}...'.format(ctx.destdir))
+    printmsg('Installing miniconda at {}...'.format(ctx.destdir))
     cmd = 'sh miniforge.sh -b -p {}'.format(ctx.destdir)
     Process.monitor_progress(ctx, cmd, output, admin=ctx.need_admin)
 
@@ -887,40 +897,167 @@ def install_miniconda(ctx):
     with open('.condarc', 'wt') as f:
         f.write(condarc)
 
-    Process.run(ctx, 'mv .condarc {}'.format(ctx.destdir, admin=ctx.need_admin))
+    Process.run(
+        ctx, 'cp .condarc {}'.format(ctx.destdir, admin=ctx.need_admin))
 
 
 def install_fsl(ctx):
-    """Install FSL into ctx.destdir (which is assumed to be a miniforge
+    """Install FSL into ctx.destdir (which is assumed to be a miniconda
     installation.
+
+    This function assumes that it is run within a temporary/scratch directory.
     """
 
-    builds = ctx.manifest['versions'][ctx.args.fslversion][ctx.platform]
-    for build in builds:
-        if ctx.cuda == build.get('cuda', None):
-            break
+    build    = ctx.build
+    url      = build['environment']
+    checksum = build['sha256']
+    output   = build.get('output', None)
+
+    if output == '': output = None
+    else:            output = int(output)
+
+    printmsg('Downloading FSL environment specification '
+             'from {}...'.format(url))
+    download_file(url, 'environment.yml')
+
+    conda = op.join(ctx.destdir, 'bin', 'conda')
+    cmd   = conda + ' env update -n base -f environment.yml'
+
+    printmsg('Installing FSL into {}...'.format(ctx.destdir))
+
+    env = os.environ.copy()
+    env['FSL_CREATE_WRAPPER_SCRIPTS'] = '1'
+
+    Process.monitor_progress(ctx, cmd, output, admin=ctx.need_admin, env=env)
+
+
+def post_install_cleanup(ctx):
+    """Cleans up the FSL directory after installation. """
+
+    conda = op.join(ctx.destdir, 'bin', 'conda')
+    cmd   = conda + ' clean -y --all'
+
+    Process.run(ctx, cmd, output, admin=ctx.need_admin)
+
+
+def patch_file(filename, searchline, numlines, content):
+    """Used by configure_shell and configure_matlab. Adds to, modifies,
+    or creates the specified file.
+
+    If a line matching searchline is found in the file, numlines (starting
+    from searchline) are replaced with content.
+
+    Otherwise, content is appended to the end of the file.
+    """
+
+    content = content.split('\n')
+
+    if op.isfile(filename):
+        with open(filename) as f:
+            lines = [l.strip() for l in f.readlines()]
     else:
-        raise
+        lines = []
 
-    if cudaver is not None:
-        filename = 'fsl-{}-{}-cuda-{}.yml'.format(fslversion,
-                                                  platform,
-                                                  cudaver)
-    else:
-        filename = 'fsl-{}-{}.yml'.format(fslversion, platform)
+    # replace block
+    try:
+        idx   = lines.index(searchline)
+        lines = lines[:idx] + content + lines[idx + numlines:]
 
-    download_file(base + filename, 'environment.yml')
+    # append to end
+    except ValueError:
+        lines = lines + [''] + content
 
-    conda = op.join(destdir, 'bin', 'conda')
-
-    run(ctx, conda + ' env update -n base -f environment.yml',
-        admin=ctx.need_admin)
+    with open(filename, 'wt') as f:
+        f.write('\n'.join(lines))
 
 
-def configure_environment(ctx):
+def configure_shell(ctx):
     """Configures the user's shell environment (e.g. ~/.bash_profile). """
-    # TODO
-    pass
+
+    bourne_shells  = ['sh', 'bash', 'zsh', 'dash']
+    csh_shells     = ['csh', 'tcsh']
+
+    # we edit the first file that exists
+    # in the list of candidate profile files,
+    shell_profiles = {'sh'   : ['.profile'],
+                      'bash' : ['.bash_profile', '.profile'],
+                      'dash' : ['.bash_profile', '.profile'],
+                      'zsh'  : ['.zprofile'],
+                      'csh'  : ['.cshrc'],
+                      'tcsh' : ['.tcshrc']}
+
+    # Do not change the format of these configurations -
+    # they are kept exactly as-is for compatibility with
+    # legacy FSL installations, i.e. so we can modify
+    # profiles with an existing configuration from older
+    # FSL versions
+    bourne_cfg = tw.dedent("""
+    # FSL Setup
+    FSLDIR={fsldir}
+    PATH=${{FSLDIR}}/share/fsl/bin:${{PATH}}
+    export FSLDIR PATH
+    . ${{FSLDIR}}/etc/fslconf/fsl.sh
+    """).format(fsldir=ctx.destdir)
+
+    csh_cfg = tw.dedent("""
+    # FSL Setup
+    setenv FSLDIR {fsldir}
+    setenv PATH ${{FSLDIR}}/share/fsl/bin:${{PATH}}
+    source ${{FSLDIR}}/etc/fslconf/fsl.csh
+    """).format(fsldir=ctx.destdir)
+
+    if ctx.shell not in bourne_shells + csh_shells:
+        printmsg('Shell {} not recognised - skipping environment '
+                 'setup'.format(ctx.shell), WARNING, EMPHASIS)
+        return
+
+    if ctx.shell in bourne_shells: cfg = bourne_cfg
+    else:                          cfg = csh_cfg
+
+    # find the profile file to edit
+    profile    = None
+    candidates = [op.join(ctx.args.homedir, p)
+                  for p in shell_profiles[ctx.shell]]
+    for candidate in candidates:
+        if op.isfile(candidate):
+            profile = candidate
+            break
+
+    # if no candidate profile files
+    # exist, fall back to the first one
+    if profile is None:
+        profile = candidates[0]
+
+    printmsg('Adding FSL configuration to {}'.format(profile))
+
+    patch_file(profile, '# FSL Setup', len(cfg.split('\n')), cfg)
+
+
+def configure_matlab(ctx):
+    """Creates/appends FSL configuration code to ~/Documents/MATLAB/startup.m.
+    """
+
+    # Do not change the format of this configuration -
+    # see in-line comments in configure_shell.
+    cfg = tw.dedent("""
+    % FSL Setup
+    setenv( 'FSLDIR', '{fsldir}' );
+    setenv('FSLOUTPUTTYPE', 'NIFTI_GZ');
+    fsldir = getenv('FSLDIR');
+    fsldirmpath = sprintf('%s/etc/matlab',fsldir);
+    path(path, fsldirmpath);
+    clear fsldir fsldirmpath;
+    """).format(fsldir=ctx.destdir)
+
+    matlab_dir = op.expanduser(op.join(ctx.args.homedir, 'Documents', 'MATLAB'))
+    startup_m  = op.join(matlab_dir, 'startup.m')
+
+    if not op.exists(matlab_dir):
+        os.makedirs(matlab_dir)
+
+    printmsg('Adding FSL configuration to {}'.format(startup_m))
+
+    patch_file(startup_m, '% FSL Setup', len(cfg.split('\n')), cfg)
 
 
 def self_update(ctx):
@@ -973,7 +1110,7 @@ def self_update(ctx):
 
     download_file(ctx.manifest['installer']['url'], tmpf)
 
-    if not ctx.args.disable_checksum:
+    if not ctx.args.no_checksum:
         sha256(tmpf, ctx.manifest['installer']['sha256'])
 
     cmd = [sys.executable, tmpf] + sys.argv[1:]
@@ -982,71 +1119,98 @@ def self_update(ctx):
 
 
 def overwrite_destdir(ctx):
-    """Called by main if the destination directory already exists.
-    Asks the user if they want to overwrite it and, if they say yes,
-    removes the existing destination directory. Otherwise exits.
+    """Called by main if the destination directory already exists.  Asks the
+    user if they want to overwrite it and, if they say yes, removes the
+    existing destination directory. Otherwise exits.
     """
-    printmsg('Destination directory [{}] already exists!'
-             .format(ctx.destdir), WARNING, EMPHASIS)
-    response = prompt('Do you want to overwrite it [N/y]?',
-                      WARNING, EMPHASIS)
-    if response.lower() not in ('y', 'yes'):
-        printmsg('Aborting installation', ERROR, EMPHASIS)
-        sys.exit(1)
+
+    if not ctx.args.overwrite:
+        printmsg('Destination directory [{}] already exists!'
+                 .format(ctx.destdir), WARNING, EMPHASIS)
+        response = prompt('Do you want to overwrite it [N/y]?',
+                          WARNING, EMPHASIS)
+        if response.lower() not in ('y', 'yes'):
+            printmsg('Aborting installation', ERROR, EMPHASIS)
+            sys.exit(1)
 
     printmsg('Deleting directory {}'.format(ctx.destdir), IMPORTANT)
     Process.run(ctx, 'rm -r {}'.format(ctx.destdir), admin=ctx.need_admin)
-
-
 
 
 def parse_args(argv=None):
     """Parse command-line arguments, returns an argparse.Namespace object. """
 
     helps = {
-        'dest' :                'Install FSL into this folder (default: '
-                                '{})'.format(DEFAULT_INSTALLATION_DIRECTORY),
-        'version'             : 'Print installer version number and exit',
-        'disable_self_update' : 'Do not automatically update the installer '
-                                'script',
-        'listversions'        : 'List available versions of FSL',
-        'fslversion'          : 'Download this specific version of FSL',
-        'cuda'                : 'Install FSL for this CUDA version (default: '
-                                'automatically detected)',
+
+        'version'      : 'Print installer version number and exit',
+        'listversions' : 'List available FSL versions and exit',
+        'dest'         : 'Install FSL into this folder (default: '
+                         '{})'.format(DEFAULT_INSTALLATION_DIRECTORY),
+        'overwrite'    : 'Delete destination directory without '
+                         'asking, if it already exists',
+        'no_env'       : 'Do not modify your shell or MATLAB configuration '
+                         'implies --no_shell and --no_matlab)',
+        'no_shell'     : 'Do not modify your shell configuration',
+        'no_matlab'    : 'Do not modify your MATLAB configuration',
+        'fslversion'   : 'Install this specific version of FSL',
+        'cuda'         : 'Install FSL for this CUDA version (default: '
+                         'automatically detected)',
+
+        # Do not automatically update the installer script,
+        'no_self_update' : argparse.SUPPRESS,
 
         # Path to local installer manifest file
-        'manifest'            : argparse.SUPPRESS,
+        'manifest'       : argparse.SUPPRESS,
 
         # Print debugging messages
-        'debug'               : argparse.SUPPRESS,
+        'debug'          : argparse.SUPPRESS,
 
         # Disable SHA256 checksum validation of downloaded files
-        'disable_checksum'    : argparse.SUPPRESS,
+        'no_checksum'    : argparse.SUPPRESS,
 
-        # Store temp files in this directory (must already
-        # exist) rather than in a temporary directory
-        'workdir'             : argparse.SUPPRESS,
+        # Store temp files in this directory
+        # rather than in a temporary directory
+        'workdir'        : argparse.SUPPRESS,
+
+        # Treat this directory as user's home directory,
+        # for the purposes of shell configuration. Must
+        # already exist.
+        'homedir'        : argparse.SUPPRESS,
     }
 
     parser = argparse.ArgumentParser()
+
+    # regular options
     parser.add_argument('-v', '--version', action='version',
                         version=__version__, help=helps['version'])
-    parser.add_argument('-D', '--debug', action='store_true',
-                        help=helps['debug'])
-    parser.add_argument('-m', '--manifest', default=FSL_INSTALLER_MANIFEST,
-                        help=helps['manifest'])
-    parser.add_argument('-u', '--disable_self_update', action='store_true',
-                        help=helps['disable_self_update'])
     parser.add_argument('-d', '--dest', metavar='DESTDIR',
                         help=helps['dest'])
-    parser.add_argument('-s', '--disable_checksum', action='store_true',
-                        help=helps['disable_checksum'])
-    parser.add_argument('-w', '--workdir', help=helps['workdir'])
+    parser.add_argument('-o', '--overwrite', action='store_true',
+                        help=helps['overwrite'])
     parser.add_argument('-l', '--listversions', action='store_true',
                         help=helps['listversions'])
+    parser.add_argument('-e', '--no_env', action='store_true',
+                        help=helps['no_env'])
+    parser.add_argument('-s', '--no_shell', action='store_true',
+                        help=helps['no_shell'])
+    parser.add_argument('-m', '--no_matlab', action='store_true',
+                        help=helps['no_matlab'])
     parser.add_argument('-V', '--fslversion', default='latest',
                         help=helps['version'])
     parser.add_argument('-c', '--cuda', help=helps['cuda'])
+
+    # hidden options
+    parser.add_argument('-k', '--no_checksum', action='store_true',
+                        help=helps['no_checksum'])
+    parser.add_argument('-w', '--workdir', help=helps['workdir'])
+    parser.add_argument('-i', '--homedir', help=helps['homedir'],
+                        default=op.expanduser('~'))
+    parser.add_argument('-D', '--debug', action='store_true',
+                        help=helps['debug'])
+    parser.add_argument('-a', '--manifest', default=FSL_INSTALLER_MANIFEST,
+                        help=helps['manifest'])
+    parser.add_argument('-u', '--no_self_update', action='store_true',
+                        help=helps['no_self_update'])
 
     args = parser.parse_args(argv)
 
@@ -1054,15 +1218,32 @@ def parse_args(argv=None):
     if args.debug: logging.getLogger().setLevel(logging.DEBUG)
     else:          logging.getLogger().setLevel(logging.WARNING)
 
+    if os.getuid() == 0:
+        printmsg('Running the installer script as root user - disabling '
+                 'environment configuration', WARNING, EMPHASIS)
+        args.no_env = True
+
+    if args.no_env:
+        args.no_shell  = True
+        args.no_matlab = True
+
+    if args.workdir is not None:
+        args.workdir = op.abspath(args.workdir)
+        if not op.exists(args.workdir):
+            os.mkdir(args.workdir)
+
     return args
 
 
 def main(argv=None):
+    """Installer entry point. Downloads and installs miniconda and FSL, and
+    configures the user's environment.
+    """
 
     args = parse_args(argv)
     ctx  = Context(args)
 
-    if not args.disable_self_update:
+    if not args.no_self_update:
         self_update(ctx)
 
     printmsg('FSL installer version:', EMPHASIS, UNDERLINE, end='')
@@ -1074,14 +1255,24 @@ def main(argv=None):
 
     ctx.finalise_settings()
 
-    if op.exists(ctx.destdir):
-        overwrite_destdir(ctx)
-
-    printmsg('Installing FSL into {}\n'.format(ctx.destdir), EMPHASIS)
-
     with tempdir(args.workdir):
+
+        if op.exists(ctx.destdir):
+           overwrite_destdir(ctx)
+
+        printmsg('\nInstalling FSL into {}\n'.format(ctx.destdir), EMPHASIS)
+
         install_miniconda(ctx)
-        #install_fsl(ctx)
+        install_fsl(ctx)
+        post_install_cleanup(ctx)
+
+    if not args.no_shell:  configure_shell( ctx)
+    if not args.no_matlab: configure_matlab(ctx)
+
+    printmsg('\nFSL successfully installed\n', IMPORTANT)
+    if not args.no_env:
+        printmsg('Open a new terminal, or log out and log back in, '
+                 'for the environment changes to take effect.', INFO)
 
 
 if __name__ == '__main__':
