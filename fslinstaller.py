@@ -591,7 +591,8 @@ class Progress(object):
         """
         # os.get_terminal_size added in python 3.3
         try:
-            return int(sp.check_output('tput cols'.split()).strip())
+            result = sp.check_output('tput cols'.split(), stderr=sp.PIPE)
+            return int(result.strip())
         except Exception:
             return fallback
 
@@ -745,7 +746,9 @@ class Process(object):
 
     @staticmethod
     def forward_stream(popen, stream, queue):
-        """Runs cmd, and pushes lines from its stdout to the queue. """
+        """Reads lines from stream and pushes them onto queue until popen
+        is finished.
+        """
 
         while popen.returncode is None:
             line = stream.readline()
@@ -854,7 +857,7 @@ def install_miniconda(ctx):
     This function assumes that it is run within a temporary/scratch directory.
     """
 
-    metadata = ctx.manifest['installer']['miniconda'][ctx.platform]
+    metadata = ctx.manifest['miniconda'][ctx.platform]
     url      = metadata['url']
     checksum = metadata['sha256']
     output   = metadata.get('output', '').strip()
