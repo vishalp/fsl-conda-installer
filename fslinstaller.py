@@ -766,18 +766,21 @@ class Process(object):
         """
 
         while popen.returncode is None:
-            line = stream.readline()
+            line = stream.readline().decode('utf-8')
             popen.poll()
-            if line == '':
-                break
-            else:
-                queue.put(line)
+            try:
+                if line == '':
+                    break
+                else:
+                    queue.put(line)
+            except:
+                raise
 
         # process finished, flush the stream
-        line = stream.readline()
+        line = stream.readline().decode('utf-8')
         while line != '':
             queue.put(line)
-            line = stream.readline()
+            line = stream.readline().decode('utf-8')
 
 
     @staticmethod
@@ -819,12 +822,7 @@ class Process(object):
 
         cmd = shlex.split(cmd)
 
-        # set universal_newlines to force text
-        # based stdin/out on both py2 and py3
-        kwargs = dict(stdin=sp.PIPE,
-                      stdout=sp.PIPE,
-                      stderr=sp.PIPE,
-                      universal_newlines=True)
+        kwargs = dict(stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.PIPE)
 
         if admin: proc = Process.sudo_popen(cmd, password, **kwargs)
         else:     proc = sp.Popen(          cmd, **kwargs)
@@ -833,7 +831,7 @@ class Process(object):
             proc.wait()
             if proc.returncode != 0:
                 raise RuntimeError(cmd)
-            return proc.stdout.read()
+            return proc.stdout.read().decode('utf-8')
 
         return proc
 
