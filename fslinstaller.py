@@ -287,7 +287,7 @@ class Context(object):
         """
 
         try:
-            output = Process.run('nvidia-smi', check_output=True)
+            output = Process.check_output('nvidia-smi')
         except Exception:
             return None
 
@@ -604,7 +604,7 @@ class Progress(object):
         # os.get_terminal_size added in python
         # 3.3, so we try and call tput instead
         try:
-            result = Process.run('tput cols', check_output=True)
+            result = Process.check_output('tput cols')
             return int(result.strip())
         except Exception:
             return fallback
@@ -796,9 +796,10 @@ class Process(object):
 
 
     @staticmethod
-    def run(cmd, admin=False, ctx=None, check_output=False):
-        """Starts the given command, as administrator if requested. Returns
-        the subprocess.Popen object (unless check_output is True).
+    def check_output(cmd, admin=False, ctx=None):
+        """Behaves like subprocess.check_output. Runs the given command, then
+        waits until it finishes, and return its standard output. An error
+        is raised if the process returns a non-zero exit code.
 
         :arg cmd:          The command to run, as a string
 
@@ -806,11 +807,48 @@ class Process(object):
 
         :arg ctx:          The installer Context object. Only required if
                            admin is True.
+        """
+        proc = Process.run(cmd, admin=admin, ctx=ctx)
+        proc.wait()
 
-        :arg check_output: Behave like subprocess.check_output - wait until
-                           command has finished, and return its standard
-                           output. An error is raised if the process returns
-                           a non-zero exit code.
+        if proc.returncode != 0:
+            raise RuntimeError(cmd)
+
+        return proc.stdout.read().decode('utf-8')
+
+
+    @staticmethod
+    def check_call(cmd, admin=False, ctx=None):
+        """Behaves like subprocess.check_call. Runs the given command, then
+        waits until it finishes. An error is raised if the process returns a
+        non-zero exit code.
+
+        :arg cmd:          The command to run, as a string
+
+        :arg admin:        Whether to run with administrative privileges
+
+        :arg ctx:          The installer Context object. Only required if
+                           admin is True.
+        """
+        proc = Process.run(cmd, admin=admin, ctx=ctx)
+        proc.wait()
+
+        if proc.returncode != 0:
+            raise RuntimeError(cmd)
+
+
+    @staticmethod
+    def run(cmd, admin=False, ctx=None):
+        """Starts the given command, as administrator if requested.
+
+        :arg cmd:   The command to run, as a string
+
+        :arg admin: Whether to run with administrative privileges
+
+        :arg ctx:   The installer Context object. Only required if admin is
+                    True.
+
+        :returns:   The subprocess.Popen object.
         """
 
         admin = admin and os.getuid() != 0
@@ -826,12 +864,6 @@ class Process(object):
 
         if admin: proc = Process.sudo_popen(cmd, password, **kwargs)
         else:     proc = sp.Popen(          cmd, **kwargs)
-
-        if check_output:
-            proc.wait()
-            if proc.returncode != 0:
-                raise RuntimeError(cmd)
-            return proc.stdout.read().decode('utf-8')
 
         return proc
 
@@ -942,7 +974,8 @@ def install_miniconda(ctx):
     with open('.condarc', 'wt') as f:
         f.write(condarc)
 
-    Process.run('cp .condarc {}'.format(ctx.destdir), ctx.need_admin, ctx)
+    Process.check_call('cp .condarc {}'.format(ctx.destdir),
+                       ctx.need_admin, ctx)
 
 
 def install_fsl(ctx):
@@ -981,7 +1014,7 @@ def post_install_cleanup(ctx):
     conda = op.join(ctx.destdir, 'bin', 'conda')
     cmd   = conda + ' clean -y --all'
 
-    Process.run(cmd, ctx.need_admin, ctx)
+    Process.check_call(cmd, ctx.need_admin, ctx)
 
 
 def patch_file(filename, searchline, numlines, content):
@@ -1178,7 +1211,7 @@ def overwrite_destdir(ctx):
             sys.exit(1)
 
     printmsg('Deleting directory {}'.format(ctx.destdir), IMPORTANT)
-    Process.run('rm -r {}'.format(ctx.destdir), ctx.need_admin, ctx)
+    Process.check_call('rm -r {}'.format(ctx.destdir), ctx.need_admin, ctx)
 
 
 def parse_args(argv=None):
