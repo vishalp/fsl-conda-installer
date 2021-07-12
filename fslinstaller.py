@@ -694,6 +694,7 @@ def download_file(url, destination, progress=None, blocksize=1048576):
 
     log.debug('Downloading %s ...', url)
 
+    req = None
     try:
         # py2: urlopen result cannot be
         # used as a context manager
@@ -719,7 +720,8 @@ def download_file(url, destination, progress=None, blocksize=1048576):
         raise DownloadFailed('A network error has occurred while '
                              'trying to download {}'.format(url))
     finally:
-        req.close()
+        if req:
+            req.close()
 
 
 class Process(object):
