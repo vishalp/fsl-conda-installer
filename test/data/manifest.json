@@ -28,8 +28,8 @@
     // URLs to download miniconda/miniforge
     "miniconda" : {
         "linux-64" : {
-            "url"    : "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-4.10.2-0-Linux-x86_64.sh",
-            "sha256" : "d2d66f09811c0d846ffb2f04c1827854aa4333624a0dc841389230291d944c30",
+            "url"    : "https://github.com/conda-forge/miniforge/releases/download/4.10.3-1/Miniforge3-4.10.3-1-Linux-x86_64.sh",
+            "sha256" : "303d65289f600fa4c85fe2b0fef9bb0848ec544a75a9c3079607d847918f7023",
 
             // Number of lines of output to expect
             // when running the miniconda installer
@@ -38,8 +38,8 @@
             "output" : "194"
         },
         "macos-64" : {
-            "url"    : "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-4.10.2-0-MacOSX-x86_64.sh",
-            "sha256" : "60aaecd1681633e84bad0520479e938a0a0c671fa7d78d2aa607d4807c670975",
+            "url"    : "https://github.com/conda-forge/miniforge/releases/download/4.10.3-1/Miniforge3-4.10.3-1-MacOSX-x86_64.sh",
+            "sha256" : "8ed6871bbd0b24f66b2d87fd88cbcd0854142e5cf1447de5f5f246884ef9c846",
             "output" : "87"
         }
     },
