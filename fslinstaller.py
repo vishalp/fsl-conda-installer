@@ -700,13 +700,22 @@ def download_file(url, destination, progress=None, blocksize=1048576):
 
 class Process(object):
     """Container for a subprocess.Popen object, allowing non-blocking
-    access to its standard output and error streams via separate queues.
+    line-based access to its standard output and error streams via separate
+    queues, while logging all outputs.
+
+    Don't create a Process directly - use one of the following static methods:
+     - Process.check_output
+     - Process.check_call
+     - Process.monitor_progress
     """
 
-    def __init__(self, ctx, cmd, admin, **kwargs):
-        """Run the specified command.
 
-        :arg ctx:    The installer Context
+    def __init__(self, ctx, cmd, admin, **kwargs):
+        """Run the specified command. Starts threads to capture stdout and
+        stderr.
+
+        :arg ctx:    The installer Context. Only used for admin password - can
+                     be None if admin is False.
         :arg cmd:    Command to run - passed directly to subprocess.Popen
         :arg admin:  Run the command with administrative privileges
         :arg kwargs: Passed to subprocess.Popen
@@ -717,15 +726,15 @@ class Process(object):
         self.admin   = admin
         self.stdoutq = queue.Queue()
         self.stderrq = queue.Queue()
-        self.popen   = Process.run(self.cmd, self.admin, self.ctx)
+        self.popen   = Process.popen(self.cmd, self.admin, self.ctx)
 
         # threads for gathering stdout/stderr
         self.stdout_thread = threading.Thread(
             target=Process.forward_stream,
-            args=(self.popen, self.popen.stdout, self.stdoutq))
+            args=(self.popen, self.stdoutq, cmd, 'stdout'))
         self.stderr_thread = threading.Thread(
             target=Process.forward_stream,
-            args=(self.popen, self.popen.stderr, self.stderrq))
+            args=(self.popen, self.stderrq, cmd, 'stderr'))
 
         self.stdout_thread.daemon = True
         self.stderr_thread.daemon = True
@@ -734,61 +743,33 @@ class Process(object):
 
 
     @staticmethod
-    def forward_stream(popen, stream, queue):
-        """Reads lines from stream and pushes them onto queue until popen
-        is finished.
-        """
-
-        while popen.returncode is None:
-            line = stream.readline().decode('utf-8')
-            popen.poll()
-            try:
-                if line == '':
-                    break
-                else:
-                    queue.put(line)
-            except:
-                raise
-
-        # process finished, flush the stream
-        line = stream.readline().decode('utf-8')
-        while line != '':
-            queue.put(line)
-            line = stream.readline().decode('utf-8')
-
-
-    @staticmethod
-    def sudo_popen(cmd, password, **kwargs):
-        """Runs "sudo cmd" using subprocess.Popen.
-        Assumes that kwargs contains stdin=sp.PIPE
-        """
-
-        cmd  = ['sudo', '-S', '-k'] + cmd
-        proc = sp.Popen(cmd, **kwargs)
-        proc.stdin.write('{}\n'.format(password))
-        return proc
-
-
-    @staticmethod
     def check_output(cmd, admin=False, ctx=None):
         """Behaves like subprocess.check_output. Runs the given command, then
         waits until it finishes, and return its standard output. An error
         is raised if the process returns a non-zero exit code.
 
-        :arg cmd:          The command to run, as a string
+        :arg cmd:   The command to run, as a string
 
-        :arg admin:        Whether to run with administrative privileges
+        :arg admin: Whether to run with administrative privileges
 
-        :arg ctx:          The installer Context object. Only required if
-                           admin is True.
+        :arg ctx:   The installer Context object. Only required if admin is
+                    True.
         """
-        proc = Process.run(cmd, admin=admin, ctx=ctx)
-        proc.wait()
 
-        if proc.returncode != 0:
+        proc = Process(ctx, cmd, admin=admin)
+        proc.popen.wait()
+
+        if proc.popen.returncode != 0:
             raise RuntimeError(cmd)
 
-        return proc.stdout.read().decode('utf-8')
+        stdout = ''
+        while True:
+            try:
+                stdout += proc.stdoutq.get_nowait()
+            except queue.Empty:
+                break
+
+        return stdout
 
 
     @staticmethod
@@ -797,23 +778,86 @@ class Process(object):
         waits until it finishes. An error is raised if the process returns a
         non-zero exit code.
 
-        :arg cmd:          The command to run, as a string
+        :arg cmd:   The command to run, as a string
 
-        :arg admin:        Whether to run with administrative privileges
+        :arg admin: Whether to run with administrative privileges
 
-        :arg ctx:          The installer Context object. Only required if
-                           admin is True.
+        :arg ctx:   The installer Context object. Only required if admin is
+                    True.
         """
-        proc = Process.run(cmd, admin=admin, ctx=ctx)
-        proc.wait()
-
-        if proc.returncode != 0:
+        proc = Process(ctx, cmd, admin=admin)
+        proc.popen.wait()
+        if proc.popen.returncode != 0:
             raise RuntimeError(cmd)
 
 
     @staticmethod
-    def run(cmd, admin=False, ctx=None):
-        """Starts the given command, as administrator if requested.
+    def monitor_progress(ctx, cmd, total=None, **kwargs):
+        """Runs the given command, and shows a progress bar under the
+        assumption that cmd will produce "total" number of lines of output.
+        """
+        if total is None: label = None
+        else:             label = '%'
+
+        with Progress(label=label,
+                      fmt='{:.0f}',
+                      transform=Progress.percent) as prog:
+
+            proc   = Process(ctx, cmd, **kwargs)
+            nlines = 0
+
+            prog.update(nlines, total)
+
+            while proc.popen.returncode is None:
+
+                try:
+                    line = proc.stdoutq.get(timeout=1)
+                except queue.Empty:
+                    continue
+
+                nlines += 1
+                prog.update(nlines, total)
+
+
+    @staticmethod
+    def forward_stream(popen, queue, cmd, streamname):
+        """Reads lines from stream and pushes them onto queue until popen
+        is finished. Logs every line.
+
+        :arg popen:      subprocess.Popen object
+        :arg queue:      queue.Queue to push lines onto
+        :arg cmd:        string - the command that is running
+        :arg streamname: string - 'stdout' or 'stderr'
+        """
+
+        # cmd is just used for log messages
+        if len(cmd) > 50:
+            cmd = cmd[:50] + '...'
+
+        if streamname == 'stdout': stream = popen.stdout
+        else:                      stream = popen.stderr
+
+        while popen.returncode is None:
+            line = stream.readline().decode('utf-8')
+            popen.poll()
+            if line == '':
+                break
+            else:
+                queue.put(line)
+                log.debug('%s [%s]: %s', cmd, streamname, line.rstrip())
+
+        # process finished, flush the stream
+        line = stream.readline().decode('utf-8')
+        while line != '':
+            queue.put(line)
+            log.debug('%s [%s]: %s', cmd, streamname, line)
+            line = stream.readline().decode('utf-8')
+
+
+    @staticmethod
+    def popen(cmd, admin=False, ctx=None):
+        """Runs the given command via subprocess.Popen, as administrator if
+        requested.
 
         :arg cmd:   The command to run, as a string
 
@@ -843,32 +887,15 @@ class Process(object):
 
 
     @staticmethod
-    def monitor_progress(ctx, cmd, total=None, **kwargs):
-        """Creates a Process object to run cmd, and shows a progress bar
-        under the assumption that cmd will produce "total" number of lines
-        of output.
+    def sudo_popen(cmd, password, **kwargs):
+        """Runs "sudo cmd" using subprocess.Popen. Used by Process.popen.
+        Assumes that kwargs contains stdin=sp.PIPE
         """
-        if total is None: label = None
-        else:             label = '%'
 
-        with Progress(label=label,
-                      fmt='{:.0f}',
-                      transform=Progress.percent) as prog:
-
-            proc   = Process(ctx, cmd, **kwargs)
-            nlines = 0
-
-            prog.update(nlines, total)
-
-            while proc.popen.returncode is None:
-
-                try:
-                    line = proc.stdoutq.get(timeout=1)
-                except queue.Empty:
-                    continue
-
-                nlines += 1
-                prog.update(nlines, total)
+        cmd  = ['sudo', '-S', '-k'] + cmd
+        proc = sp.Popen(cmd, **kwargs)
+        proc.stdin.write('{}\n'.format(password))
+        return proc
 
 
 def list_available_versions(ctx):
@@ -1287,11 +1314,14 @@ def parse_args(argv=None):
     return args
 
 
-def config_logging():
+def config_logging(ctx):
     """Configures logging. Log messages are directed to
-    $TMPDIR/fslinstaller.log.
+    $TMPDIR/fslinstaller.log, or workdir/fslinstaller.log
     """
-    logfile   = op.join(tempfile.gettempdir(), 'fslinstaller.log')
+    if ctx.args.workdir is not None: logdir = ctx.args.workdir
+    else:                            logdir = tempfile.gettempdir()
+
+    logfile   = op.join(logdir, 'fslinstaller.log')
     handler   = logging.FileHandler(logfile)
     formatter = logging.Formatter(
         '%(asctime)s %(filename)s:%(lineno)4d: %(message)s', '%H:%M:%S')
@@ -1308,7 +1338,7 @@ def main(argv=None):
     args = parse_args(argv)
     ctx  = Context(args)
 
-    config_logging()
+    config_logging(ctx)
 
     log.debug(' '.join(sys.argv))
 
