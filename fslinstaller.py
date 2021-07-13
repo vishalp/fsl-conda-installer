@@ -373,50 +373,9 @@ class Context(object):
         about available FSL vesrions, and the most recent version number of the
         installer (this script).
 
-        The manifest file is a JSON file with the following structure (lines
-        beginning with two forward-slashes are ignored):
-
-          {
-              "installer" : {
-
-                  // Latest version of installer script
-                  "version" : "1.2.3",
-
-                  // URL to download installer script
-                  "url"     : "http://abc.com/fslinstaller.py"
-
-                  // SHA256 checksum of installer script
-                  "sha256"  : "ab238........."
-              },
-              "versions" : {
-
-                  // Latest must be present, and must
-                  // contain the version number of the
-                  // latest release
-                  "latest" : "6.1.0",
-                  "6.1.0"  : {
-                      'linux-64' : {
-                          "environment" : "http;//abc.com/fsl-6.1.0-linux-64.yml",
-                          "sha256"      : "ab23456...",
-                      }
-                      'macos-64' : {
-                          "environment" : "http;//abc.com/fsl-6.1.0-macos-64.yml",
-                          "sha256"      : "ab23456...",
-                      }
-                      'linux-64-cuda9.2' : {
-                          "environment" : "http;//abc.com/fsl-6.1.0-linux-64-cuda9.2.yml",
-                          "sha256"      : "ab23456...",
-                      }
-                      'linux-64-cuda10.2' : {
-                          "environment" : "http;//abc.com/fsl-6.1.0-linux-64-cuda10.2.yml",
-                          "sha256"      : "ab23456...",
-                      }
-                  }
-                  "6.1.1" : {
-                      ...
-                  }
-              }
-          }
+        The manifest file is a JSON file. Lines beginning
+        with a double-forward-slash are ignored. See test/data/manifes.json
+        for an example.
         """
 
         log.debug('Downloading FSL installer manifest from %s', url)
