@@ -911,23 +911,14 @@ class Process(object):
         if streamname == 'stdout': stream = popen.stdout
         else:                      stream = popen.stderr
 
-        while popen.returncode is None:
+        while True:
             line = stream.readline().decode('utf-8')
-            popen.poll()
             if line == '':
                 break
             else:
                 queue.put(line)
                 if log_output:
                     log.debug(' [%s]: %s', streamname, line.rstrip())
-
-        # process finished, flush the stream
-        line = stream.readline().decode('utf-8')
-        while line != '':
-            queue.put(line)
-            if log_output:
-                log.debug(' [%s]: %s', streamname, line.rstrip())
-            line = stream.readline().decode('utf-8')
 
 
     @staticmethod
