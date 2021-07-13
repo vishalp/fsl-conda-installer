@@ -19,6 +19,7 @@ import                   logging
 import                   os
 import                   platform
 import                   re
+import                   readline
 import                   shlex
 import                   shutil
 import                   sys
@@ -72,6 +73,12 @@ by Context.identify_cuda. Must be in increasing order.
 """
 
 
+FIRST_FSL_CONDA_RELEASE = '6.0.6'
+"""Oldest conda-based FSL version that can be updated in-place by this
+installer script.
+"""
+
+
 class InvalidPassword(Exception):
     """Exception raised by Context.get_admin_password if the user gives an
     incorrect password.
@@ -94,6 +101,34 @@ class UnsupportedPlatform(Exception):
     """Exception raised by the identify_platform function if FSL is not
     available on this platform.
     """
+
+
+@ft.total_ordering
+class Version(object):
+    """Class to represent and compare version strings.  Accepted version
+    strings are of the form X.Y.Z, where X, Y, and Z are all integers.
+    """
+    def __init__(self, verstr):
+        major, minor, patch = verstr.split('.')[:3]
+        self.verstr         = verstr
+        self.major          = int(major)
+        self.minor          = int(minor)
+        self.patch          = int(patch)
+
+    def __str__(self):
+        return self.verstr
+
+    def __eq__(self, other):
+        return all((self.major == other.major,
+                    self.minor == other.minor,
+                    self.patch == other.patch))
+
+    def __lt__(self, other):
+        for p1, p2 in zip((self.major,  self.minor,  self.patch),
+                          (other.major, other.minor, other.patch)):
+            if p1 < p2: return True
+            if p1 > p2: return False
+        return False
 
 
 class Context(object):
@@ -162,6 +197,16 @@ class Context(object):
         """Returns a suitable FSL build (a dictionary entry from the FSL
         installer manifest) for the target platform and requested FSL/CUDA
         versions.
+
+        The returned dictionary has the following elements:
+          - 'version'      FSL version.
+          - 'platform':    Platform identifier (e.g. 'linux-64')
+          - 'environment': Environment file to download
+          - 'sha256':      Checksum of environment file
+          - 'output':      Number of lines of expected output, for reporting
+                           progress
+          - 'cuda':        X.Y CUDA version, if a CUDA-enabled version of FSL
+                           is to be installed.
         """
 
         fslversion = self.args.fslversion
@@ -185,6 +230,7 @@ class Context(object):
                 'Cannot find a version of FSL matching platform '
                 '{} and CUDA {}'.format(self.platform, self.cuda))
 
+        match['version'] = fslversion
         return match
 
 
@@ -212,14 +258,16 @@ class Context(object):
             if response is None:
                 printmsg('Where do you want to install FSL?',
                          IMPORTANT, EMPHASIS)
-                printmsg('Press enter to install to the default location [{}]'
-                         .format(DEFAULT_INSTALLATION_DIRECTORY), INFO)
-                response = prompt('FSL installation directory:', QUESTION)
+                printmsg('Press enter to install to the default location '
+                         '[{}]\n'.format(DEFAULT_INSTALLATION_DIRECTORY), INFO)
+                response = prompt('FSL installation directory [{}]:'.format(
+                    DEFAULT_INSTALLATION_DIRECTORY), QUESTION, EMPHASIS)
                 response = response.rstrip(op.sep)
 
                 if response == '':
                     response = DEFAULT_INSTALLATION_DIRECTORY
 
+            response  = op.expanduser(op.expandvars(response))
             response  = op.abspath(response)
             parentdir = op.dirname(response)
             if op.exists(parentdir):
@@ -865,14 +913,14 @@ class Process(object):
             else:
                 queue.put(line)
                 if log_output:
-                    log.debug('%s [%s]: %s', cmd, streamname, line.rstrip())
+                    log.debug(' [%s]: %s', streamname, line.rstrip())
 
         # process finished, flush the stream
         line = stream.readline().decode('utf-8')
         while line != '':
             queue.put(line)
             if log_output:
-                log.debug('%s [%s]: %s', cmd, streamname, line)
+                log.debug(' [%s]: %s', streamname, line.rstrip())
             line = stream.readline().decode('utf-8')
 
 
@@ -1163,33 +1211,6 @@ def self_update(ctx):
     place of this script.
     """
 
-    @ft.total_ordering
-    class Version(object):
-        """Class to hold and compare FSL installer version strings.  Version
-        strings must be of the form X.Y.Z, where X, Y, and Z are all integers.
-        """
-        def __init__(self, verstr):
-            major, minor, patch = verstr.split('.')[:3]
-            self.verstr         = verstr
-            self.major          = int(major)
-            self.minor          = int(minor)
-            self.patch          = int(patch)
-
-        def __str__(self):
-            return self.verstr
-
-        def __eq__(self, other):
-            return all((self.major == other.major,
-                        self.minor == other.minor,
-                        self.patch == other.patch))
-
-        def __lt__(self, other):
-            for p1, p2 in zip((self.major,  self.minor,  self.patch),
-                              (other.major, other.minor, other.patch)):
-                if p1 < p2: return True
-                if p1 > p2: return False
-            return False
-
     thisver   = Version(__version__)
     latestver = Version(ctx.manifest['installer']['version'])
 
@@ -1214,6 +1235,21 @@ def self_update(ctx):
     cmd = [sys.executable, tmpf] + sys.argv[1:]
     log.debug('Running new installer: %s', cmd)
     os.execv(sys.executable, cmd)
+
+
+def read_fslversion(destdir):
+    """Reads the FSL version from an existing FSL installation. Returns the
+    version string, or None if it can't be read.
+    """
+    fslversion = op.join(destdir, 'etc', 'fslversion')
+    if not op.exists(fslversion):
+        return None
+    try:
+        with open(fslversion, 'rt') as f:
+            fslversion = f.readline().split(':')[0]
+    except:
+        return None
+    return fslversion
 
 
 def overwrite_destdir(ctx):
