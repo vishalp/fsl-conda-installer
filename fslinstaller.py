@@ -42,6 +42,7 @@ except ImportError: import Queue as queue
 
 PY2 = sys.version[0] == '2'
 
+
 log = logging.getLogger(__name__)
 
 
@@ -192,28 +193,43 @@ class Context(object):
         """Installation directory. If not specified at the command line, the
         user is prompted to enter a directory.
         """
+
+        if self.__destdir is not None:
+            return self.__destdir
+
+        # The loop below validates the destination directory
+        # both when specified at commmand line or
+        # interactively.  In either case, if invalid, the
+        # user is re-prompted to enter a new destination.
+        destdir = None
         if self.args.dest is not None:
-            self.__destdir = op.abspath(self.args.dest)
-        if self.__destdir is None:
-            while True:
+            response = self.args.dest
+        else:
+            response = None
+
+        while destdir is None:
+
+            if response is None:
                 printmsg('Where do you want to install FSL?',
                          IMPORTANT, EMPHASIS)
                 printmsg('Press enter to install to the default location [{}]'
                          .format(DEFAULT_INSTALLATION_DIRECTORY), INFO)
                 response = prompt('FSL installation directory:', QUESTION)
                 response = response.rstrip(op.sep)
+
                 if response == '':
                     response = DEFAULT_INSTALLATION_DIRECTORY
-                    break
-                response  = op.abspath(response)
-                parentdir = op.dirname(response)
-                if op.exists(parentdir):
-                    break
-                else:
-                    printmsg('Destination directory {} does not '
-                             'exist!'.format(parentdir), ERROR)
 
-            self.__destdir = response
+            response  = op.abspath(response)
+            parentdir = op.dirname(response)
+            if op.exists(parentdir):
+                destdir = response
+            else:
+                printmsg('Destination directory {} does not '
+                         'exist!'.format(parentdir), ERROR)
+                response = None
+
+        self.__destdir = destdir
         return self.__destdir
 
 
