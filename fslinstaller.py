@@ -351,7 +351,7 @@ class Context(object):
             else:
                 msg = 'Your administrator password is needed to ' \
                       'install FSL [attempt {} of 3]:'.format(attempt + 1)
-            printmsg(msg, IMPORTANT, end='', flush=True)
+            printmsg(msg, IMPORTANT, end='')
             password = getpass.getpass('')
             valid    = validate_admin_password(password)
 
@@ -568,6 +568,8 @@ class Progress(object):
         if overflow:
             printmsg(' ', end='')
             self.spin()
+        else:
+            printmsg('  ', end='')
         printmsg(end='\r')
 
 
@@ -579,7 +581,7 @@ class Progress(object):
         # os.get_terminal_size added in python
         # 3.3, so we try and call tput instead
         try:
-            result = Process.check_output('tput cols')
+            result = Process.check_output('tput cols', log_output=False)
             return int(result.strip())
         except Exception:
             return fallback
@@ -710,31 +712,38 @@ class Process(object):
     """
 
 
-    def __init__(self, ctx, cmd, admin, **kwargs):
+    def __init__(self, cmd, admin=False, ctx=None, log_output=True, **kwargs):
         """Run the specified command. Starts threads to capture stdout and
         stderr.
 
-        :arg ctx:    The installer Context. Only used for admin password - can
-                     be None if admin is False.
-        :arg cmd:    Command to run - passed directly to subprocess.Popen
-        :arg admin:  Run the command with administrative privileges
-        :arg kwargs: Passed to subprocess.Popen
+        :arg cmd:        Command to run - passed directly to subprocess.Popen
+        :arg admin:      Run the command with administrative privileges
+        :arg ctx:        The installer Context. Only used for admin password -
+                         can be None if admin is False.
+        :arg log_output: If True, the command and all of its stdout/stderr are
+                         logged.
+        :arg kwargs:     Passed to subprocess.Popen
         """
 
-        self.ctx     = ctx
-        self.cmd     = cmd
-        self.admin   = admin
-        self.stdoutq = queue.Queue()
-        self.stderrq = queue.Queue()
-        self.popen   = Process.popen(self.cmd, self.admin, self.ctx)
+        self.ctx        = ctx
+        self.cmd        = cmd
+        self.admin      = admin
+        self.log_output = log_output
+        self.stdoutq    = queue.Queue()
+        self.stderrq    = queue.Queue()
+
+        if log_output:
+            log.debug('Running %s [as admin: %s]', cmd, admin)
+
+        self.popen = Process.popen(self.cmd, self.admin, self.ctx)
 
         # threads for gathering stdout/stderr
         self.stdout_thread = threading.Thread(
             target=Process.forward_stream,
-            args=(self.popen, self.stdoutq, cmd, 'stdout'))
+            args=(self.popen, self.stdoutq, cmd, 'stdout', log_output))
         self.stderr_thread = threading.Thread(
             target=Process.forward_stream,
-            args=(self.popen, self.stderrq, cmd, 'stderr'))
+            args=(self.popen, self.stderrq, cmd, 'stderr', log_output))
 
         self.stdout_thread.daemon = True
         self.stderr_thread.daemon = True
@@ -743,20 +752,15 @@ class Process(object):
 
 
     @staticmethod
-    def check_output(cmd, admin=False, ctx=None):
+    def check_output(cmd, *args, **kwargs):
         """Behaves like subprocess.check_output. Runs the given command, then
         waits until it finishes, and return its standard output. An error
         is raised if the process returns a non-zero exit code.
 
-        :arg cmd:   The command to run, as a string
-
-        :arg admin: Whether to run with administrative privileges
-
-        :arg ctx:   The installer Context object. Only required if admin is
-                    True.
+        :arg cmd: The command to run, as a string
         """
 
-        proc = Process(ctx, cmd, admin=admin)
+        proc = Process(cmd, *args, **kwargs)
         proc.popen.wait()
 
         if proc.popen.returncode != 0:
@@ -773,26 +777,21 @@ class Process(object):
 
 
     @staticmethod
-    def check_call(cmd, admin=False, ctx=None):
+    def check_call(cmd, *args, **kwargs):
         """Behaves like subprocess.check_call. Runs the given command, then
         waits until it finishes. An error is raised if the process returns a
         non-zero exit code.
 
-        :arg cmd:   The command to run, as a string
-
-        :arg admin: Whether to run with administrative privileges
-
-        :arg ctx:   The installer Context object. Only required if admin is
-                    True.
+        :arg cmd: The command to run, as a string
         """
-        proc = Process(ctx, cmd, admin=admin)
+        proc = Process(cmd, *args, **kwargs)
         proc.popen.wait()
         if proc.popen.returncode != 0:
             raise RuntimeError(cmd)
 
 
     @staticmethod
-    def monitor_progress(ctx, cmd, total=None, **kwargs):
+    def monitor_progress(cmd, total=None, *args, **kwargs):
         """Runs the given command, and shows a progress bar under the
         assumption that cmd will produce "total" number of lines of output.
         """
@@ -803,7 +802,7 @@ class Process(object):
                       fmt='{:.0f}',
                       transform=Progress.percent) as prog:
 
-            proc   = Process(ctx, cmd, **kwargs)
+            proc   = Process(cmd, *args, **kwargs)
             nlines = 0
 
             prog.update(nlines, total)
@@ -820,7 +819,7 @@ class Process(object):
 
 
     @staticmethod
-    def forward_stream(popen, queue, cmd, streamname):
+    def forward_stream(popen, queue, cmd, streamname, log_output):
         """Reads lines from stream and pushes them onto queue until popen
         is finished. Logs every line.
 
@@ -828,11 +827,8 @@ class Process(object):
         :arg queue:      queue.Queue to push lines onto
         :arg cmd:        string - the command that is running
         :arg streamname: string - 'stdout' or 'stderr'
+        :arg log_output: If True, log all stdout/stderr.
         """
-
-        # cmd is just used for log messages
-        if len(cmd) > 50:
-            cmd = cmd[:50] + '...'
 
         if streamname == 'stdout': stream = popen.stdout
         else:                      stream = popen.stderr
@@ -844,13 +840,15 @@ class Process(object):
                 break
             else:
                 queue.put(line)
-                log.debug('%s [%s]: %s', cmd, streamname, line.rstrip())
+                if log_output:
+                    log.debug('%s [%s]: %s', cmd, streamname, line.rstrip())
 
         # process finished, flush the stream
         line = stream.readline().decode('utf-8')
         while line != '':
             queue.put(line)
-            log.debug('%s [%s]: %s', cmd, streamname, line)
+            if log_output:
+                log.debug('%s [%s]: %s', cmd, streamname, line)
             line = stream.readline().decode('utf-8')
 
 
@@ -873,8 +871,6 @@ class Process(object):
 
         if admin: password = ctx.password
         else:     password = None
-
-        log.debug('Running %s [as admin: %s]', cmd, admin)
 
         cmd = shlex.split(cmd)
 
@@ -939,7 +935,7 @@ def install_miniconda(ctx):
     # Install
     printmsg('Installing miniconda at {}...'.format(ctx.destdir))
     cmd = 'sh miniforge.sh -b -p {}'.format(ctx.destdir)
-    Process.monitor_progress(ctx, cmd, output, admin=ctx.need_admin)
+    Process.monitor_progress(cmd, output, ctx.need_admin, ctx)
 
     # Create .condarc config file
     condarc = tw.dedent("""
