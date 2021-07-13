@@ -1282,8 +1282,6 @@ def parse_args(argv=None):
     parser.add_argument('-w', '--workdir', help=helps['workdir'])
     parser.add_argument('-i', '--homedir', help=helps['homedir'],
                         default=op.expanduser('~'))
-    parser.add_argument('-D', '--debug', action='store_true',
-                        help=helps['debug'])
     parser.add_argument('-a', '--manifest', default=FSL_INSTALLER_MANIFEST,
                         help=helps['manifest'])
     parser.add_argument('-u', '--no_self_update', action='store_true',
@@ -1291,12 +1289,7 @@ def parse_args(argv=None):
 
     args = parser.parse_args(argv)
 
-    logging.basicConfig()
-    if args.debug: logging.getLogger().setLevel(logging.DEBUG)
-    else:          logging.getLogger().setLevel(logging.WARNING)
-
     args.homedir = op.abspath(args.homedir)
-
     if not op.isdir(args.homedir):
         printmsg('Home directory {} does not exist!'.format(args.homedir),
                  ERROR, EMPHASIS)
@@ -1319,6 +1312,19 @@ def parse_args(argv=None):
     return args
 
 
+def config_logging():
+    """Configures logging. Log messages are directed to
+    $TMPDIR/fslinstaller.log.
+    """
+    logfile   = op.join(tempfile.gettempdir(), 'fslinstaller.log')
+    handler   = logging.FileHandler(logfile)
+    formatter = logging.Formatter(
+        '%(asctime)s %(filename)s:%(lineno)4d: %(message)s', '%H:%M:%S')
+    handler.setFormatter(formatter)
+    log.addHandler(handler)
+    log.setLevel(logging.DEBUG)
+
+
 def main(argv=None):
     """Installer entry point. Downloads and installs miniconda and FSL, and
     configures the user's environment.
@@ -1326,6 +1332,10 @@ def main(argv=None):
 
     args = parse_args(argv)
     ctx  = Context(args)
+
+    config_logging()
+
+    log.debug(' '.join(sys.argv))
 
     if not args.no_self_update:
         self_update(ctx)
