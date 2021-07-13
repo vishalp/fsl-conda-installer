@@ -593,8 +593,12 @@ class Progress(object):
         self.__last_spin = this
 
     def count(self, value):
+
         value = self.fmt(value)
-        line  = '{}{} ...'.format(value, self.label)
+
+        if self.label is None: line = '{} ...'.format(value)
+        else:                  line = '{}{} ...'.format(value, self.label)
+
         printmsg(line, end='\r')
 
     def progress(self, value, total):
@@ -796,10 +800,10 @@ class Process(object):
         # threads for consuming stdout/stderr
         self.stdout_thread = threading.Thread(
             target=Process.forward_stream,
-            args=(self.popen, self.stdoutq, cmd, 'stdout', log_output))
+            args=(self.popen.stdout, self.stdoutq, cmd, 'stdout', log_output))
         self.stderr_thread = threading.Thread(
             target=Process.forward_stream,
-            args=(self.popen, self.stderrq, cmd, 'stderr', log_output))
+            args=(self.popen.stderr, self.stderrq, cmd, 'stderr', log_output))
 
         self.stdout_thread.daemon = True
         self.stderr_thread.daemon = True
@@ -879,18 +883,20 @@ class Process(object):
                       transform=Progress.percent) as prog:
 
             proc   = Process(cmd, *args, **kwargs)
-            nlines = 0
+            nlines = 0 if total else None
 
             prog.update(nlines, total)
 
             while proc.returncode is None:
                 try:
                     line    = proc.stdoutq.get(timeout=0.5)
-                    nlines += 1
+                    nlines  = (nlines + 1) if total else None
+
                 except queue.Empty:
                     pass
 
                 prog.update(nlines, total)
+                proc.popen.poll()
 
             # force progress bar to 100% when finished
             if proc.returncode == 0:
@@ -900,19 +906,16 @@ class Process(object):
 
 
     @staticmethod
-    def forward_stream(popen, queue, cmd, streamname, log_output):
+    def forward_stream(stream, queue, cmd, streamname, log_output):
         """Reads lines from stream and pushes them onto queue until popen
         is finished. Logs every line.
 
-        :arg popen:      subprocess.Popen object
+        :arg stream:     stream to forward
         :arg queue:      queue.Queue to push lines onto
         :arg cmd:        string - the command that is running
         :arg streamname: string - 'stdout' or 'stderr'
         :arg log_output: If True, log all stdout/stderr.
         """
-
-        if streamname == 'stdout': stream = popen.stdout
-        else:                      stream = popen.stderr
 
         while True:
             line = stream.readline().decode('utf-8')
@@ -1051,20 +1054,28 @@ def install_miniconda(ctx):
                        ctx.need_admin, ctx)
 
 
-def install_fsl(ctx):
+def install_fsl(ctx, update_from=None):
     """Install FSL into ctx.destdir (which is assumed to be a miniconda
     installation.
 
-    This function assumes that it is run within a temporary/scratch directory.
+    :arg update_from: FSL version string of existing installation that is
+                      being updated, or None if this is a new installation.
     """
 
     build    = ctx.build
     url      = build['environment']
     checksum = build['sha256']
-    output   = build.get('output', None)
 
-    if output == '': output = None
-    else:            output = int(output)
+    # expected number of output lines
+    # for new install or upgrade, used
+    # for progress reporting
+    if update_from is None:
+        output = build.get('output', {}).get('install', None)
+    else:
+        output = build.get('output', {}).get(update_from, None)
+
+    if output in ('', None): output = None
+    else:                    output = int(output)
 
     printmsg('Downloading FSL environment specification '
              'from {}...'.format(url))
@@ -1281,15 +1292,15 @@ def update_destdir(ctx):
     installation, and determines / asks the user whether they want to update
     it.
 
-    Returns True if the existing FSL installation should be updated, False
-    if it should be overwritten.
+    Returns the old FSL version string if the existing FSL installation
+    should be updated, or None if it should be overwritten.
     """
 
     installed = read_fslversion(ctx.destdir)
 
     # Cannot detect a FSL installation
     if installed is None:
-        return False
+        return None
 
     printmsg()
     printmsg('Existing FSL installation [version {}] detected '
@@ -1303,7 +1314,7 @@ def update_destdir(ctx):
     if installed < updateable:
         printmsg('FSL version {} is too old to update - you will '
                  'need to overwrite it'.format(installed), INFO)
-        return False
+        return None
 
     # Existing install is equal to
     # or newer than requested
@@ -1328,24 +1339,20 @@ def update_destdir(ctx):
         # again if they want to overwrite destdir
         if response.lower() in ('y', 'yes'):
             ctx.args.overwrite = True
-            return False
+            return None
         else:
             printmsg('Aborting installation', ERROR, EMPHASIS)
             sys.exit(1)
 
     # --update -> don't prompt
     if ctx.args.update:
-        return True
+        return str(installed)
 
     response = prompt('Would you like to upgrade from version {} to '
                       'version {} [y/N]?'.format(installed, requested),
                       QUESTION, EMPHASIS)
     if response.lower() in ('y', 'yes'):
-
-        # We don't maintain expected #lines for
-        # upgrades, so can't report progress
-        ctx.build.pop('output', None)
-        return True
+        return str(installed)
     else:
         printmsg('Aborting installation', ERROR, EMPHASIS)
         sys.exit(1)
@@ -1513,31 +1520,31 @@ def main(argv=None):
 
     ctx.finalise_settings()
 
-    update = False
+    update_from = None
 
     with tempdir(args.workdir):
 
         # Ask the user if they want to update or
         # overwrite an existing installation
         if op.exists(ctx.destdir):
-            update = update_destdir(ctx)
+            update_from = update_destdir(ctx)
 
-            if not update:
+            if not update_from:
                 overwrite_destdir(ctx)
 
-        if update: action = 'Updating'
-        else:      action = 'Installing'
+        if update_from: action = 'Updating'
+        else:           action = 'Installing'
 
         printmsg('\n{} FSL in {}\n'.format(action, ctx.destdir), EMPHASIS)
 
-        if not update:
+        if not update_from:
             install_miniconda(ctx)
-        install_fsl(ctx)
+        install_fsl(ctx, update_from)
         finalise_installation(ctx)
         post_install_cleanup(ctx)
 
-    if not (update or args.no_shell):  configure_shell( ctx)
-    if not (update or args.no_matlab): configure_matlab(ctx)
+    if not (update_from or args.no_shell):  configure_shell( ctx)
+    if not (update_from or args.no_matlab): configure_matlab(ctx)
 
     printmsg('\nFSL successfully installed\n', IMPORTANT)
     if not args.no_env:
