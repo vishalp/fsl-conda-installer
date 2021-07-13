@@ -1252,17 +1252,85 @@ def read_fslversion(destdir):
     return fslversion
 
 
+def update_destdir(ctx):
+    """Called by main. Checks if the destination directory is an FSL
+    installation, and determines / asks the user whether they want to update
+    it.
+
+    Returns True if the existing FSL installation should be updated, False
+    if it should be overwritten.
+    """
+
+    installed = read_fslversion(ctx.destdir)
+
+    # Cannot detect a FSL installation
+    if installed is None:
+        return False
+
+    printmsg()
+    printmsg('Existing FSL installation [version {}] detected '
+             'at {}'.format(installed, ctx.destdir), INFO)
+
+    installed  = Version(installed)
+    requested  = Version(ctx.build['version'])
+    updateable = Version(FIRST_FSL_CONDA_RELEASE)
+
+    # Too old (pre-conda)
+    if installed < updateable:
+        printmsg('FSL version {} is too old to update - you will '
+                 'need to overwrite it'.format(installed), INFO)
+        return False
+
+    # Existing install is equal to
+    # or newer than requested
+    if installed >= requested:
+        if installed == requested:
+            msg       = '\nFSL version {installed} is already installed!'
+            promptmsg = 'Do you want to re-install FSL {installed} [y/N]?'
+        else:
+            msg       = '\nInstalled version [{installed}] is newer than ' \
+                        'the requested version [{requested}]!'
+            promptmsg = 'Do you want to replace your existing version ' \
+                        '[{installed}] with an older version [{requested}] ' \
+                        '[y/N]?'
+
+        msg       = msg      .format(installed=installed, requested=requested)
+        promptmsg = promptmsg.format(installed=installed, requested=requested)
+
+        printmsg(msg, WARNING, EMPHASIS)
+        response = prompt(promptmsg, QUESTION, EMPHASIS)
+
+        # Overwrite/re-install - don't ask user
+        # again if they want to overwrite destdir
+        if response.lower() in ('y', 'yes'):
+            ctx.args.overwrite = True
+            return False
+        else:
+            printmsg('Aborting installation', ERROR, EMPHASIS)
+            sys.exit(1)
+
+    # --update -> don't prompt
+    if ctx.args.update:
+        return True
+
+    response = prompt('Would you like to upgrade from version {} to '
+                      'version {} [y/N]?'.format(installed, requested),
+                      QUESTION, EMPHASIS)
+    return response.lower() in ('y', 'yes')
+
+
 def overwrite_destdir(ctx):
-    """Called by main if the destination directory already exists.  Asks the
-    user if they want to overwrite it and, if they say yes, removes the
-    existing destination directory. Otherwise exits.
+    """Called by main if the destination directory already exists. Asks the
+    user if they want to overwrite it. If they do, or if the --overwrite
+    option was specified, the directory is deleted
     """
 
     if not ctx.args.overwrite:
+        printmsg()
         printmsg('Destination directory [{}] already exists!'
                  .format(ctx.destdir), WARNING, EMPHASIS)
-        response = prompt('Do you want to overwrite it [N/y]?',
-                          WARNING, EMPHASIS)
+        response = prompt('Do you want to overwrite it [y/N]?',
+                          QUESTION, EMPHASIS)
         if response.lower() not in ('y', 'yes'):
             printmsg('Aborting installation', ERROR, EMPHASIS)
             sys.exit(1)
@@ -1280,8 +1348,10 @@ def parse_args(argv=None):
         'listversions' : 'List available FSL versions and exit',
         'dest'         : 'Install FSL into this folder (default: '
                          '{})'.format(DEFAULT_INSTALLATION_DIRECTORY),
-        'overwrite'    : 'Delete destination directory without '
-                         'asking, if it already exists',
+        'update'       : 'Update existing FSL installation if possible, '
+                         'without asking',
+        'overwrite'    : 'Delete existing destination directory if it exists, '
+                         'without asking',
         'no_env'       : 'Do not modify your shell or MATLAB configuration '
                          'implies --no_shell and --no_matlab)',
         'no_shell'     : 'Do not modify your shell configuration',
@@ -1319,6 +1389,8 @@ def parse_args(argv=None):
                         version=__version__, help=helps['version'])
     parser.add_argument('-d', '--dest', metavar='DESTDIR',
                         help=helps['dest'])
+    parser.add_argument('-u', '--update', action='store_true',
+                        help=helps['update'])
     parser.add_argument('-o', '--overwrite', action='store_true',
                         help=helps['overwrite'])
     parser.add_argument('-l', '--listversions', action='store_true',
@@ -1341,7 +1413,7 @@ def parse_args(argv=None):
                         default=op.expanduser('~'))
     parser.add_argument('-a', '--manifest', default=FSL_INSTALLER_MANIFEST,
                         help=helps['manifest'])
-    parser.add_argument('-u', '--no_self_update', action='store_true',
+    parser.add_argument('-p', '--no_self_update', action='store_true',
                         help=helps['no_self_update'])
 
     args = parser.parse_args(argv)
@@ -1409,19 +1481,30 @@ def main(argv=None):
 
     ctx.finalise_settings()
 
+    update = False
+
     with tempdir(args.workdir):
 
+        # Ask the user if they want to update or
+        # overwrite an existing installation
         if op.exists(ctx.destdir):
-           overwrite_destdir(ctx)
+            update = update_destdir(ctx)
 
-        printmsg('\nInstalling FSL into {}\n'.format(ctx.destdir), EMPHASIS)
+            if not update:
+                overwrite_destdir(ctx)
 
-        install_miniconda(ctx)
+        if update: action = 'Updating'
+        else:      action = 'Installing'
+
+        printmsg('\n{} FSL into {}\n'.format(action, ctx.destdir), EMPHASIS)
+
+        if not update:
+            install_miniconda(ctx)
         install_fsl(ctx)
         post_install_cleanup(ctx)
 
-    if not args.no_shell:  configure_shell( ctx)
-    if not args.no_matlab: configure_matlab(ctx)
+    if not (update or args.no_shell):  configure_shell( ctx)
+    if not (update or args.no_matlab): configure_matlab(ctx)
 
     printmsg('\nFSL successfully installed\n', IMPORTANT)
     if not args.no_env:
