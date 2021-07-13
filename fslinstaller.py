@@ -47,6 +47,9 @@ PY2 = sys.version[0] == '2'
 log = logging.getLogger(__name__)
 
 
+__absfile__ = op.abspath(__file__)
+
+
 __version__ = '0.0.0'
 """Installer version number. This is automatically updated in release versions
 whenever a new version is released.
@@ -1078,6 +1081,25 @@ def install_fsl(ctx):
     Process.monitor_progress(cmd, output, ctx.need_admin, ctx, env=env)
 
 
+def finalise_installation(ctx):
+    """Performs some finalisation tasks. Includes:
+      - Saving the installed version to $FSLDIR/etc/fslversion
+      - Saving this installer script and the environment file to
+        $FSLDIR/share/fsl/installer/
+    """
+    with open('fslversion', 'wt') as f:
+        f.write(ctx.build['version'])
+
+    call    = ft.partial(Process.check_call, admin=ctx.need_admin, ctx=ctx)
+    etcdir  = op.join(ctx.destdir, 'etc')
+    instdir = op.join(ctx.destdir, 'share', 'fsl', 'installer')
+
+    call('cp fslversion {}'     .format(etcdir))
+    call('mkdir -p {}'          .format(instdir))
+    call('cp environment.yml {}'.format(instdir))
+    call('cp {} {}'             .format(__absfile__, instdir))
+
+
 def post_install_cleanup(ctx):
     """Cleans up the FSL directory after installation. """
 
@@ -1506,11 +1528,12 @@ def main(argv=None):
         if update: action = 'Updating'
         else:      action = 'Installing'
 
-        printmsg('\n{} FSL into {}\n'.format(action, ctx.destdir), EMPHASIS)
+        printmsg('\n{} FSL in {}\n'.format(action, ctx.destdir), EMPHASIS)
 
         if not update:
             install_miniconda(ctx)
         install_fsl(ctx)
+        finalise_installation(ctx)
         post_install_cleanup(ctx)
 
     if not (update or args.no_shell):  configure_shell( ctx)
