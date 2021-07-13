@@ -788,7 +788,7 @@ class Process(object):
         if log_output:
             log.debug('Running %s [as admin: %s]', cmd, admin)
 
-        self.popen = Process.popen(self.cmd, self.admin, self.ctx)
+        self.popen = Process.popen(self.cmd, self.admin, self.ctx, **kwargs)
 
         # threads for consuming stdout/stderr
         self.stdout_thread = threading.Thread(
@@ -889,6 +889,12 @@ class Process(object):
 
                 prog.update(nlines, total)
 
+            # force progress bar to 100% when finished
+            if proc.returncode == 0:
+                prog.update(total, total)
+            else:
+                raise RuntimeError(cmd)
+
 
     @staticmethod
     def forward_stream(popen, queue, cmd, streamname, log_output):
@@ -925,18 +931,21 @@ class Process(object):
 
 
     @staticmethod
-    def popen(cmd, admin=False, ctx=None):
+    def popen(cmd, admin=False, ctx=None, **kwargs):
         """Runs the given command via subprocess.Popen, as administrator if
         requested.
 
-        :arg cmd:   The command to run, as a string
+        :arg cmd:    The command to run, as a string
 
-        :arg admin: Whether to run with administrative privileges
+        :arg admin:  Whether to run with administrative privileges
 
-        :arg ctx:   The installer Context object. Only required if admin is
-                    True.
+        :arg ctx:    The installer Context object. Only required if admin is
+                     True.
 
-        :returns:   The subprocess.Popen object.
+        :arg kwargs: Passed to subprocess.Popen. stdin, stdout, and stderr
+                     will be silently clobbered
+
+        :returns:    The subprocess.Popen object.
         """
 
         admin = admin and os.getuid() != 0
@@ -944,11 +953,13 @@ class Process(object):
         if admin: password = ctx.password
         else:     password = None
 
-        cmd    = shlex.split(cmd)
-        kwargs = dict(stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.PIPE)
+        cmd              = shlex.split(cmd)
+        kwargs['stdin']  = sp.PIPE
+        kwargs['stdout'] = sp.PIPE
+        kwargs['stderr'] = sp.PIPE
 
         if admin: proc = Process.sudo_popen(cmd, password, **kwargs)
-        else:     proc = sp.Popen(          cmd, **kwargs)
+        else:     proc = sp.Popen(          cmd,           **kwargs)
 
         return proc
 
@@ -1316,7 +1327,15 @@ def update_destdir(ctx):
     response = prompt('Would you like to upgrade from version {} to '
                       'version {} [y/N]?'.format(installed, requested),
                       QUESTION, EMPHASIS)
-    return response.lower() in ('y', 'yes')
+    if response.lower() in ('y', 'yes'):
+
+        # We don't maintain expected #lines for
+        # upgrades, so can't report progress
+        ctx.build.pop('output', None)
+        return True
+    else:
+        printmsg('Aborting installation', ERROR, EMPHASIS)
+        sys.exit(1)
 
 
 def overwrite_destdir(ctx):
