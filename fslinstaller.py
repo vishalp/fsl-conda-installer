@@ -691,7 +691,6 @@ def download_file(url, destination, progress=None, blocksize=1048576):
                 progress(downloaded, total)
 
     except Exception:
-        raise
         raise DownloadFailed('A network error has occurred while '
                              'trying to download {}'.format(url))
     finally:
@@ -1156,7 +1155,8 @@ def self_update(ctx):
     log.debug('New version of installer is available '
               '(%s) - self-updating', latestver)
 
-    tmpf = tempfile.NamedTemporaryFile(delete=False)
+    tmpf = tempfile.NamedTemporaryFile(
+        prefix='new_fslinstaller', delete=False, dir=ctx.args.workdir)
     tmpf.close()
     tmpf = tmpf.name
 
