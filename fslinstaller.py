@@ -302,9 +302,13 @@ class Context(object):
         supported.
         """
 
+        if getattr(Context.identify_cuda, 'no_cuda', False):
+            return None
+
         try:
             output = Process.check_output('nvidia-smi')
         except Exception:
+            Context.identify_cuda.no_cuda = True
             return None
 
         pat   = r'CUDA Version: (\S+)'
@@ -315,6 +319,7 @@ class Context(object):
                 cudaver = match.group(1)
                 break
         else:
+            Context.identify_cuda.no_cuda = True
             return None
 
         # Return the most suitable CUDA
@@ -323,6 +328,7 @@ class Context(object):
             if float(cudaver) >= float(supported):
                 return supported
 
+        Context.identify_cuda.no_cuda = True
         return None
 
 
@@ -542,8 +548,7 @@ class Progress(object):
 
     def progress(self, value, total):
 
-        overflow = value > total
-        value    = min(value, total)
+        value = min(value, total)
 
         # arbitrary fallback of 50 columns if
         # terminal width cannot be determined
@@ -556,7 +561,7 @@ class Progress(object):
 
         # +5: - square brackets around bar
         #     - space between bar and tally
-        #     - space+spin in case of overflow
+        #     - space+spin at the end
         width     = width - (len(suffix) + 5)
         completed = int(round(width * (value  / total)))
         remaining = width - completed
@@ -565,11 +570,8 @@ class Progress(object):
                                        suffix)
 
         printmsg(progress, end='')
-        if overflow:
-            printmsg(' ', end='')
-            self.spin()
-        else:
-            printmsg('  ', end='')
+        printmsg(' ', end='')
+        self.spin()
         printmsg(end='\r')
 
 
@@ -663,7 +665,7 @@ class DownloadFailed(Exception):
     """
 
 
-def download_file(url, destination, progress=None, blocksize=1048576):
+def download_file(url, destination, progress=None, blocksize=131072):
     """Download a file from url, saving it to destination. """
 
     def default_progress(downloaded, total):
@@ -763,6 +765,17 @@ class Process(object):
         self.stderr_thread.join()
 
 
+    @property
+    def returncode(self):
+        """Process return code. Returns None until the process has terminated,
+        and the stdout/stderr consumer threads have finished.
+        """
+        if self.popen.returncode is None: return None
+        if self.stdout_thread.is_alive(): return None
+        if self.stderr_thread.is_alive(): return None
+        return self.popen.returncode
+
+
     @staticmethod
     def check_output(cmd, *args, **kwargs):
         """Behaves like subprocess.check_output. Runs the given command, then
@@ -775,7 +788,7 @@ class Process(object):
         proc = Process(cmd, *args, **kwargs)
         proc.wait()
 
-        if proc.popen.returncode != 0:
+        if proc.returncode != 0:
             raise RuntimeError(cmd)
 
         stdout = ''
@@ -798,7 +811,7 @@ class Process(object):
         """
         proc = Process(cmd, *args, **kwargs)
         proc.wait()
-        if proc.popen.returncode != 0:
+        if proc.returncode != 0:
             raise RuntimeError(cmd)
 
 
@@ -819,14 +832,13 @@ class Process(object):
 
             prog.update(nlines, total)
 
-            while proc.popen.returncode is None:
-
+            while proc.returncode is None:
                 try:
-                    line = proc.stdoutq.get(timeout=1)
+                    line    = proc.stdoutq.get(timeout=0.5)
+                    nlines += 1
                 except queue.Empty:
-                    continue
+                    pass
 
-                nlines += 1
                 prog.update(nlines, total)
 
 
@@ -884,8 +896,7 @@ class Process(object):
         if admin: password = ctx.password
         else:     password = None
 
-        cmd = shlex.split(cmd)
-
+        cmd    = shlex.split(cmd)
         kwargs = dict(stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.PIPE)
 
         if admin: proc = Process.sudo_popen(cmd, password, **kwargs)
@@ -1014,7 +1025,7 @@ def install_fsl(ctx):
     env = os.environ.copy()
     env['FSL_CREATE_WRAPPER_SCRIPTS'] = '1'
 
-    Process.monitor_progress(ctx, cmd, output, admin=ctx.need_admin, env=env)
+    Process.monitor_progress(cmd, output, ctx.need_admin, ctx, env=env)
 
 
 def post_install_cleanup(ctx):
