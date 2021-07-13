@@ -579,7 +579,10 @@ class Progress(object):
         if it cannot be determined.
         """
         # os.get_terminal_size added in python
-        # 3.3, so we try and call tput instead
+        # 3.3, so we try it but fall back to tput
+        if hasattr(os, 'get_terminal_size'):
+            return os.get_terminal_size()[0]
+
         try:
             result = Process.check_output('tput cols', log_output=False)
             return int(result.strip())
@@ -737,7 +740,7 @@ class Process(object):
 
         self.popen = Process.popen(self.cmd, self.admin, self.ctx)
 
-        # threads for gathering stdout/stderr
+        # threads for consuming stdout/stderr
         self.stdout_thread = threading.Thread(
             target=Process.forward_stream,
             args=(self.popen, self.stdoutq, cmd, 'stdout', log_output))
@@ -751,6 +754,15 @@ class Process(object):
         self.stderr_thread.start()
 
 
+    def wait(self):
+        """Waits for the process to terminate, then waits for the stdout
+        and stderr consumer threads to finish.
+        """
+        self.popen.wait()
+        self.stdout_thread.join()
+        self.stderr_thread.join()
+
+
     @staticmethod
     def check_output(cmd, *args, **kwargs):
         """Behaves like subprocess.check_output. Runs the given command, then
@@ -761,7 +773,7 @@ class Process(object):
         """
 
         proc = Process(cmd, *args, **kwargs)
-        proc.popen.wait()
+        proc.wait()
 
         if proc.popen.returncode != 0:
             raise RuntimeError(cmd)
@@ -785,7 +797,7 @@ class Process(object):
         :arg cmd: The command to run, as a string
         """
         proc = Process(cmd, *args, **kwargs)
-        proc.popen.wait()
+        proc.wait()
         if proc.popen.returncode != 0:
             raise RuntimeError(cmd)
 
