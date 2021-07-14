@@ -2,6 +2,10 @@
 #
 # FSL installer script.
 #
+"""This is the FSL installation script. It can be used to install FSL, or
+to update an existing FSL installation.  This script can be executed with
+Python 2.7 or newer.
+"""
 
 
 from __future__ import print_function, division, unicode_literals
@@ -26,6 +30,7 @@ import                   sys
 import                   tempfile
 import                   threading
 import                   time
+import                   traceback
 
 # TODO check py2/3
 try:
@@ -51,8 +56,8 @@ __absfile__ = op.abspath(__file__)
 
 
 __version__ = '0.0.0'
-"""Installer version number. This is automatically updated in release versions
-whenever a new version is released.
+"""Installer script version number. This is automatically updated
+whenever a new version of the installer script is released.
 """
 
 
@@ -67,68 +72,42 @@ versions.
 
 See the Context.download_manifest function, and an example manifest file
 in test/data/manifest.json, for more details.
-"""
 
-
-SUPPORTED_CUDAS = ['9.2', '10.2', '11.1']
-"""Versions of CUDA that CUDA-capable FSL packages are built for. Used
-by Context.identify_cuda. Must be in increasing order.
+A custom manifest URL can be specified with the -a/--manifest command-line
+option.
 """
 
 
 FIRST_FSL_CONDA_RELEASE = '6.0.6'
 """Oldest conda-based FSL version that can be updated in-place by this
-installer script.
+installer script. Versions older than this will need to be overwritten.
 """
-
-
-class InvalidPassword(Exception):
-    """Exception raised by Context.get_admin_password if the user gives an
-    incorrect password.
-    """
-
-
-class UnknownVersion(Exception):
-    """Exception raised by Context.build if the user has requested a FSL
-    version that does not exist.
-    """
-
-
-class BuildNotAvailable(Exception):
-    """Exception raised by Context.build if there is no available FSL version
-    that matches the target platform and/or requested CUDA version.
-    """
-
-
-class UnsupportedPlatform(Exception):
-    """Exception raised by the identify_platform function if FSL is not
-    available on this platform.
-    """
 
 
 @ft.total_ordering
 class Version(object):
     """Class to represent and compare version strings.  Accepted version
-    strings are of the form X.Y.Z, where X, Y, and Z are all integers.
+    strings are of the form W.X.Y.Z, where W, X, Y, and Z are all integers.
     """
     def __init__(self, verstr):
-        major, minor, patch = verstr.split('.')[:3]
-        self.verstr         = verstr
-        self.major          = int(major)
-        self.minor          = int(minor)
-        self.patch          = int(patch)
+        # The major/minor numbers of FSL versions
+        # change very infrequently for various
+        # reasons, so we accept a fourth "hotfix"
+        # number.
+        self.components = map(int, verstr.split('.')[:4])
+        self.verstr     = verstr
 
     def __str__(self):
         return self.verstr
 
     def __eq__(self, other):
-        return all((self.major == other.major,
-                    self.minor == other.minor,
-                    self.patch == other.patch))
+        for sn, on in zip(self.components, other.components):
+            if sn != on:
+                 return False
+        return len(self.components) == len(other.components)
 
     def __lt__(self, other):
-        for p1, p2 in zip((self.major,  self.minor,  self.patch),
-                          (other.major, other.minor, other.patch)):
+        for p1, p2 in zip(self.components, other.components):
             if p1 < p2: return True
             if p1 > p2: return False
         return False
@@ -161,13 +140,36 @@ class Context(object):
         self.__need_admin     = None
         self.__admin_password = None
 
+        # These attributes are set by main - exists is
+        # a flag denoting whether the dest dir already
+        # exists, and update is the version string of
+        # the existing FSL installation if the user
+        # has selected to update it, or None otherwise.
+        self.exists = False
+        self.update = None
+
+        # If the destination directory already exists,
+        # and the user chooses to overwrite it, it is
+        # moved so that, if the installation fails, it
+        # can be restored. The new path is stored
+        # here - refer to overwrite_destdir.
+        self.old_destdir = None
+
+        # The install_fsl function stores the path
+        # to the FSL conda environment file here
+        self.environment_file = None
+
+        # The config_logging function stores the path
+        # to the fslinstaller log file here.
+        self.logfile = None
+
 
     def finalise_settings(self):
         """Finalise values for all information and settings in the Context.
         """
+        self.manifest
         self.platform
         self.cuda
-        self.manifest
         self.build
         self.destdir
         self.need_admin
@@ -212,28 +214,68 @@ class Context(object):
                            is to be installed.
         """
 
+        if self.__build is not None:
+            return self.__build
+
+        # defaults to "latest" if
+        # not specified by the user
         fslversion = self.args.fslversion
 
         if fslversion not in self.manifest['versions']:
-            raise UnknownVersion(
-                'FSL version {} is not available'.format(args.fslversion))
+            available = ', '.join(self.manifest['versions'].keys())
+            raise Exception(
+                'FSL version {} is not available - available '
+                'versions: {}'.format(args.fslversion, available))
 
         if fslversion == 'latest':
             fslversion = self.manifest['versions']['latest']
 
-        match = None
+        # Find refs to all compatible builds,
+        # separating the default (no CUDA) build
+        # from CUDA-enabled builds. We assume
+        # that there is only one default build
+        # for each platform.
+        default    = None
+        candidates = []
 
         for build in self.manifest['versions'][fslversion]:
-            if build['platform']       == self.platform and \
-               build.get('cuda', None) == self.cuda:
-                match = build
-                break
-        else:
-            raise BuildNotAvailable(
+            if build['platform'] == self.platform:
+                if build.get('cuda', None) is None:
+                    default = build
+                else:
+                    candidates.append(build)
+
+        if (default is None) and (len(candidates) == 0):
+            raise Exception(
                 'Cannot find a version of FSL matching platform '
                 '{} and CUDA {}'.format(self.platform, self.cuda))
 
-        match['version'] = fslversion
+        # If we have CUDA (or the user has
+        # specifically requested a CUDA build),
+        # try and find a suitable build
+        match = default
+        if self.cuda is not None:
+            candidates = sorted(candidates, key=lambda b: float(b['cuda']))
+
+            for build in reversed(candidates):
+                if self.cuda >= float(build['cuda']):
+                    match = build
+                    break
+            else:
+                available = [b['cuda'] for b in candidates]
+                printmsg('Could not find a suitable FSL CUDA '
+                         'build for CUDA version {} (available: '
+                         '{}. Installing default (non-CUDA) '
+                         'FSL build.'.format(self.cuda, available),
+                         WARNING)
+                printmsg('You can use the --cuda command-line option '
+                         'to install a FSL build that is compatible '
+                         'with a specific CUDA version', INFO)
+
+        printmsg('FSL {} [CUDA: {}] selected for installation'.format(
+            match['version'], match.get('cuda', 'n/a')))
+
+        self.__build = match
         return match
 
 
@@ -251,15 +293,13 @@ class Context(object):
         # interactively.  In either case, if invalid, the
         # user is re-prompted to enter a new destination.
         destdir = None
-        if self.args.dest is not None:
-            response = self.args.dest
-        else:
-            response = None
+        if self.args.dest is not None: response = self.args.dest
+        else:                          response = None
 
         while destdir is None:
 
             if response is None:
-                printmsg('Where do you want to install FSL?',
+                printmsg('\nWhere do you want to install FSL?',
                          IMPORTANT, EMPHASIS)
                 printmsg('Press enter to install to the default location '
                          '[{}]\n'.format(DEFAULT_INSTALLATION_DIRECTORY), INFO)
@@ -304,8 +344,6 @@ class Context(object):
             return self.__admin_password
         if self.__need_admin == False:
             return None
-        if self.__destdir is None:
-            raise RuntimeError('Destination directory has not been set')
         self.__admin_password = Context.get_admin_password()
 
 
@@ -341,7 +379,10 @@ class Context(object):
         key    = (system, cpu)
 
         if key not in platforms:
-            raise UnsupportedPlatform()
+            supported = ', '.join(['[{}, {}]' for s, c in platforms])
+            raise Exception('This platform [{}, {}] is unrecognised or '
+                            'unsupported! Supported platforms: {}'.format(
+                                system, cpu, spported))
 
         return platforms[key]
 
@@ -349,10 +390,12 @@ class Context(object):
     @staticmethod
     def identify_cuda():
         """Identifies the CUDA version supported on the platform. Returns a
-        string containing the 'X.Y' CUDA version, or None if CUDA is not
-        supported.
+        float representing the X.Y CUDA version, or None if CUDA is not
+        available on the platform.
         """
 
+        # see below - no_cuda is set to prevent unnecessary
+        # attempts to call nvidia-smi more than once
         if getattr(Context.identify_cuda, 'no_cuda', False):
             return None
 
@@ -370,17 +413,13 @@ class Context(object):
                 cudaver = match.group(1)
                 break
         else:
+            # message for debugging - the output
+            # will be present in the logfile
+            log.debug('Could not parse nvidia-smi output')
             Context.identify_cuda.no_cuda = True
             return None
 
-        # Return the most suitable CUDA
-        # version that we have a build for
-        for supported in reversed(SUPPORTED_CUDAS):
-            if float(cudaver) >= float(supported):
-                return supported
-
-        Context.identify_cuda.no_cuda = True
-        return None
+        return float(cudaver)
 
 
     @staticmethod
@@ -419,7 +458,7 @@ class Context(object):
                 printmsg('Incorrect password', WARNING)
 
         if not valid:
-            raise InvalidPassword()
+            raise Exception('Incorrect password')
 
         return password
 
@@ -433,6 +472,9 @@ class Context(object):
         The manifest file is a JSON file. Lines beginning
         with a double-forward-slash are ignored. See test/data/manifes.json
         for an example.
+
+        This function modifies the manifest structure by adding a 'version'
+        attribute to all FSL build entries.
         """
 
         log.debug('Downloading FSL installer manifest from %s', url)
@@ -445,7 +487,16 @@ class Context(object):
         # Drop comments
         lines = [l for l in lines if not l.lstrip().startswith('//')]
 
-        return json.loads('\n'.join(lines))
+        manifest = json.loads('\n'.join(lines))
+
+        # Add "version" to every build
+        for version, builds in manifest['versions'].items():
+            if version == 'latest':
+                continue
+            for build in builds:
+                build['version'] = version
+
+        return manifest
 
 
 # List of modifiers which can be used to change how
@@ -475,9 +526,17 @@ ANSICODES = {
 def printmsg(msg='', *msgtypes, **kwargs):
     """Prints msg according to the ANSI codes provided in msgtypes.
     All other keyword arguments are passed through to the print function.
+
+    :arg msgtypes: Message types to control formatting
+    :arg log:      If True (default), the message is logged.
+
+    All other keyword arguments are passed to the built-in print function.
     """
+    logmsg   = kwargs.pop('log', msg != '')
     msgcodes = [ANSICODES[t] for t in msgtypes]
     msgcodes = ''.join(msgcodes)
+    if logmsg:
+        log.debug(msg)
     print('{}{}{}'.format(msgcodes, msg, ANSICODES[RESET]), **kwargs)
     sys.stdout.flush()
 
@@ -486,10 +545,14 @@ def prompt(prompt, *msgtypes, **kwargs):
     """Prompts the user for some input. msgtypes and kwargs are passed
     through to the printmsg function.
     """
-    printmsg(prompt, *msgtypes, end='', **kwargs)
+    printmsg(prompt, *msgtypes, end='', log=False, **kwargs)
 
-    if PY2: return raw_input(' ').strip()
-    else:   return input(    ' ').strip()
+    if PY2: response = raw_input(' ').strip()
+    else:   response = input(    ' ').strip()
+
+    log.debug('%s: %s', prompt, response)
+
+    return response
 
 
 class Progress(object):
@@ -562,7 +625,7 @@ class Progress(object):
         return self
 
     def __exit__(self, *args, **kwargs):
-        printmsg()
+        printmsg(log=False)
 
     def update(self, value=None, total=None):
 
@@ -589,7 +652,7 @@ class Progress(object):
         idx  = (idx + 1) % len(symbols)
         this = symbols[idx]
 
-        printmsg(this, end='\r')
+        printmsg(this, end='\r', log=False)
         self.__last_spin = this
 
     def count(self, value):
@@ -599,7 +662,7 @@ class Progress(object):
         if self.label is None: line = '{} ...'.format(value)
         else:                  line = '{}{} ...'.format(value, self.label)
 
-        printmsg(line, end='\r')
+        printmsg(line, end='\r', log=False)
 
     def progress(self, value, total):
 
@@ -624,10 +687,10 @@ class Progress(object):
                                        ' ' * remaining,
                                        suffix)
 
-        printmsg(progress, end='')
-        printmsg(' ', end='')
+        printmsg(progress, end='', log=False)
+        printmsg(' ', end='', log=False)
         self.spin()
-        printmsg(end='\r')
+        printmsg(end='\r', log=False)
 
 
     @staticmethod
@@ -641,7 +704,7 @@ class Progress(object):
             return os.get_terminal_size()[0]
 
         try:
-            result = Process.check_output('tput cols', log_output=False)
+            result = sp.check_output(('tput', 'cols'))
             return int(result.strip())
         except Exception:
             return fallback
@@ -683,12 +746,6 @@ def memoize(f):
     return g
 
 
-class ChecksumError(Exception):
-    """Exception raised by the sha256 function if a file checksume does
-    not match the expected checksum.
-    """
-
-
 def sha256(filename, check_against=None, blocksize=1048576):
     """Calculate the SHA256 checksum of the given file. If check_against
     is provided, it is compared against the calculated checksum, and an
@@ -708,8 +765,8 @@ def sha256(filename, check_against=None, blocksize=1048576):
 
     if check_against is not None:
         if checksum != check_against:
-            raise ChecksumError('File {} does not match expected checksum '
-                                '({})'.format(filename, check_against))
+            raise Exception('File {} does not match expected checksum '
+                            '({})'.format(filename, check_against))
 
     return checksum
 
@@ -752,9 +809,6 @@ def download_file(url, destination, progress=None, blocksize=131072):
                 outf.write(block)
                 progress(downloaded, total)
 
-    except Exception:
-        raise DownloadFailed('A network error has occurred while '
-                             'trying to download {}'.format(url))
     finally:
         if req:
             req.close()
@@ -844,7 +898,7 @@ class Process(object):
         proc.wait()
 
         if proc.returncode != 0:
-            raise RuntimeError(cmd)
+            raise RuntimeError('This command returned an error: ' + cmd)
 
         stdout = ''
         while True:
@@ -867,7 +921,7 @@ class Process(object):
         proc = Process(cmd, *args, **kwargs)
         proc.wait()
         if proc.returncode != 0:
-            raise RuntimeError(cmd)
+            raise RuntimeError('This command returned an error: ' + cmd)
 
 
     @staticmethod
@@ -902,7 +956,7 @@ class Process(object):
             if proc.returncode == 0:
                 prog.update(total, total)
             else:
-                raise RuntimeError(cmd)
+                raise RuntimeError('This command returned an error: ' + cmd)
 
 
     @staticmethod
@@ -989,9 +1043,9 @@ def list_available_versions(ctx):
             printmsg(build['environment'], INFO)
 
 
-def install_miniconda(ctx):
-    """Downloads the miniconda/miniforge installer, and installs it to the
-    destination directory.
+def download_miniconda(ctx):
+    """Downloads the miniconda/miniforge installer and saves it as
+    "miniconda.sh".
 
     This function assumes that it is run within a temporary/scratch directory.
     """
@@ -1009,11 +1063,27 @@ def install_miniconda(ctx):
     with Progress('MB', transform=Progress.bytes_to_mb) as prog:
         download_file(url, 'miniforge.sh', prog.update)
     if not ctx.args.no_checksum:
-        sha256('miniforge.sh', checksum)
+        sha256('miniconda.sh', checksum)
+
+
+def install_miniconda(ctx):
+    """Downloads the miniconda/miniforge installer, and installs it to the
+    destination directory.
+
+    This function assumes that it is run within a temporary/scratch directory.
+    """
+
+    metadata = ctx.manifest['miniconda'][ctx.platform]
+    url      = metadata['url']
+    checksum = metadata['sha256']
+    output   = metadata.get('output', '').strip()
+
+    if output == '': output = None
+    else:            output = int(output)
 
     # Install
     printmsg('Installing miniconda at {}...'.format(ctx.destdir))
-    cmd = 'sh miniforge.sh -b -p {}'.format(ctx.destdir)
+    cmd = 'sh miniconda.sh -b -p {}'.format(ctx.destdir)
     Process.monitor_progress(cmd, output, ctx.need_admin, ctx)
 
     # Create .condarc config file
@@ -1054,35 +1124,39 @@ def install_miniconda(ctx):
                        ctx.need_admin, ctx)
 
 
-def install_fsl(ctx, update_from=None):
+def install_fsl(ctx):
     """Install FSL into ctx.destdir (which is assumed to be a miniconda
     installation.
 
-    :arg update_from: FSL version string of existing installation that is
-                      being updated, or None if this is a new installation.
+    This function assumes that it is run within a temporary/scratch directory.
     """
 
     build    = ctx.build
     url      = build['environment']
     checksum = build['sha256']
 
-    # expected number of output lines
-    # for new install or upgrade, used
-    # for progress reporting
-    if update_from is None:
+    # expected number of output lines for new
+    # install or upgrade, used for progress
+    # reporting. If manifest does not contain
+    # expected #lines, we fall back to a spinner.
+    if ctx.update is None:
         output = build.get('output', {}).get('install', None)
     else:
-        output = build.get('output', {}).get(update_from, None)
+        output = build.get('output', {}).get(ctx.update, None)
 
     if output in ('', None): output = None
     else:                    output = int(output)
 
     printmsg('Downloading FSL environment specification '
              'from {}...'.format(url))
-    download_file(url, 'environment.yml')
+    fname = url.split('/')[-1]
+    download_file(url, fname)
+    ctx.environment_file = op.abspath(fname)
+    if not ctx.args.no_checksum:
+        sha256(fname, build['sha256'])
 
     conda = op.join(ctx.destdir, 'bin', 'conda')
-    cmd   = conda + ' env update -n base -f environment.yml'
+    cmd   = conda + ' env update -n base -f ' + fname
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
 
@@ -1100,19 +1174,17 @@ def finalise_installation(ctx):
     """Performs some finalisation tasks. Includes:
       - Saving the installed version to $FSLDIR/etc/fslversion
       - Saving this installer script and the environment file to
-        $FSLDIR/share/fsl/installer/
+        $FSLDIR/etc/
     """
     with open('fslversion', 'wt') as f:
         f.write(ctx.build['version'])
 
     call    = ft.partial(Process.check_call, admin=ctx.need_admin, ctx=ctx)
     etcdir  = op.join(ctx.destdir, 'etc')
-    instdir = op.join(ctx.destdir, 'share', 'fsl', 'installer')
 
-    call('cp fslversion {}'     .format(etcdir))
-    call('mkdir -p {}'          .format(instdir))
-    call('cp environment.yml {}'.format(instdir))
-    call('cp {} {}'             .format(__absfile__, instdir))
+    call('cp fslversion {}'.format(etcdir))
+    call('cp {} {}'        .format(ctx.environment_file, etcdir))
+    call('cp {} {}'        .format(__absfile__,          etcdir))
 
 
 def post_install_cleanup(ctx):
@@ -1316,8 +1388,8 @@ def update_destdir(ctx):
 
     # Too old (pre-conda)
     if installed < updateable:
-        printmsg('FSL version {} is too old to update - you will '
-                 'need to overwrite it'.format(installed), INFO)
+        printmsg('FSL version {} is too old to update - you will need '
+                 'to overwrite/re-install FSL'.format(installed), INFO)
         return None
 
     # Existing install is equal to
@@ -1348,15 +1420,26 @@ def update_destdir(ctx):
             printmsg('Aborting installation', ERROR, EMPHASIS)
             sys.exit(1)
 
-    # --update -> don't prompt
+    # User specified --update -> don't prompt
     if ctx.args.update:
         return str(installed)
 
-    response = prompt('Would you like to upgrade from version {} to '
-                      'version {} [y/N]?'.format(installed, requested),
+    printmsg('Would you like to upgrade your existing FSL installation from '
+             'version {} to version {}, or replace your installation?'.format(
+                 installed, requested), IMPORTANT, EMPHASIS)
+    printmsg('Upgrading an existing FSL installation is experimental '
+             'and might fail - replacing your installation will take '
+             'longer, but is usually a safer option\n', INFO)
+    response = prompt('Upgrade (u), replace (r), or cancel? [u/r/C]:',
                       QUESTION, EMPHASIS)
-    if response.lower() in ('y', 'yes'):
+
+    if response.lower() in ('u'):
         return str(installed)
+    # main routine will go on to ask
+    # if they want to overwrite
+    elif response.lower() in ('r'):
+        ctx.args.overwrite = True
+        return None
     else:
         printmsg('Aborting installation', ERROR, EMPHASIS)
         sys.exit(1)
@@ -1365,7 +1448,10 @@ def update_destdir(ctx):
 def overwrite_destdir(ctx):
     """Called by main if the destination directory already exists. Asks the
     user if they want to overwrite it. If they do, or if the --overwrite
-    option was specified, the directory is deleted
+    option was specified, the directory is moved, and then deleted after
+    the installation succeeds.
+
+    This function assumes that it is run within a temporary/scratch directory.
     """
 
     if not ctx.args.overwrite:
@@ -1378,8 +1464,20 @@ def overwrite_destdir(ctx):
             printmsg('Aborting installation', ERROR, EMPHASIS)
             sys.exit(1)
 
+    # generate a unique name for the old
+    # destination directory (to avoid
+    # collisions if using the same workdir
+    # repeatedly)
+    i = 0
+    while True:
+        ctx.old_destdir = op.abspath('old_destdir{}'.format(i))
+        i              += 1
+        if not op.exists(ctx.old_destdir):
+            break
+
     printmsg('Deleting directory {}'.format(ctx.destdir), IMPORTANT)
-    Process.check_call('rm -r {}'.format(ctx.destdir), ctx.need_admin, ctx)
+    Process.check_call('mv {} {}'.format(ctx.destdir, ctx.old_destdir),
+                       ctx.need_admin, ctx)
 
 
 def parse_args(argv=None):
@@ -1446,7 +1544,7 @@ def parse_args(argv=None):
                         help=helps['no_matlab'])
     parser.add_argument('-V', '--fslversion', default='latest',
                         help=helps['version'])
-    parser.add_argument('-c', '--cuda', help=helps['cuda'])
+    parser.add_argument('-c', '--cuda', help=helps['cuda'], type=float)
 
     # hidden options
     parser.add_argument('-k', '--no_checksum', action='store_true',
@@ -1491,13 +1589,54 @@ def config_logging(ctx):
     if ctx.args.workdir is not None: logdir = ctx.args.workdir
     else:                            logdir = tempfile.gettempdir()
 
-    logfile   = op.join(logdir, 'fslinstaller.log')
-    handler   = logging.FileHandler(logfile)
-    formatter = logging.Formatter(
+    logfile     = op.join(logdir, 'fslinstaller.log')
+    ctx.logfile = logfile
+    handler     = logging.FileHandler(logfile)
+    formatter   = logging.Formatter(
         '%(asctime)s %(filename)s:%(lineno)4d: %(message)s', '%H:%M:%S')
     handler.setFormatter(formatter)
     log.addHandler(handler)
     log.setLevel(logging.DEBUG)
+
+
+@contextlib.contextmanager
+def handle_error(ctx):
+    """Used by main as a context manager around the main installation steps.
+    If an error occurs, prints some messages, performs some clean-up/
+    restoration tasks, and exits.
+    """
+
+    try:
+        yield
+
+    except Exception as e:
+        printmsg('\nERROR occurred during installation!', ERROR, EMPHASIS)
+        printmsg('    {}\n'.format(e), INFO)
+
+        # send traceback to log file
+        tb = traceback.format_tb(sys.exc_info()[2])
+        log.debug(''.join(tb))
+
+        # Don't remove a failed update, despite
+        # it potentially being corrupt
+        if (not ctx.update) and op.exists(ctx.destdir):
+            printmsg('Removing failed installation directory '
+                     '{}'.format(ctx.destdir), WARNING)
+            Process.check_call('rm -r ' + ctx.destdir, ctx.need_admin, ctx)
+
+        # overwrite_destdir moves the existing
+        # destdir to a temp location, so we can
+        # restore it if the installation fails
+        if not op.exists(ctx.destdir) and (ctx.old_destdir is not None):
+            printmsg('Restoring contents of {}'.format(ctx.destdir),
+                     WARNING)
+            Process.check_call('mv {} {}'.format(ctx.old_destdir, ctx.destdir),
+                               ctx.need_admin, ctx)
+
+        printmsg('\nFSL installation failed!', ERROR, EMPHASIS)
+        printmsg('The log file may contain some more information to help '
+                 'you diagnose the problem: {}'.format(ctx.logfile), ERROR)
+        sys.exit(1)
 
 
 def main(argv=None):
@@ -1516,7 +1655,8 @@ def main(argv=None):
         self_update(ctx)
 
     printmsg('FSL installer version:', EMPHASIS, UNDERLINE, end='')
-    printmsg(' ' + __version__ + '\n')
+    printmsg(' {}'.format(__version__))
+    printmsg('Press CTRL+C at any time to cancel installation', INFO)
 
     if args.listversions:
         list_available_versions(ctx)
@@ -1524,34 +1664,35 @@ def main(argv=None):
 
     ctx.finalise_settings()
 
-    update_from = None
-
     with tempdir(args.workdir):
 
         # Ask the user if they want to update or
         # overwrite an existing installation
-        if op.exists(ctx.destdir):
-            update_from = update_destdir(ctx)
+        ctx.update = None
+        ctx.exists = op.exists(ctx.destdir)
 
-            if not update_from:
+        if ctx.exists:
+            ctx.update = update_destdir(ctx)
+            if not ctx.update:
                 overwrite_destdir(ctx)
 
-        if update_from: action = 'Updating'
-        else:           action = 'Installing'
-
+        if ctx.update: action = 'Updating'
+        else:          action = 'Installing'
         printmsg('\n{} FSL in {}\n'.format(action, ctx.destdir), EMPHASIS)
 
-        if not update_from:
-            install_miniconda(ctx)
-        install_fsl(ctx, update_from)
-        finalise_installation(ctx)
-        post_install_cleanup(ctx)
+        with handle_error(ctx):
+            if not ctx.update:
+                download_miniconda(ctx)
+                install_miniconda(ctx)
+            install_fsl(ctx)
+            finalise_installation(ctx)
+            post_install_cleanup(ctx)
 
-    if not (update_from or args.no_shell):  configure_shell( ctx)
-    if not (update_from or args.no_matlab): configure_matlab(ctx)
+    if not args.no_shell:  configure_shell( ctx)
+    if not args.no_matlab: configure_matlab(ctx)
 
     printmsg('\nFSL successfully installed\n', IMPORTANT)
-    if not args.no_env:
+    if not args.no_shell:
         printmsg('Open a new terminal, or log out and log back in, '
                  'for the environment changes to take effect.', INFO)
 
