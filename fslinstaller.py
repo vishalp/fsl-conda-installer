@@ -701,8 +701,10 @@ class Progress(object):
         """
         # os.get_terminal_size added in python
         # 3.3, so we try it but fall back to tput
-        if hasattr(os, 'get_terminal_size'):
+        try:
             return os.get_terminal_size()[0]
+        except Exception:
+            pass
 
         try:
             result = sp.check_output(('tput', 'cols'))

@@ -156,4 +156,4 @@ def mock_input(*responses):
 
 def strip_ansi_escape_sequences(text):
     """Does what function name says it does. """
-    return re.sub('\x1b\[[0-9;]*m', '', text)
+    return re.sub(r'\x1b\[[0-9;]*m', '', text)
