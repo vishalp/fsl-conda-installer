@@ -25,6 +25,8 @@ In normal usage, the `fslinstaller.py` script performs the following tasks:
     the latest FSL version (or the version requested by the user; hereafter
     referred to as `environment.yml`)
  6. Installs the FSL environment by running:
-       $FSLDIR/bin/conda env update -n base -f environment.yml
+
+       `$FSLDIR/bin/conda env update -n base -f environment.yml`
+
  7. Modifies the user's shell configuration so that FSL is accessible in
     their shell environment.
