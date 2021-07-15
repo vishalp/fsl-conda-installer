@@ -67,7 +67,7 @@ class HTTPServer(threading.Thread):
 
     @property
     def port(self):
-        return self.server.server_port
+        return self.server.server_address[1]
 
     def run(self):
         self.server.serve_forever()
