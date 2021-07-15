@@ -1010,14 +1010,14 @@ class Process(object):
         return proc
 
 
-def list_available_versions(ctx):
+def list_available_versions(manifest):
     """Lists available FSL versions. """
     printmsg('Available FSL versions:', EMPHASIS)
-    for version in ctx.manifest['versions']:
+    for version in manifest['versions']:
         if version == 'latest':
             continue
         printmsg(version, IMPORTANT, EMPHASIS)
-        for build in ctx.manifest['versions'][version]:
+        for build in manifest['versions'][version]:
             if build.get('cuda', '').strip() != '':
                 template = '  {platform} [CUDA {cuda}]'
             else:
@@ -1044,7 +1044,7 @@ def download_miniconda(ctx):
     # Download
     printmsg('Downloading miniconda from {}...'.format(url))
     with Progress('MB', transform=Progress.bytes_to_mb) as prog:
-        download_file(url, 'miniforge.sh', prog.update)
+        download_file(url, 'miniconda.sh', prog.update)
     if not ctx.args.no_checksum:
         sha256('miniconda.sh', checksum)
 
@@ -1305,14 +1305,14 @@ def configure_matlab(homedir, fsldir):
     patch_file(startup_m, '% FSL Setup', len(cfg.split('\n')), cfg)
 
 
-def self_update(ctx):
+def self_update(manifest, workdir, checksum):
     """Checks to see if a newer version of the installer (this script) is
     available and if so, downloads it to a temporary file, and runs it in
     place of this script.
     """
 
     thisver   = Version(__version__)
-    latestver = Version(ctx.manifest['installer']['version'])
+    latestver = Version(manifest['installer']['version'])
 
     if latestver <= thisver:
         log.debug('Installer is up to date (this vesrion: %s, '
@@ -1323,14 +1323,19 @@ def self_update(ctx):
               '(%s) - self-updating', latestver)
 
     tmpf = tempfile.NamedTemporaryFile(
-        prefix='new_fslinstaller', delete=False, dir=ctx.args.workdir)
+        prefix='new_fslinstaller', delete=False, dir=workdir)
     tmpf.close()
     tmpf = tmpf.name
 
-    download_file(ctx.manifest['installer']['url'], tmpf)
+    download_file(manifest['installer']['url'], tmpf)
 
-    if not ctx.args.no_checksum:
-        sha256(tmpf, ctx.manifest['installer']['sha256'])
+    if checksum:
+        try:
+            sha256(tmpf, manifest['installer']['sha256'])
+        except Exception as e:
+            printmsg('New installer file does not match expected '
+                     'checksum! Skipping update.', WARNING)
+            return
 
     cmd = [sys.executable, tmpf] + sys.argv[1:]
     log.debug('Running new installer: %s', cmd)
@@ -1646,14 +1651,14 @@ def main(argv=None):
     log.debug(' '.join(sys.argv))
 
     if not args.no_self_update:
-        self_update(ctx)
+        self_update(ctx.manifest, args.workdir, not args.no_checksum)
 
     printmsg('FSL installer version:', EMPHASIS, UNDERLINE, end='')
     printmsg(' {}'.format(__version__))
     printmsg('Press CTRL+C at any time to cancel installation', INFO)
 
     if args.listversions:
-        list_available_versions(ctx)
+        list_available_versions(manifest)
         sys.exit(0)
 
     ctx.finalise_settings()
