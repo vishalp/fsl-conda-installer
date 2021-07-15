@@ -15,7 +15,7 @@ stages:
   script:
     - pip install --upgrade pip setuptools wheel
     - pip install pytest coverage pytest-cov mock
-    - pytest -v tests --cov=fslinstaller
+    - pytest -v --cov=fslinstaller test
 
 test:py27:
   extends: .test-template
