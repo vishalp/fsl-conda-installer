@@ -94,7 +94,7 @@ class Version(object):
         # change very infrequently for various
         # reasons, so we accept a fourth "hotfix"
         # number.
-        self.components = map(int, verstr.split('.')[:4])
+        self.components = list(map(int, verstr.split('.')[:4]))
         self.verstr     = verstr
 
     def __str__(self):
@@ -110,7 +110,7 @@ class Version(object):
         for p1, p2 in zip(self.components, other.components):
             if p1 < p2: return True
             if p1 > p2: return False
-        return False
+        return len(self.components) < len(other.components)
 
 
 class Context(object):
@@ -127,7 +127,7 @@ class Context(object):
         """
 
         self.args  = args
-        self.shell = op.basename(os.environ['SHELL'])
+        self.shell = op.basename(os.environ['SHELL']).lower()
 
         # These attributes are updated on-demand via
         # the property accessors defined below, or all
@@ -367,7 +367,7 @@ class Context(object):
 
         platforms = {
             ('linux',  'x86_64') : 'linux-64',
-            ('darwin', 'x86_64') : 'linux-64',
+            ('darwin', 'x86_64') : 'macos-64',
 
             # M1 builds (and possbily ARM for Linux)
             # will be added in the future
@@ -382,7 +382,7 @@ class Context(object):
             supported = ', '.join(['[{}, {}]' for s, c in platforms])
             raise Exception('This platform [{}, {}] is unrecognised or '
                             'unsupported! Supported platforms: {}'.format(
-                                system, cpu, spported))
+                                system, cpu, supported))
 
         return platforms[key]
 
@@ -427,7 +427,8 @@ class Context(object):
         """Returns True if dirname needs administrator privileges to write to,
         False otherwise.
         """
-        # TODO os.supports_effective_ids added in python 3.3
+        # os.supports_effective_ids added in
+        # python 3.3, so can't be used here
         return not os.access(dirname, os.W_OK | os.X_OK)
 
 
@@ -436,7 +437,7 @@ class Context(object):
         """Prompt the user for their administrator password."""
 
         def validate_admin_password(password):
-            proc = sudo_popen(['true'], password)
+            proc = Process.sudo_popen(['true'], password)
             proc.communicate()
             return proc.returncode == 0
 
@@ -734,18 +735,6 @@ def tempdir(override_dir=None):
             shutil.rmtree(tmpdir)
 
 
-def memoize(f):
-    """Decorator to memoize a function. """
-
-    cache = f.cache = {}
-    def g(*args, **kwargs):
-        key = (f, tuple(args), frozenset(kwargs.items()))
-        if key not in cache:
-            cache[key] = f(*args, **kwargs)
-        return cache[key]
-    return g
-
-
 def sha256(filename, check_against=None, blocksize=1048576):
     """Calculate the SHA256 checksum of the given file. If check_against
     is provided, it is compared against the calculated checksum, and an
@@ -769,12 +758,6 @@ def sha256(filename, check_against=None, blocksize=1048576):
                             '({})'.format(filename, check_against))
 
     return checksum
-
-
-class DownloadFailed(Exception):
-    """Exception type raised by the download_file function if a
-    download fails for some reason.
-    """
 
 
 def download_file(url, destination, progress=None, blocksize=131072):
@@ -1227,8 +1210,14 @@ def patch_file(filename, searchline, numlines, content):
         f.write('\n'.join(lines))
 
 
-def configure_shell(ctx):
-    """Configures the user's shell environment (e.g. ~/.bash_profile). """
+def configure_shell(shell, homedir, fsldir):
+    """Configures the user's shell environment (e.g. ~/.bash_profile).
+
+    :arg shell:   User's shell (taken from the $SHELL environment variable
+    :arg homedir: User's home directory, presumed to contain shell profile
+                  file(s).
+    :arg fsldir:  FSL installation directory
+    """
 
     bourne_shells  = ['sh', 'bash', 'zsh', 'dash']
     csh_shells     = ['csh', 'tcsh']
@@ -1242,7 +1231,7 @@ def configure_shell(ctx):
                       'csh'  : ['.cshrc'],
                       'tcsh' : ['.tcshrc']}
 
-    # Do not change the format of these configurations -
+    # DO NOT CHANGE the format of these configurations -
     # they are kept exactly as-is for compatibility with
     # legacy FSL installations, i.e. so we can modify
     # profiles with an existing configuration from older
@@ -1253,27 +1242,27 @@ def configure_shell(ctx):
     PATH=${{FSLDIR}}/share/fsl/bin:${{PATH}}
     export FSLDIR PATH
     . ${{FSLDIR}}/etc/fslconf/fsl.sh
-    """).format(fsldir=ctx.destdir)
+    """).format(fsldir=fsldir).strip()
 
     csh_cfg = tw.dedent("""
     # FSL Setup
     setenv FSLDIR {fsldir}
     setenv PATH ${{FSLDIR}}/share/fsl/bin:${{PATH}}
     source ${{FSLDIR}}/etc/fslconf/fsl.csh
-    """).format(fsldir=ctx.destdir)
+    """).format(fsldir=fsldir).strip()
 
-    if ctx.shell not in bourne_shells + csh_shells:
+    if shell not in bourne_shells + csh_shells:
         printmsg('Shell {} not recognised - skipping environment '
-                 'setup'.format(ctx.shell), WARNING, EMPHASIS)
+                 'setup'.format(shell), WARNING, EMPHASIS)
         return
 
-    if ctx.shell in bourne_shells: cfg = bourne_cfg
-    else:                          cfg = csh_cfg
+    if shell in bourne_shells: cfg = bourne_cfg
+    else:                      cfg = csh_cfg
 
     # find the profile file to edit
     profile    = None
-    candidates = [op.join(ctx.args.homedir, p)
-                  for p in shell_profiles[ctx.shell]]
+    candidates = [op.join(homedir, p)
+                  for p in shell_profiles[shell]]
     for candidate in candidates:
         if op.isfile(candidate):
             profile = candidate
@@ -1289,11 +1278,11 @@ def configure_shell(ctx):
     patch_file(profile, '# FSL Setup', len(cfg.split('\n')), cfg)
 
 
-def configure_matlab(ctx):
+def configure_matlab(homedir, fsldir):
     """Creates/appends FSL configuration code to ~/Documents/MATLAB/startup.m.
     """
 
-    # Do not change the format of this configuration -
+    # DO NOT CHANGE the format of this configuration -
     # see in-line comments in configure_shell.
     cfg = tw.dedent("""
     % FSL Setup
@@ -1303,9 +1292,9 @@ def configure_matlab(ctx):
     fsldirmpath = sprintf('%s/etc/matlab',fsldir);
     path(path, fsldirmpath);
     clear fsldir fsldirmpath;
-    """).format(fsldir=ctx.destdir)
+    """).format(fsldir=fsldir).strip()
 
-    matlab_dir = op.expanduser(op.join(ctx.args.homedir, 'Documents', 'MATLAB'))
+    matlab_dir = op.expanduser(op.join(homedir, 'Documents', 'MATLAB'))
     startup_m  = op.join(matlab_dir, 'startup.m')
 
     if not op.exists(matlab_dir):
@@ -1618,8 +1607,13 @@ def handle_error(ctx):
         log.debug(''.join(tb))
 
         # Don't remove a failed update, despite
-        # it potentially being corrupt
-        if (not ctx.update) and op.exists(ctx.destdir):
+        # it potentially being corrupt (because
+        # it might also be fine)
+        if ctx.update:
+            printmsg('Update failed - your FSL installation '
+                     'might be corrupt!', WARNING, EMPHASIS)
+
+        elif op.exists(ctx.destdir):
             printmsg('Removing failed installation directory '
                      '{}'.format(ctx.destdir), WARNING)
             Process.check_call('rm -r ' + ctx.destdir, ctx.need_admin, ctx)
@@ -1688,8 +1682,10 @@ def main(argv=None):
             finalise_installation(ctx)
             post_install_cleanup(ctx)
 
-    if not args.no_shell:  configure_shell( ctx)
-    if not args.no_matlab: configure_matlab(ctx)
+    if not args.no_shell:
+        configure_shell( ctx.shell, args.homedir, ctx.destdir)
+    if not args.no_matlab:
+        configure_matlab(ctx.homedir, ctx.destdir)
 
     printmsg('\nFSL successfully installed\n', IMPORTANT)
     if not args.no_shell:
