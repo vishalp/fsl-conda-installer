@@ -127,7 +127,7 @@ class Context(object):
         """
 
         self.args  = args
-        self.shell = op.basename(os.environ.get('SHELL', 'sh').lower()
+        self.shell = op.basename(os.environ.get('SHELL', 'sh')).lower()
 
         # These attributes are updated on-demand via
         # the property accessors defined below, or all
