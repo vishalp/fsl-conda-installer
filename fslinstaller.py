@@ -1231,6 +1231,9 @@ def configure_shell(shell, homedir, fsldir):
                       'csh'  : ['.cshrc'],
                       'tcsh' : ['.tcshrc']}
 
+    # just for testing
+    configure_shell.shell_profiles = shell_profiles
+
     # DO NOT CHANGE the format of these configurations -
     # they are kept exactly as-is for compatibility with
     # legacy FSL installations, i.e. so we can modify
@@ -1658,7 +1661,7 @@ def main(argv=None):
     printmsg('Press CTRL+C at any time to cancel installation', INFO)
 
     if args.listversions:
-        list_available_versions(manifest)
+        list_available_versions(ctx.manifest)
         sys.exit(0)
 
     ctx.finalise_settings()
@@ -1688,9 +1691,9 @@ def main(argv=None):
             post_install_cleanup(ctx)
 
     if not args.no_shell:
-        configure_shell( ctx.shell, args.homedir, ctx.destdir)
+        configure_shell(ctx.shell, args.homedir, ctx.destdir)
     if not args.no_matlab:
-        configure_matlab(ctx.homedir, ctx.destdir)
+        configure_matlab(args.homedir, ctx.destdir)
 
     printmsg('\nFSL successfully installed\n', IMPORTANT)
     if not args.no_shell:
