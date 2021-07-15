@@ -1,102 +1,50 @@
 # CI / CD for the fsl/conda/installer project.
-#
-# Two pipelines may be executed:
-#
-#   - Commits pushed to any branch cause the test stage to run, which runs a
-#     set of unit tests.
-#
-#   - New tags cause the release-* stages to run:
-#
-#      1.A set of FSL conda environment specifications (conda YAML environment
-#         files) are generated
-#      2. The environment specifications are sanity-checked for validity
-#      3. The environment specifications and the fslinstaller.py script are
-#         deployed to a server to be made available for download (this job must
-#         be manually triggered).
-
+# Unit tests are run every time commits are
+# pushed to the master branch
 
 stages:
   - test
-  - release-build
-  - release-test
-  - release-deploy
 
-
-variables:
-
-  # Path to the FSL installer directory where the installer
-  # script and environment files are deployed to - assumed
-  # to be locally accessible to docker jobs that are
-  # executed by the fslconda-channel-host gitlab runner.
-  FSL_INSTALLER_DIRECTORY: /fslinstaller
-
-
-# Unit tests run on every push to any branch
-unit-tests:
+.test-template:
   stage: test
-  image: continuumio/miniconda3
   tags:
     - fsl-ci
     - docker
   rules:
     - if: '$CI_COMMIT_TAG == null'
   script:
-    - echo "todo"
+    - pip install --upgrade pip setuptools wheel
+    - pip install pytest coverage pytest-cov mock
+    - pytest -v tests --cov=fslinstaller
 
+test:py27:
+  extends: .test-template
+  image:    python:2.7
 
-# Generate FSL conda environment specifications on new tags
-generate-environment-specs:
-  stage: release-build
-  image: python:3.9
-  tags:
-    - fsl-ci
-    - docker
-  rules:
-    - if: '$CI_COMMIT_TAG != null'
+test:py33:
+  extends: .test-template
+  image:    python:3.3
 
-  variables:
-    PREFIX: fsl-$CI_COMMIT_TAG
+test:py34:
+  extends: .test-template
+  image:    python:3.4
 
-  script:
-    - python generate_environment_spec.py ${PREFIX}-linux-64.yml           linux-64
-    - python generate_environment_spec.py ${PREFIX}-macos-64.yml           macos-64
-    - python generate_environment_spec.py ${PREFIX}-linux-64-cuda-9.2.yml  linux-64  9.2
-    - python generate_environment_spec.py ${PREFIX}-linux-64-cuda-10.2.yml linux-64 10.2
-    - python generate_environment_spec.py ${PREFIX}-linux-64-cuda-11.0.yml linux-64 11.0
+test:py35:
+  extends: .test-template
+  image:    python:3.5
 
-  artifacts:
-    paths:
-      - ${PREFIX}*.yml
+test:py36:
+  extends: .test-template
+  image:    python:3.6
 
+test:py37:
+  extends: .test-template
+  image:    python:3.7
 
-# Validate newly generated FSL conda environment specifications
-test-release:
-  stage: release-test
-  image: continuumio/miniconda3
-  tags:
-    - fsl-ci
-    - docker
-  rules:
-    - if: '$CI_COMMIT_TAG != null'
-  dependencies:
-    - generate-environment-specs
-  script:
-    - ls -l
+test:py38:
+  extends: .test-template
+  image:    python:3.8
 
-
-# Deploy FSL conda environment specifications and installer script
-upload-installer-and-environment-specs:
-  stage: release-deploy
-  image: python:3.9
-  tags:
-    - fsl-ci
-    - fslconda-channel-host
-  rules:
-    - if:    '$CI_COMMIT_TAG != null'
-      when:  manual
-
-  dependencies:
-    - generate-environment-specs
-
-  script:
-    - cp fsl-*.yml fslinstaller.py ${FSL_INSTALLER_DIRECTORY}
+test:py39:
+  extends: .test-template
+  image:    python:3.9
