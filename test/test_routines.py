@@ -161,7 +161,7 @@ def test_download_file():
             f.write('hello\n')
         with server(cwd) as srv:
 
-            url = 'http://localhost:{}/file'.format(srv.port)
+            url = '{}/file'.format(srv.url)
 
             inst.download_file(url, 'copy')
 
