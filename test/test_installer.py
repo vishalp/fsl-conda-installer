@@ -115,7 +115,8 @@ def check_install(homedir, destdir, version):
 
     destdir = op.abspath(destdir)
     etc     = op.join(destdir, 'etc')
-    profile = inst.configure_shell.shell_profiles.get(os.environ['SHELL'], None)
+    shell   = os.environ.get('SHELL', 'sh')
+    profile = inst.configure_shell.shell_profiles.get(shell, None)
 
     with indir(destdir):
         with open(op.join(etc, 'fslversion'), 'rt') as f:
