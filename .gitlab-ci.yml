@@ -1,9 +1,35 @@
 # CI / CD for the fsl/conda/installer project.
+#
 # Unit tests are run every time commits are
-# pushed to the master branch
+# pushed to any branch.
+#
+# Release jobs are run every time a new tag
+# is added. Release jobs assume that they
+# are running in an environment with a
+# directory $FSLINSTALLER_DEPLOY_DIRECTORY
+# into which the fslinstaller.py script can
+# be copied.
 
 stages:
   - test
+  - release
+
+
+# These variables should be set as CI/CD variables in
+# the fsl/conda/installer project via the GitLab UI.
+variables:
+
+  # Directory in which new versions of the
+  # installer script should be copied into.
+  FSLINSTALLER_DEPLOY_DIRECTORY: "/"
+
+  # GitLab API token with enough privileges to push a
+  # branch to the fsl/conda/manifest repository, and open
+  # a merge request.  Used by the update_manifest.py
+  # script to update the FSL release manifest file when a
+  # new fslinstaller version is tagged.
+  FSL_CI_API_TOKEN: ""
+
 
 .test-template:
   stage: test
@@ -13,9 +39,7 @@ stages:
   rules:
     - if: '$CI_COMMIT_TAG == null'
   script:
-    - pip install --upgrade pip setuptools wheel
-    - pip install pytest coverage pytest-cov mock typing
-    - pytest -v --cov=fslinstaller test
+    - bash ./.ci/unit_tests.sh
 
 test:py27:
   extends: .test-template
@@ -48,3 +72,14 @@ test:py38:
 test:py39:
   extends: .test-template
   image:    python:3.9
+
+
+release:
+  image: python:3.9
+  tags:
+    - fsl-ci
+    - fslconda-channel-host
+  rules:
+    - if: '$CI_COMMIT_TAG != null'
+  script:
+    - bash ./.ci/new_release.sh
