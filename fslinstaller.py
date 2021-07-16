@@ -1569,7 +1569,7 @@ def parse_args(argv=None):
     if os.getuid() == 0:
         printmsg('Running the installer script as root user is discouraged! '
                  'You should run this script as a regular user - you will be '
-                 'asked for your administrator password if required.'
+                 'asked for your administrator password if required.',
                  WARNING, EMPHASIS)
 
     if args.no_env:
