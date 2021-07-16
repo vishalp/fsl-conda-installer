@@ -52,7 +52,8 @@ PY2 = sys.version[0] == '2'
 log = logging.getLogger(__name__)
 
 
-__absfile__ = op.abspath(__file__)
+# this sometimes gets set to fslinstaller.pyc, so rstrip c
+__absfile__ = op.abspath(__file__).rstrip('c')
 
 
 __version__ = '0.0.0'
