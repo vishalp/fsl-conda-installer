@@ -7,6 +7,7 @@ import os
 import os.path as op
 import contextlib
 import threading
+import multiprocessing as mp
 import functools as ft
 import sys
 import re
@@ -23,8 +24,8 @@ try:
 except ImportError:
     from StringIO import StringIO
     import SimpleHTTPServer as http
-    import SocketServer as socksrv
-    http.HTTPServer = socksrv.TCPServer
+    http.HTTPServer = http.BaseHTTPServer.HTTPServer
+    http.SimpleHTTPRequestHandler.protocol_version = 'HTTP/1.0'
     import mock
 
 
@@ -50,27 +51,31 @@ def indir(dir):
         os.chdir(prevdir)
 
 
-class HTTPServer(threading.Thread):
+class HTTPServer(mp.Process):
     """Simple HTTP server which serves files from a specified directory.
 
     Intended to be used via the :func:`server` context manager function.
     """
     def __init__(self, rootdir):
-        threading.Thread.__init__(self)
+        mp.Process.__init__(self)
         self.daemon = True
         self.rootdir = rootdir
-        handler = ft.partial(http.SimpleHTTPRequestHandler, directory=rootdir)
+        handler = http.SimpleHTTPRequestHandler
         self.server = http.HTTPServer(('', 0), handler)
+        self.shutdown = mp.Event()
 
     def stop(self):
-        self.server.shutdown()
+        self.shutdown.set()
 
     @property
     def port(self):
         return self.server.server_address[1]
 
     def run(self):
-        self.server.serve_forever()
+        with indir(self.rootdir):
+            while not self.shutdown.is_set():
+                self.server.handle_request()
+            self.server.shutdown()
 
 
 @contextlib.contextmanager
@@ -147,7 +152,7 @@ def mock_input(*responses):
             n = next(resp)
         return n
 
-    if sys.version[0] == '2': target = 'builtins.raw_input'
+    if sys.version[0] == '2': target = '__builtin__.raw_input'
     else:                     target = 'builtins.input'
 
     with mock.patch(target, _input):
