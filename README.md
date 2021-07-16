@@ -13,20 +13,60 @@ The `fslinstaller.py` script in this repository is the successor to the
 `fslinstaller.py` script from the fsl/installer> repository.  _This_ version
 is for **conda-based** FSL release, from FSL version 6.0.6 onwards.
 
+`fslinstaller.py`  is a Python script which can run with any version of
+Python from 2.7 onwards. Normal usage of `fslinstaller.py` will look like
+one of the following:
+
+    ```
+    python  fslinstaller.py
+    python2 fslinstaller.py
+    python3 fslinstaller.py
+    curl https://some_url/fslinstaller.py | python
+    ```
 
 In normal usage, the `fslinstaller.py` script performs the following tasks:
- 1. Downloads a JSON manifest file, which contains information about available
-    FSL releases.
+ 1. Downloads the FSL release manifest file from a hard-coded URL, which is a
+    JSON file containing information about available FSL releases.
  2. Asks the user where they would like to install FSL (hereafter referred to
-    as `$FSLDIR`)
- 3. Downloads a `miniconda` installer
- 4. Installs `miniconda` to `$FSLDIR`
- 5. Downloads a YAML file containing a conda environment specification for
+    as `$FSLDIR`).
+ 3. Asks the user for their administrator password if necessary.
+ 4. Downloads a `miniconda` installer.
+ 5. Installs `miniconda` to `$FSLDIR`.
+ 6. Downloads a YAML file containing a conda environment specification for
     the latest FSL version (or the version requested by the user; hereafter
-    referred to as `environment.yml`)
- 6. Installs the FSL environment by running:
-
+    referred to as `environment.yml`).
+ 7. Installs the FSL environment by running:
        `$FSLDIR/bin/conda env update -n base -f environment.yml`
-
- 7. Modifies the user's shell configuration so that FSL is accessible in
+ 8. Modifies the user's shell configuration so that FSL is accessible in
     their shell environment.
+
+
+Several advanced options are available - run `python fslinstaller.py -h` for
+more details.
+
+
+# Managing `fslinstaller.py` versions and releases
+
+
+All releases of `fslinstaller.py` are given a version of the form
+`major.minor.patch`, for example `1.3.2`.
+
+The fsl/conda/installer> project follows semantic versioning conventions,
+where:
+ - changes to the command-line interface require the major version number
+   to be incremented
+ - enhancements and new features require the minor version number to be
+   incremented
+ - bug fixes and minor changes require the patch version number to be
+   incremented.
+
+New versions of the `fslinstaller.py` script can be released simply by
+creating a new tag, containing the new version string, on the
+fsl/conda/installer> GitLab repository. This will cause the following
+automated routines to run:
+
+ - The new version of the `fslinstaller.py` script is deployed to a web server,
+   available for download.
+
+ - A merge request is opened on the fsl/conda/manifest> repository, updating
+   the installer version number in the FSL release manifest JSON file.
