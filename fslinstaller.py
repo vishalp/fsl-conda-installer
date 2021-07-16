@@ -1224,17 +1224,12 @@ def configure_shell(shell, homedir, fsldir):
     bourne_shells  = ['sh', 'bash', 'zsh', 'dash']
     csh_shells     = ['csh', 'tcsh']
 
-    # we edit the first file that exists
-    # in the list of candidate profile files,
-    shell_profiles = {'sh'   : ['.profile'],
-                      'bash' : ['.bash_profile', '.profile'],
-                      'dash' : ['.bash_profile', '.profile'],
-                      'zsh'  : ['.zprofile'],
-                      'csh'  : ['.cshrc'],
-                      'tcsh' : ['.tcshrc']}
-
-    # just for testing
-    configure_shell.shell_profiles = shell_profiles
+    # we edit the first file that exists in
+    # the list of candidate profile files.
+    # They are attached as an attribute of
+    # this function just for testing purposes
+    # (see after function definition)
+    shell_profiles = configure_shell.shell_profiles
 
     # DO NOT CHANGE the format of these configurations -
     # they are kept exactly as-is for compatibility with
@@ -1281,6 +1276,12 @@ def configure_shell(shell, homedir, fsldir):
     printmsg('Adding FSL configuration to {}'.format(profile))
 
     patch_file(profile, '# FSL Setup', len(cfg.split('\n')), cfg)
+configure_shell.shell_profiles = {'sh'   : ['.profile'],
+                                  'bash' : ['.bash_profile', '.profile'],
+                                  'dash' : ['.bash_profile', '.profile'],
+                                  'zsh'  : ['.zprofile'],
+                                  'csh'  : ['.cshrc'],
+                                  'tcsh' : ['.tcshrc']}
 
 
 def configure_matlab(homedir, fsldir):
