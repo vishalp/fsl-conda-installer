@@ -329,14 +329,15 @@ def test_download_install_miniconda():
 
         with server('remote') as srv:
 
-            destdir              = op.join(cwd, 'miniconda')
-            ctx                  = MockObject()
-            ctx.args             = MockObject()
-            ctx.destdir          = destdir
-            ctx.need_admin       = False
-            ctx.args.no_checksum = False
-            ctx.platform         = 'linux'
-            ctx.manifest         = gen_manifest('linux', srv.port, sha256)
+            destdir                  = op.join(cwd, 'miniconda')
+            ctx                      = MockObject()
+            ctx.args                 = MockObject()
+            ctx.destdir              = destdir
+            ctx.need_admin           = False
+            ctx.args.no_checksum     = False
+            ctx.platform             = 'linux'
+            ctx.manifest             = gen_manifest('linux', srv.port, sha256)
+            ctx.environment_channels = []
 
             inst.download_miniconda(ctx)
             inst.install_miniconda(ctx)
