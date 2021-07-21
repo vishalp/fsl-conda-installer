@@ -5,8 +5,8 @@
 [![coverage report](https://git.fmrib.ox.ac.uk/fsl/conda/installer/badges/master/coverage.svg)](https://git.fmrib.ox.ac.uk/fsl/conda/installer/-/commits/master)
 
 
-This repository is the home of `fslinstaller.py`, the FSL installer script for
-FSL.
+This repository is the home of `fslinstaller.py`, the installer script for
+[FSL](https://fsl.fmrib.ox.ac.uk/fsl/fslwiki/).
 
 
 The `fslinstaller.py` script in this repository is the successor to the
