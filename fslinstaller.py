@@ -66,7 +66,7 @@ DEFAULT_INSTALLATION_DIRECTORY = '/usr/local/fsl'
 """Default FSL installation directory. """
 
 
-FSL_INSTALLER_MANIFEST = 'http://18.133.213.73/installer/manifest,json'
+FSL_INSTALLER_MANIFEST = 'http://18.133.213.73/releases/manifest,json'
 """URL to download the FSL installer manifest file from. The installer
 manifest file is a JSON file which contains information about available FSL
 versions.
@@ -156,9 +156,11 @@ class Context(object):
         # here - refer to overwrite_destdir.
         self.old_destdir = None
 
-        # The install_fsl function stores the path
-        # to the FSL conda environment file here
-        self.environment_file = None
+        # The download_fsl_environment function stores
+        # the path to the FSL conda environment file
+        # and list of conda channels here
+        self.environment_file     = None
+        self.environment_channels = None
 
         # The config_logging function stores the path
         # to the fslinstaller log file here.
@@ -1029,6 +1031,87 @@ def list_available_versions(manifest):
             printmsg(build['environment'], INFO)
 
 
+def download_fsl_environment(ctx):
+    """Downloads the environment specification file for the selected FSL
+    version.
+
+    Internal/development FSL versions may source packages from the internal
+    FSL conda channel, which requires a username+password to authenticate.
+
+    These are referred to in the environment file as ${FSLCONDA_USERNAME}
+    and ${FSLCONDA_PASSWORD}.
+
+    If the user has not provided a username+password on the command-line, they
+    are prompted for them.
+    """
+
+    build    = ctx.build
+    url      = build['environment']
+    checksum = build['sha256']
+
+    printmsg('Downloading FSL environment specification '
+             'from {}...'.format(url))
+    fname = url.split('/')[-1]
+    download_file(url, fname)
+    ctx.environment_file = op.abspath(fname)
+    if not ctx.args.no_checksum:
+        sha256(fname, build['sha256'])
+
+    # Environment files for internal/dev FSL versions
+    # will list the internal FSL conda channel with
+    # ${FSLCONDA_USERNAME} and ${FSLCONDA_PASSWORD}
+    # as placeholders for the username/password.
+    with open(fname, 'rt') as f:
+        need_auth = '${FSLCONDA_USERNAME}' in f.read()
+
+    # We need a username/password to access the internal
+    # FSL conda channel. Prompt the user if they haven't
+    # provided credentials.
+    if need_auth and (ctx.args.username is None):
+        printmsg('A username and password are required to install '
+                 'this version of FSL.', WARNING, EMPHASIS)
+        ctx.args.username = prompt('Username:').strip()
+        ctx.args.password = getpass.getpass('Password: ').strip()
+
+    # Conda expands environment variables within a
+    # .condarc file, but *not* within an environment.yml
+    # file. So to authenticate to our internal channel
+    # without storing credentials anywhere in plain text,
+    # we *move* the channel list from the environment.yml
+    # file into $FSLDIR/.condarc.
+    #
+    # Here we extract the channels from the environment
+    # file, and save them to ctx.environment_channels.
+    # The install_miniconda function will then add the
+    # channels to $FSLDIR/.condarc.
+    channels = []
+    copy = '.' + op.basename(ctx.environment_file)
+    shutil.move(ctx.environment_file, copy)
+    with open(copy,                 'rt') as inf, \
+         open(ctx.environment_file, 'wt') as outf:
+
+        in_channels_section = False
+
+        for line in inf:
+
+            # start of channels list
+            if line.strip() == 'channels:':
+                in_channels_section = True
+                continue
+
+            if in_channels_section:
+                # end of channels list
+                if not line.strip().startswith('-'):
+                    in_channels_section = False
+                else:
+                    channels.append(line.split()[-1])
+                    continue
+
+            outf.write(line)
+
+    ctx.environment_channels = channels
+
+
 def download_miniconda(ctx):
     """Downloads the miniconda/miniforge installer and saves it as
     "miniconda.sh".
@@ -1096,12 +1179,12 @@ def install_miniconda(ctx):
     # preferred over legacy FSL conda versions).
     #
     # https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-channels.html
+
     channel_priority: strict
-    channels:
-      - http://18.133.213.73/production/
-      - conda-forge
-      - defaults
     """)
+    condarc +='\nchannels:\n'
+    for channel in ctx.environment_channels:
+        condarc += ' - {}\n'.format(channel)
 
     with open('.condarc', 'wt') as f:
         f.write(condarc)
@@ -1117,32 +1200,20 @@ def install_fsl(ctx):
     This function assumes that it is run within a temporary/scratch directory.
     """
 
-    build    = ctx.build
-    url      = build['environment']
-    checksum = build['sha256']
-
     # expected number of output lines for new
     # install or upgrade, used for progress
     # reporting. If manifest does not contain
     # expected #lines, we fall back to a spinner.
     if ctx.update is None:
-        output = build.get('output', {}).get('install', None)
+        output = ctx.build.get('output', {}).get('install', None)
     else:
-        output = build.get('output', {}).get(ctx.update, None)
+        output = ctx.build.get('output', {}).get(ctx.update, None)
 
     if output in ('', None): output = None
     else:                    output = int(output)
 
-    printmsg('Downloading FSL environment specification '
-             'from {}...'.format(url))
-    fname = url.split('/')[-1]
-    download_file(url, fname)
-    ctx.environment_file = op.abspath(fname)
-    if not ctx.args.no_checksum:
-        sha256(fname, build['sha256'])
-
     conda = op.join(ctx.destdir, 'bin', 'conda')
-    cmd   = conda + ' env update -n base -f ' + fname
+    cmd   = conda + ' env update -n base -f ' + ctx.environment_file
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
 
@@ -1152,6 +1223,15 @@ def install_fsl(ctx):
     env = os.environ.copy()
     env['FSL_CREATE_WRAPPER_SCRIPTS'] = '1'
     env['FSLDIR']                     = ctx.destdir
+
+    # FSL environments which source packages from the internal
+    # FSL conda channel will refer to the channel as:
+    #
+    # http://${FSLCONDA_USERNAME}:${FSLCONDA_PASSWORD}/abc.com/
+    #
+    # so we need to set those variables
+    if ctx.args.username: env['FSLCONDA_USERNAME'] = ctx.args.username
+    if ctx.args.password: env['FSLCONDA_PASSWORD'] = ctx.args.password
 
     Process.monitor_progress(cmd, output, ctx.need_admin, ctx, env=env)
 
@@ -1502,6 +1582,13 @@ def parse_args(argv=None):
         'cuda'         : 'Install FSL for this CUDA version (default: '
                          'automatically detected)',
 
+        # Username / password for accessing
+        # internal FSL conda channel, if an
+        # internal/development release is being
+        # installed
+        'username'       : argparse.SUPPRESS,
+        'password'       : argparse.SUPPRESS,
+
         # Do not automatically update the installer script,
         'no_self_update' : argparse.SUPPRESS,
 
@@ -1548,14 +1635,16 @@ def parse_args(argv=None):
     parser.add_argument('-c', '--cuda', help=helps['cuda'], type=float)
 
     # hidden options
-    parser.add_argument('-k', '--no_checksum', action='store_true',
+    parser.add_argument('--username', help=helps['username'])
+    parser.add_argument('--password', help=helps['password'])
+    parser.add_argument('--no_checksum', action='store_true',
                         help=helps['no_checksum'])
-    parser.add_argument('-w', '--workdir', help=helps['workdir'])
-    parser.add_argument('-i', '--homedir', help=helps['homedir'],
+    parser.add_argument('--workdir', help=helps['workdir'])
+    parser.add_argument('--homedir', help=helps['homedir'],
                         default=op.expanduser('~'))
-    parser.add_argument('-a', '--manifest', default=FSL_INSTALLER_MANIFEST,
+    parser.add_argument('--manifest', default=FSL_INSTALLER_MANIFEST,
                         help=helps['manifest'])
-    parser.add_argument('-p', '--no_self_update', action='store_true',
+    parser.add_argument('--no_self_update', action='store_true',
                         help=helps['no_self_update'])
 
     args = parser.parse_args(argv)
@@ -1571,6 +1660,10 @@ def parse_args(argv=None):
                  'You should run this script as a regular user - you will be '
                  'asked for your administrator password if required.',
                  WARNING, EMPHASIS)
+
+    if (args.username is not None) and (args.password is     None) or \
+       (args.username is     None) and (args.password is not None):
+        parser.error('Both --username and --password must be specified')
 
     if args.no_env:
         args.no_shell  = True
@@ -1682,6 +1775,8 @@ def main(argv=None):
             ctx.update = update_destdir(ctx)
             if not ctx.update:
                 overwrite_destdir(ctx)
+
+        download_fsl_environment(ctx)
 
         if ctx.update: action = 'Updating'
         else:          action = 'Installing'
