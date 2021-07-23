@@ -15,7 +15,8 @@ from fsl_ci        import (USERNAME,
                            indir,
                            tempdir,
                            sprun)
-from fsl_ci.gitlab import (open_merge_request,
+from fsl_ci.gitlab import (gen_repository_url,
+                           open_merge_request,
                            gen_branch_name)
 
 
@@ -58,7 +59,7 @@ def update_manifest(version):
 
 def checkout_and_update_manifest(server, token, tag):
 
-    manifest_url  = f'{server}/{MANIFEST_PATH}'
+    manifest_url  = gen_repository_url(MANIFEST_PATH, server, token)
     branch        = f'mnt/installer-{tag}'
     branch        = gen_branch_name(branch, MANIFEST_PATH, server, token)
     msg           = COMMIT_MSG.format(tag)
