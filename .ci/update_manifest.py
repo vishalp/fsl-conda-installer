@@ -82,7 +82,7 @@ def main(server=None, token=None, tag=None):
     if token  is None: token  = os.environ['FSL_CI_API_TOKEN']
     if tag    is None: tag    = os.environ['CI_COMMIT_TAG']
 
-    branch = checkout_and_update_manifest()
+    branch = checkout_and_update_manifest(server, token, tag)
 
     open_merge_request(MANIFEST_PATH,
                        branch,
