@@ -20,5 +20,5 @@ cat fslinstaller.py | sed "$PATTERN" > $DEST
 # The update_manifest.py script uses functionality from fsl-ci-rules, so
 # we need to install that before running the script.
 python -m pip install --upgrade pip
-python -m pip install git+git@git.fmrib.ox.ac.uk:/fsl/fsl-ci-rules.git
+python -m pip install git+https://git.fmrib.ox.ac.uk/fsl/fsl-ci-rules.git
 python ./.ci/update_manifest.py
