@@ -9,7 +9,6 @@
 # directory $FSLINSTALLER_DEPLOY_DIRECTORY
 # into which the fslinstaller.py script can
 # be copied.
-
 stages:
   - test
   - release
@@ -81,5 +80,6 @@ release:
     - fslconda-channel-host
   rules:
     - if: '$CI_COMMIT_TAG != null'
+      when: manual
   script:
     - bash ./.ci/new_release.sh
