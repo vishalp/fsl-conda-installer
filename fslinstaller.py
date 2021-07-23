@@ -91,11 +91,18 @@ class Version(object):
     strings are of the form W.X.Y.Z, where W, X, Y, and Z are all integers.
     """
     def __init__(self, verstr):
-        # The major/minor numbers of FSL versions
-        # change very infrequently for various
-        # reasons, so we accept a fourth "hotfix"
-        # number.
-        self.components = list(map(int, verstr.split('.')[:4]))
+        # Version identifiers for official FSL
+        # releases will have up to four
+        # components (X.Y.Z.W), but We accept
+        # any number of (integer) components,
+        # as internal releases may have more.
+        components = []
+
+        for comp in verstr.split('.'):
+            try:              components.append(int(comp))
+            except Exception: break
+
+        self.components = components
         self.verstr     = verstr
 
     def __str__(self):
