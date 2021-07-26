@@ -1042,6 +1042,9 @@ def download_fsl_environment(ctx):
     """Downloads the environment specification file for the selected FSL
     version.
 
+    If the (hidden) --environment option is provided, the specified file
+    is used instead.
+
     Internal/development FSL versions may source packages from the internal
     FSL conda channel, which requires a username+password to authenticate.
 
@@ -1052,17 +1055,22 @@ def download_fsl_environment(ctx):
     are prompted for them.
     """
 
-    build    = ctx.build
-    url      = build['environment']
-    checksum = build['sha256']
+    if ctx.args.environment is None:
+        build    = ctx.build
+        url      = build['environment']
+        checksum = build['sha256']
+    else:
+        build    = {}
+        url      = ctx.args.environment
+        checksum = None
 
     printmsg('Downloading FSL environment specification '
              'from {}...'.format(url))
     fname = url.split('/')[-1]
     download_file(url, fname)
     ctx.environment_file = op.abspath(fname)
-    if not ctx.args.no_checksum:
-        sha256(fname, build['sha256'])
+    if (checksum is not None) and (not ctx.args.no_checksum):
+        sha256(fname, checksum)
 
     # Environment files for internal/dev FSL versions
     # will list the internal FSL conda channel with
@@ -1599,8 +1607,16 @@ def parse_args(argv=None):
         # Do not automatically update the installer script,
         'no_self_update' : argparse.SUPPRESS,
 
-        # Path to local installer manifest file
+        # Path to alternative FSL release manifest.
         'manifest'       : argparse.SUPPRESS,
+
+        # Path to FSL conda environment.yml file.
+        # Using this option will cause the
+        # --fslversion and --cuda options to be
+        # ignored. It is assumed that the
+        # environment file is compatible with the
+        # host platform.
+        'environment'    : argparse.SUPPRESS,
 
         # Print debugging messages
         'debug'          : argparse.SUPPRESS,
@@ -1651,6 +1667,7 @@ def parse_args(argv=None):
                         default=op.expanduser('~'))
     parser.add_argument('--manifest', default=FSL_INSTALLER_MANIFEST,
                         help=helps['manifest'])
+    parser.add_argument('--environment', help=helps['environment'])
     parser.add_argument('--no_self_update', action='store_true',
                         help=helps['no_self_update'])
 
@@ -1681,9 +1698,11 @@ def parse_args(argv=None):
         if not op.exists(args.workdir):
             os.mkdir(args.workdir)
 
-    # accept local path for manifest
+    # accept local path for manifest and environment
     if args.manifest is not None and op.exists(args.manifest):
         args.manifest = op.abspath(args.manifest)
+    if args.environment is not None and op.exists(args.environment):
+        args.environment = op.abspath(args.environment)
 
     return args
 
