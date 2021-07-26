@@ -34,13 +34,9 @@ import                   traceback
 
 # TODO check py2/3
 try:
-    import                   urllib
-    import urllib.parse   as urlparse
     import urllib.request as urlrequest
 except ImportError:
-    import urllib2 as urllib
-    import urllib2 as urlparse
-    import urllib2 as urlrequest
+    import urllib as urlrequest
 
 try:                import queue
 except ImportError: import Queue as queue
@@ -782,6 +778,10 @@ def download_file(url, destination, progress=None, blocksize=131072):
         progress = default_progress
 
     log.debug('Downloading %s ...', url)
+
+    # Path to local file
+    if op.exists(url):
+        url = 'file:' + urlrequest.pathname2url(op.abspath(url))
 
     req = None
     try:
@@ -1680,6 +1680,10 @@ def parse_args(argv=None):
         args.workdir = op.abspath(args.workdir)
         if not op.exists(args.workdir):
             os.mkdir(args.workdir)
+
+    # accept local path for manifest
+    if args.manifest is not None and op.exists(args.manifest):
+        args.manifest = op.abspath(args.manifest)
 
     return args
 
