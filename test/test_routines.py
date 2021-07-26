@@ -168,6 +168,14 @@ def test_download_file():
             with open('copy', 'rt') as f:
                  assert f.read() == 'hello\n'
 
+        # download_file should also work
+        # with a path to a local file
+        os.remove('copy')
+        inst.download_file('file', 'copy')
+
+        with open('copy', 'rt') as f:
+            assert f.read() == 'hello\n'
+
 
 def test_patch_file():
 
