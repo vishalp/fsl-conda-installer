@@ -231,7 +231,7 @@ class Context(object):
             available = ', '.join(self.manifest['versions'].keys())
             raise Exception(
                 'FSL version {} is not available - available '
-                'versions: {}'.format(args.fslversion, available))
+                'versions: {}'.format(fslversion, available))
 
         if fslversion == 'latest':
             fslversion = self.manifest['versions']['latest']
