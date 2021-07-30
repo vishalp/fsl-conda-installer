@@ -57,7 +57,7 @@ def update_manifest(version):
             f.write(line)
 
 
-def checkout_and_update_manifest(server, token, tag):
+def checkout_and_update_manifest(server, token, tag, base_branch):
 
     manifest_url  = gen_repository_url(MANIFEST_PATH, server, token)
     branch        = f'mnt/installer-{tag}'
@@ -68,7 +68,7 @@ def checkout_and_update_manifest(server, token, tag):
     with indir('manifest'):
         sprun(f'git config user.name  {USERNAME}')
         sprun(f'git config user.email {EMAIL}')
-        sprun(f'git checkout -b {branch} master')
+        sprun(f'git checkout -b {branch} {base_branch}')
         update_manifest(tag)
         sprun( 'git add *')
         sprun(f'git commit -m "{msg}"')
@@ -83,13 +83,14 @@ def main(server=None, token=None, tag=None):
     if token  is None: token  = os.environ['FSL_CI_API_TOKEN']
     if tag    is None: tag    = os.environ['CI_COMMIT_TAG']
 
-    branch = checkout_and_update_manifest(server, token, tag)
-
-    open_merge_request(MANIFEST_PATH,
-                       branch,
-                       MERGE_REQUEST_MSG,
-                       server,
-                       token)
+    for destination in ['master', 'internal']:
+        branch = checkout_and_update_manifest(server, token, tag, destination)
+        open_merge_request(MANIFEST_PATH,
+                           branch,
+                           MERGE_REQUEST_MSG,
+                           server,
+                           token,
+                           destination)
 
 
 if __name__ == '__main__':
