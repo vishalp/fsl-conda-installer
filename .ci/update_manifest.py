@@ -60,19 +60,20 @@ def update_manifest(version):
 def checkout_and_update_manifest(server, token, tag, base_branch):
 
     manifest_url  = gen_repository_url(MANIFEST_PATH, server, token)
-    branch        = f'mnt/installer-{tag}'
+    branch        = f'mnt/{base_branch}/installer-{tag}'
     branch        = gen_branch_name(branch, MANIFEST_PATH, server, token)
     msg           = COMMIT_MSG.format(tag)
-    sprun(f'git clone {manifest_url} manifest')
 
-    with indir('manifest'):
-        sprun(f'git config user.name  {USERNAME}')
-        sprun(f'git config user.email {EMAIL}')
-        sprun(f'git checkout -b {branch} {base_branch}')
-        update_manifest(tag)
-        sprun( 'git add *')
-        sprun(f'git commit -m "{msg}"')
-        sprun(f'git push origin {branch}')
+    with tempdir():
+        sprun(f'git clone {manifest_url} manifest')
+        with indir('manifest'):
+            sprun(f'git config user.name  {USERNAME}')
+            sprun(f'git config user.email {EMAIL}')
+            sprun(f'git checkout -b {branch} {base_branch}')
+            update_manifest(tag)
+            sprun( 'git add *')
+            sprun(f'git commit -m "{msg}"')
+            sprun(f'git push origin {branch}')
 
     return branch
 
