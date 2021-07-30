@@ -16,8 +16,9 @@ stages:
 # Don't run pipeline on MRs
 workflow:
   rules:
-    - if: '$CI_MERGE_REQUEST_ID == null'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
+    - when: always
 
 
 # These variables should be set as CI/CD variables in
