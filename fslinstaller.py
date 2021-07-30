@@ -62,7 +62,7 @@ DEFAULT_INSTALLATION_DIRECTORY = '/usr/local/fsl'
 """Default FSL installation directory. """
 
 
-FSL_INSTALLER_MANIFEST = 'http://18.133.213.73/releases/manifest,json'
+FSL_INSTALLER_MANIFEST = 'http://18.133.213.73/releases/manifest.json'
 """URL to download the FSL installer manifest file from. The installer
 manifest file is a JSON file which contains information about available FSL
 versions.
@@ -230,7 +230,7 @@ class Context(object):
         if fslversion not in self.manifest['versions']:
             available = ', '.join(self.manifest['versions'].keys())
             raise Exception(
-                'FSL version {} is not available - available '
+                'FSL version "{}" is not available - available '
                 'versions: {}'.format(fslversion, available))
 
         if fslversion == 'latest':
