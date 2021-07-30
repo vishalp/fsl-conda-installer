@@ -69,7 +69,7 @@ def checkout_and_update_manifest(server, token, tag, base_branch):
         with indir('manifest'):
             sprun(f'git config user.name  {USERNAME}')
             sprun(f'git config user.email {EMAIL}')
-            sprun(f'git checkout -b {branch} {base_branch}')
+            sprun(f'git checkout -b {branch} origin/{base_branch}')
             update_manifest(tag)
             sprun( 'git add *')
             sprun(f'git commit -m "{msg}"')
