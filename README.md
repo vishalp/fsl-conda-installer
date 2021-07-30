@@ -60,8 +60,11 @@ where:
  - bug fixes and minor changes require the patch version number to be
    incremented.
 
+All changes to the `fslinstaller.py` must be accompanied by a change to the
+`__version__` attribute in the `fslinstaller.py` script.
+
 New versions of the `fslinstaller.py` script can be released simply by
-creating a new tag, containing the new version string, on the
+creating a new tag, containing the new version identifier, on the
 fsl/conda/installer> GitLab repository. This will cause the following
 automated routines to run:
 
@@ -70,3 +73,6 @@ automated routines to run:
 
  - A merge request is opened on the fsl/conda/manifest> repository, updating
    the installer version number in the FSL release manifest JSON file.
+
+Note that the tag must be identical to the value of the `__version__`
+attribute in the `fslinstaller.py` script.
