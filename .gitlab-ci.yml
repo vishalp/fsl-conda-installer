@@ -11,6 +11,7 @@
 # be copied.
 stages:
   - test
+  - check-version
   - release
 
 # Don't run pipeline on MRs
@@ -78,6 +79,30 @@ test:py38:
 test:py39:
   extends: .test-template
   image:    python:3.9
+
+check-version:
+  stage: check-version
+  image: python:3.9
+  tags:
+    - fsl-ci
+    - docker
+  rules:
+    - if: '$CI_COMMIT_BRANCH != "master"'
+  script:
+    - git fetch origin master
+    - thisver=$(  cat fslinstaller.py                    | grep "__version__ = " | cut -d " " -f 3 | tr -d "'")
+    - masterver=$(git show origin/master:fslinstaller.py | grep "__version__ = " | cut -d " " -f 3 | tr -d "'")
+    - |
+      if [ "$thisver" = "$masterver" ]; then
+        echo "Version has not been updated!"
+        echo "Version on master branch: $masterver"
+        echo "Version in this MR:       $thisver"
+        echo "The version number must be updated before this MR can be merged."
+        exit 1
+      else
+        echo "Version on master branch: $masterver"
+        echo "Version in this MR:       $thisver"
+      fi
 
 
 release:
