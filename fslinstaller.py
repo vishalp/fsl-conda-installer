@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.0.13'
+__version__ = '1.0.14'
 """Installer script version number. This is automatically updated
 whenever a new version of the installer script is released.
 """
@@ -1439,7 +1439,11 @@ def self_update(manifest, workdir, checksum):
                      'checksum! Skipping update.', WARNING)
             return
 
-    cmd = [sys.executable, tmpf] + sys.argv[1:]
+    # Don't try and update again - if for some
+    # reason the online manifest reports a newer
+    # version than what is available, we would
+    # otherwise enter into an infinite loop.
+    cmd = [sys.executable, tmpf] + sys.argv[1:] + ['--no_self_update']
     log.debug('Running new installer: %s', cmd)
     os.execv(sys.executable, cmd)
 
