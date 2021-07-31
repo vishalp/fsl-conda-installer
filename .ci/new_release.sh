@@ -18,6 +18,8 @@ if [ "$scriptver" != "$CI_COMMIT_TAG" ]; then
   exit 1
 fi
 
+cp fslinstaller.py $FSLINSTALLER_DEPLOY_DIRECTORY/
+
 # Then we call the update_manifest.py script, which opens a merge request
 # on the fsl/conda/manifest repository, to update the latest available
 # installer version in the manifest.
