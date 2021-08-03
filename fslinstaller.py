@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.0.15'
+__version__ = '1.1.0'
 """Installer script version number. This is automatically updated
 whenever a new version of the installer script is released.
 """
@@ -1713,12 +1713,19 @@ def parse_args(argv=None):
 
 def config_logging(ctx):
     """Configures logging. Log messages are directed to
-    $TMPDIR/fslinstaller.log, or workdir/fslinstaller.log
+    $TMPDIR/fslinstaller_<unique_token>.log, or
+    workdir/fslinstaller_<unique_token>.log
     """
     if ctx.args.workdir is not None: logdir = ctx.args.workdir
     else:                            logdir = tempfile.gettempdir()
 
-    logfile     = op.join(logdir, 'fslinstaller.log')
+    # Use a unique name for the log file
+    # (important for multi-user systems)
+    logfilef, logfile = tempfile.mkstemp(prefix='fslinstaller_',
+                                         suffix='.log',
+                                         dir=logdir)
+    os.close(logfilef)
+
     ctx.logfile = logfile
     handler     = logging.FileHandler(logfile)
     formatter   = logging.Formatter(
@@ -1791,6 +1798,7 @@ def main(argv=None):
     printmsg('FSL installer version:', EMPHASIS, UNDERLINE, end='')
     printmsg(' {}'.format(__version__))
     printmsg('Press CTRL+C at any time to cancel installation', INFO)
+    printmsg('Installation log file: {}\n'.format(ctx.logfile), INFO)
 
     if args.listversions:
         list_available_versions(ctx.manifest)
