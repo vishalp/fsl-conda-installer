@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.1.0'
+__version__ = '1.1.1'
 """Installer script version number. This is automatically updated
 whenever a new version of the installer script is released.
 """
@@ -1232,10 +1232,16 @@ def install_fsl(ctx):
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
 
+    # Clear any environment variables that
+    # refer to an existing FSL installation
+    env = os.environ.copy()
+    for v in list(env.keys()):
+        if 'FSL' in v:
+            env.pop(v)
+
     # post-link scripts call $FSLDIR/share/fsl/sbin/createFSLWrapper
     # (part of fsl/base), which will only do its thing if the following
     # env vars are set
-    env = os.environ.copy()
     env['FSL_CREATE_WRAPPER_SCRIPTS'] = '1'
     env['FSLDIR']                     = ctx.destdir
 
