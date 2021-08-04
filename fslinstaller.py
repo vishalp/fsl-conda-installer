@@ -1232,10 +1232,16 @@ def install_fsl(ctx):
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
 
+    # Clear any environment variables that
+    # refer to an existing FSL installation
+    env = os.environ.copy()
+    for v in env:
+        if 'FSL' in v:
+            env.pop(v)
+
     # post-link scripts call $FSLDIR/share/fsl/sbin/createFSLWrapper
     # (part of fsl/base), which will only do its thing if the following
     # env vars are set
-    env = os.environ.copy()
     env['FSL_CREATE_WRAPPER_SCRIPTS'] = '1'
     env['FSLDIR']                     = ctx.destdir
 
