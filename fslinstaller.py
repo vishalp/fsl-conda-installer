@@ -1235,7 +1235,7 @@ def install_fsl(ctx):
     # Clear any environment variables that
     # refer to an existing FSL installation
     env = os.environ.copy()
-    for v in env:
+    for v in list(env.keys()):
         if 'FSL' in v:
             env.pop(v)
 
