@@ -1172,14 +1172,6 @@ def install_miniconda(ctx):
 
     # Create .condarc config file
     condarc = tw.dedent("""
-    # Putting a .condarc file into the root environment
-    # directory will override ~/.condarc if it exists,
-    # but will not override a system condarc (e.g. at
-    # /etc/condarc/condarc). There is currently no
-    # workaround for this - see:
-    #  - https://github.com/conda/conda/issues/8599
-    #  - https://github.com/conda/conda/issues/8804
-
     # Try and make package downloads more robust
     remote_read_timeout_secs:    240
     remote_connect_timeout_secs: 20
