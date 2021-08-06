@@ -1203,8 +1203,9 @@ def install_miniconda(ctx):
     channel_priority: strict #!final
     """)
     channels      = list(ctx.environment_channels)
-    channels[0]  += ' #!top'
-    channels[-1] += ' #!bottom'
+    if len(channels) > 0:
+        channels[0]  += ' #!top'
+        channels[-1] += ' #!bottom'
     condarc      += '\nchannels: #!final\n'
     for channel in channels:
         condarc += ' - {}\n'.format(channel)
