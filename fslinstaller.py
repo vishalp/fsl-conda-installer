@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.1.1'
+__version__ = '1.2.0'
 """Installer script version number. This is automatically updated
 whenever a new version of the installer script is released.
 """
@@ -1193,12 +1193,20 @@ def install_miniconda(ctx):
     # ensure that conda-forge versions of e.g. VTK were
     # preferred over legacy FSL conda versions).
     #
+    # Use final/top/bottom marks to prevent the channel
+    # priority order being modified by user ~/.condarc
+    # configuration files.
+    #
+    # https://conda.io/projects/conda/en/latest/user-guide/configuration/use-condarc.html
+    # https://www.anaconda.com/blog/conda-configuration-engine-power-users
     # https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-channels.html
-
-    channel_priority: strict
+    channel_priority: strict #!final
     """)
-    condarc +='\nchannels:\n'
-    for channel in ctx.environment_channels:
+    channels      = list(ctx.environment_channels)
+    channels[0]  += ' #!top'
+    channels[-1] += ' #!bottom'
+    condarc      += '\nchannels: #!final\n'
+    for channel in channels:
         condarc += ' - {}\n'.format(channel)
 
     with open('.condarc', 'wt') as f:
@@ -1232,11 +1240,11 @@ def install_fsl(ctx):
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
 
-    # Clear any environment variables that
-    # refer to an existing FSL installation
+    # Clear any environment variables that refer
+    # to existing FSL or conda installations.
     env = os.environ.copy()
     for v in list(env.keys()):
-        if 'FSL' in v:
+        if any(('FSL' in v, 'CONDA' in v)):
             env.pop(v)
 
     # post-link scripts call $FSLDIR/share/fsl/sbin/createFSLWrapper
