@@ -721,6 +721,14 @@ class Progress(object):
             return fallback
 
 
+def isstr(s):
+    """Returns True if s is a string, False otherwise, Works on python 2.7
+    and >=3.3.
+    """
+    try:              return isinstance(s, basestring)
+    except Exception: return isinstance(s, str)
+
+
 @contextlib.contextmanager
 def tempdir(override_dir=None):
     """Returns a context manager which creates, changes into, and returns a
@@ -933,13 +941,12 @@ class Process(object):
         if total is None: label = None
         else:             label = '%'
 
-        if isinstance(cmd, str): cmds = [cmd]
-        else:                    cmds =  cmd
+        if isstr(cmd): cmds = [cmd]
+        else:          cmds =  cmd
 
         with Progress(label=label,
                       fmt='{:.0f}',
                       transform=Progress.percent) as prog:
-
 
             for cmd in cmds:
 
