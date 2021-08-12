@@ -948,11 +948,11 @@ class Process(object):
                       fmt='{:.0f}',
                       transform=Progress.percent) as prog:
 
+            nlines = 0 if total else None
+
             for cmd in cmds:
 
-                proc   = Process(cmd, *args, **kwargs)
-                nlines = 0 if total else None
-
+                proc = Process(cmd, *args, **kwargs)
                 prog.update(nlines, total)
 
                 while proc.returncode is None:
