@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.3.0'
+__version__ = '1.3.1'
 """Installer script version number. This is automatically updated
 whenever a new version of the installer script is released.
 """
