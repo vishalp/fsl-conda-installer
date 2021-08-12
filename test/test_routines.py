@@ -140,6 +140,30 @@ def test_Process_check_output():
                     inst.Process.check_output(op.join(cwd, 'script'))
 
 
+def test_Process_monitor_progress():
+    with inst.tempdir() as cwd:
+        script = tw.dedent("""
+        #!/usr/bin/env bash
+        for ((i=0;i<10;i++)); do
+            echo $i
+        done
+        """).strip()
+
+        with open('script', 'wt') as f:
+            f.write(script)
+
+        os.chmod('script', 0o755)
+
+        script = op.join(cwd, 'script')
+
+        Process.monitor_progress( script)
+        Process.monitor_progress([script])
+        Process.monitor_progress([script, script])
+        Process.monitor_progress( script,          10)
+        Process.monitor_progress([script],         10)
+        Process.monitor_progress([script, script], 10)
+
+
 def test_read_fslversion():
     with inst.tempdir() as cwd:
         os.mkdir('etc')
