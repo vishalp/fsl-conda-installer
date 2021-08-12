@@ -921,37 +921,48 @@ class Process(object):
 
     @staticmethod
     def monitor_progress(cmd, total=None, *args, **kwargs):
-        """Runs the given command, and shows a progress bar under the
+        """Runs the given command(s), and shows a progress bar under the
         assumption that cmd will produce "total" number of lines of output.
+
+        :arg cmd:   The commmand to run as a string, or a sequence of
+                    multiple commands.
+        :arg total: Total number of lines of standard output to expect.
         """
         if total is None: label = None
         else:             label = '%'
+
+        if isinstance(cmd, str): cmds = [cmd]
+        else:                    cmds =  cmd
 
         with Progress(label=label,
                       fmt='{:.0f}',
                       transform=Progress.percent) as prog:
 
-            proc   = Process(cmd, *args, **kwargs)
-            nlines = 0 if total else None
 
-            prog.update(nlines, total)
+            for cmd in cmds:
 
-            while proc.returncode is None:
-                try:
-                    line    = proc.stdoutq.get(timeout=0.5)
-                    nlines  = (nlines + 1) if total else None
-
-                except queue.Empty:
-                    pass
+                proc   = Process(cmd, *args, **kwargs)
+                nlines = 0 if total else None
 
                 prog.update(nlines, total)
-                proc.popen.poll()
 
-            # force progress bar to 100% when finished
-            if proc.returncode == 0:
-                prog.update(total, total)
-            else:
-                raise RuntimeError('This command returned an error: ' + cmd)
+                while proc.returncode is None:
+                    try:
+                        line    = proc.stdoutq.get(timeout=0.5)
+                        nlines  = (nlines + 1) if total else None
+
+                    except queue.Empty:
+                        pass
+
+                    prog.update(nlines, total)
+                    proc.popen.poll()
+
+                # force progress bar to 100% when finished
+                if proc.returncode == 0:
+                    prog.update(total, total)
+                else:
+                    raise RuntimeError('This command returned '
+                                       'an error: ' + cmd)
 
 
     @staticmethod
