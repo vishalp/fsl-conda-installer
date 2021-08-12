@@ -1276,7 +1276,7 @@ def install_fsl(ctx):
     commands = []
     if ctx.fsl_base_version is not None:
         commands.append(
-            conda + 'install -y -n base fsl-base=' + ctx.fsl_base_version)
+            conda + ' install -y -n base fsl-base=' + ctx.fsl_base_version)
     commands.append(conda + ' env update -n base -f ' + ctx.environment_file)
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
