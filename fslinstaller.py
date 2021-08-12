@@ -160,10 +160,12 @@ class Context(object):
         self.old_destdir = None
 
         # The download_fsl_environment function stores
-        # the path to the FSL conda environment file
-        # and list of conda channels here
+        # the path to the FSL conda environment file,
+        # list of conda channels, and fsl-base version,
+        # here.
         self.environment_file     = None
         self.environment_channels = None
+        self.fsl_base_version     = None
 
         # The config_logging function stores the path
         # to the fslinstaller log file here.
@@ -1110,8 +1112,15 @@ def download_fsl_environment(ctx):
     # file, and save them to ctx.environment_channels.
     # The install_miniconda function will then add the
     # channels to $FSLDIR/.condarc.
+    #
+    # The fsl-base version is installed before any other
+    # packages, as other FSL packages require it to be
+    # present in order to install successfully. So we
+    # also extract the fsl-base vesrion number from
+    # the environment file, and store it in the context.
     channels = []
-    copy = '.' + op.basename(ctx.environment_file)
+    bassever = None
+    copy     = '.' + op.basename(ctx.environment_file)
     shutil.move(ctx.environment_file, copy)
     with open(copy,                 'rt') as inf, \
          open(ctx.environment_file, 'wt') as outf:
@@ -1133,9 +1142,15 @@ def download_fsl_environment(ctx):
                     channels.append(line.split()[-1])
                     continue
 
+            # save fsl-base version, as
+            # we install it separately
+            if line.strip().startswith('- fsl-base'):
+                basever = line.split()[2]
+
             outf.write(line)
 
     ctx.environment_channels = channels
+    ctx.fsl_base_version     = basever
 
 
 def download_miniconda(ctx):
@@ -1240,7 +1255,22 @@ def install_fsl(ctx):
     else:                    output = int(output)
 
     conda = op.join(ctx.destdir, 'bin', 'conda')
-    cmd   = conda + ' env update -n base -f ' + ctx.environment_file
+
+    # We install FSL in two steps:
+    #
+    #   1. Install fsl-base. This is installed first, as other
+    #      FSL packages require it to be present during installation,
+    #      (in their post-link.sh scripts), and this is not
+    #      guaranteed if everything is installed simultaneously
+    #   2. Install everything else.
+    #
+    # The download_fsl_environment function extracts the appropriate
+    # fsl-base version to install.
+    commands = []
+    if ctx.fsl_base_version is not None:
+        commands.append(
+            conda + 'install -y -n base fsl-base=' + ctx.fsl_base_version)
+    commands.append(conda + ' env update -n base -f ' + ctx.environment_file)
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
 
@@ -1266,7 +1296,7 @@ def install_fsl(ctx):
     if ctx.args.username: env['FSLCONDA_USERNAME'] = ctx.args.username
     if ctx.args.password: env['FSLCONDA_PASSWORD'] = ctx.args.password
 
-    Process.monitor_progress(cmd, output, ctx.need_admin, ctx, env=env)
+    Process.monitor_progress(commands, output, ctx.need_admin, ctx, env=env)
 
 
 def finalise_installation(ctx):
