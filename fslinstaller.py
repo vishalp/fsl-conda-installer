@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.3.1'
+__version__ = '1.3.2'
 """Installer script version number. This is automatically updated
 whenever a new version of the installer script is released.
 """
@@ -948,11 +948,11 @@ class Process(object):
                       fmt='{:.0f}',
                       transform=Progress.percent) as prog:
 
+            nlines = 0 if total else None
+
             for cmd in cmds:
 
-                proc   = Process(cmd, *args, **kwargs)
-                nlines = 0 if total else None
-
+                proc = Process(cmd, *args, **kwargs)
                 prog.update(nlines, total)
 
                 while proc.returncode is None:
