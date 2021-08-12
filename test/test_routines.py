@@ -140,6 +140,39 @@ def test_Process_check_output():
                     inst.Process.check_output(op.join(cwd, 'script'))
 
 
+def test_Process_monitor_progress():
+    with inst.tempdir() as cwd:
+        script = tw.dedent("""
+        #!/usr/bin/env bash
+        for ((i=0;i<10;i++)); do
+            echo $i
+        done
+        touch $1
+        """).strip()
+
+        with open('script', 'wt') as f:
+            f.write(script)
+
+        os.chmod('script', 0o755)
+
+        script  = op.join(cwd, 'script')
+
+        # py2: make sure function accepts string and unicode
+        scripts = [script, u'{}'.format(script)]
+
+        for script in scripts:
+            inst.Process.monitor_progress( script + ' a')
+            inst.Process.monitor_progress([script + ' b'])
+            inst.Process.monitor_progress([script + ' c', script + ' d'])
+            inst.Process.monitor_progress( script + ' e',                 10)
+            inst.Process.monitor_progress([script + ' f'],                10)
+            inst.Process.monitor_progress([script + ' g', script + ' h'], 10)
+
+            for touched in 'abcdefgh':
+                assert op.exists(touched)
+                os.remove(touched)
+
+
 def test_read_fslversion():
     with inst.tempdir() as cwd:
         os.mkdir('etc')

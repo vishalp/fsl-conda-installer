@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.2.0'
+__version__ = '1.3.0'
 """Installer script version number. This is automatically updated
 whenever a new version of the installer script is released.
 """
@@ -160,10 +160,12 @@ class Context(object):
         self.old_destdir = None
 
         # The download_fsl_environment function stores
-        # the path to the FSL conda environment file
-        # and list of conda channels here
+        # the path to the FSL conda environment file,
+        # list of conda channels, and fsl-base version,
+        # here.
         self.environment_file     = None
         self.environment_channels = None
+        self.fsl_base_version     = None
 
         # The config_logging function stores the path
         # to the fslinstaller log file here.
@@ -719,6 +721,14 @@ class Progress(object):
             return fallback
 
 
+def isstr(s):
+    """Returns True if s is a string, False otherwise, Works on python 2.7
+    and >=3.3.
+    """
+    try:              return isinstance(s, basestring)
+    except Exception: return isinstance(s, str)
+
+
 @contextlib.contextmanager
 def tempdir(override_dir=None):
     """Returns a context manager which creates, changes into, and returns a
@@ -921,37 +931,47 @@ class Process(object):
 
     @staticmethod
     def monitor_progress(cmd, total=None, *args, **kwargs):
-        """Runs the given command, and shows a progress bar under the
+        """Runs the given command(s), and shows a progress bar under the
         assumption that cmd will produce "total" number of lines of output.
+
+        :arg cmd:   The commmand to run as a string, or a sequence of
+                    multiple commands.
+        :arg total: Total number of lines of standard output to expect.
         """
         if total is None: label = None
         else:             label = '%'
+
+        if isstr(cmd): cmds = [cmd]
+        else:          cmds =  cmd
 
         with Progress(label=label,
                       fmt='{:.0f}',
                       transform=Progress.percent) as prog:
 
-            proc   = Process(cmd, *args, **kwargs)
-            nlines = 0 if total else None
+            for cmd in cmds:
 
-            prog.update(nlines, total)
-
-            while proc.returncode is None:
-                try:
-                    line    = proc.stdoutq.get(timeout=0.5)
-                    nlines  = (nlines + 1) if total else None
-
-                except queue.Empty:
-                    pass
+                proc   = Process(cmd, *args, **kwargs)
+                nlines = 0 if total else None
 
                 prog.update(nlines, total)
-                proc.popen.poll()
 
-            # force progress bar to 100% when finished
-            if proc.returncode == 0:
-                prog.update(total, total)
-            else:
-                raise RuntimeError('This command returned an error: ' + cmd)
+                while proc.returncode is None:
+                    try:
+                        line    = proc.stdoutq.get(timeout=0.5)
+                        nlines  = (nlines + 1) if total else None
+
+                    except queue.Empty:
+                        pass
+
+                    prog.update(nlines, total)
+                    proc.popen.poll()
+
+                # force progress bar to 100% when finished
+                if proc.returncode == 0:
+                    prog.update(total, total)
+                else:
+                    raise RuntimeError('This command returned '
+                                       'an error: ' + cmd)
 
 
     @staticmethod
@@ -1099,8 +1119,15 @@ def download_fsl_environment(ctx):
     # file, and save them to ctx.environment_channels.
     # The install_miniconda function will then add the
     # channels to $FSLDIR/.condarc.
+    #
+    # The fsl-base version is installed before any other
+    # packages, as other FSL packages require it to be
+    # present in order to install successfully. So we
+    # also extract the fsl-base vesrion number from
+    # the environment file, and store it in the context.
     channels = []
-    copy = '.' + op.basename(ctx.environment_file)
+    basever  = None
+    copy     = '.' + op.basename(ctx.environment_file)
     shutil.move(ctx.environment_file, copy)
     with open(copy,                 'rt') as inf, \
          open(ctx.environment_file, 'wt') as outf:
@@ -1122,9 +1149,15 @@ def download_fsl_environment(ctx):
                     channels.append(line.split()[-1])
                     continue
 
+            # save fsl-base version, as
+            # we install it separately
+            if line.strip().startswith('- fsl-base'):
+                basever = line.split()[2]
+
             outf.write(line)
 
     ctx.environment_channels = channels
+    ctx.fsl_base_version     = basever
 
 
 def download_miniconda(ctx):
@@ -1229,7 +1262,22 @@ def install_fsl(ctx):
     else:                    output = int(output)
 
     conda = op.join(ctx.destdir, 'bin', 'conda')
-    cmd   = conda + ' env update -n base -f ' + ctx.environment_file
+
+    # We install FSL in two steps:
+    #
+    #   1. Install fsl-base. This is installed first, as other
+    #      FSL packages require it to be present during installation,
+    #      (in their post-link.sh scripts), and this is not
+    #      guaranteed if everything is installed simultaneously
+    #   2. Install everything else.
+    #
+    # The download_fsl_environment function extracts the appropriate
+    # fsl-base version to install.
+    commands = []
+    if ctx.fsl_base_version is not None:
+        commands.append(
+            conda + 'install -y -n base fsl-base=' + ctx.fsl_base_version)
+    commands.append(conda + ' env update -n base -f ' + ctx.environment_file)
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
 
@@ -1255,7 +1303,7 @@ def install_fsl(ctx):
     if ctx.args.username: env['FSLCONDA_USERNAME'] = ctx.args.username
     if ctx.args.password: env['FSLCONDA_PASSWORD'] = ctx.args.password
 
-    Process.monitor_progress(cmd, output, ctx.need_admin, ctx, env=env)
+    Process.monitor_progress(commands, output, ctx.need_admin, ctx, env=env)
 
 
 def finalise_installation(ctx):
