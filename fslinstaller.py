@@ -1119,7 +1119,7 @@ def download_fsl_environment(ctx):
     # also extract the fsl-base vesrion number from
     # the environment file, and store it in the context.
     channels = []
-    bassever = None
+    basever  = None
     copy     = '.' + op.basename(ctx.environment_file)
     shutil.move(ctx.environment_file, copy)
     with open(copy,                 'rt') as inf, \
