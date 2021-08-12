@@ -156,12 +156,12 @@ def test_Process_monitor_progress():
 
         script = op.join(cwd, 'script')
 
-        Process.monitor_progress( script)
-        Process.monitor_progress([script])
-        Process.monitor_progress([script, script])
-        Process.monitor_progress( script,          10)
-        Process.monitor_progress([script],         10)
-        Process.monitor_progress([script, script], 10)
+        inst.Process.monitor_progress( script)
+        inst.Process.monitor_progress([script])
+        inst.Process.monitor_progress([script, script])
+        inst.Process.monitor_progress( script,          10)
+        inst.Process.monitor_progress([script],         10)
+        inst.Process.monitor_progress([script, script], 10)
 
 
 def test_read_fslversion():
