@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import os
-import os.path as op
+import os.path  as op
 import contextlib
 import shutil
 
@@ -35,14 +35,18 @@ mkdir -p $prefix/etc/
 
 prefix=$(cd $prefix && pwd)
 
-# called like  conda env update -n base -f <envfile>
-# and like     conda clean -y --all
+# called like
+#  - conda install -y -n base fslbase=1234.0
+#  - conda env update -n base -f <envfile>
+#  - conda clean -y --all
 echo "#!/usr/bin/env bash"  >> $3/bin/conda
-echo 'if [ "$1" = "clean" ]; then '  >> $3/bin/conda
-echo "    touch $prefix/cleaned"     >> $3/bin/conda
-echo "else"                          >> $3/bin/conda
-echo "  cp "'$6'" $prefix/"          >> $3/bin/conda
-echo "fi"                            >> $3/bin/conda
+echo 'if   [ "$1" = "clean" ]; then '      >> $3/bin/conda
+echo "    touch $prefix/cleaned"           >> $3/bin/conda
+echo 'elif [ "$1" = "install" ]; then '    >> $3/bin/conda
+echo '    echo "$5"' "> $prefix/installed" >> $3/bin/conda
+echo "else"                                >> $3/bin/conda
+echo "    cp "'$6'" $prefix/"              >> $3/bin/conda
+echo "fi"                                  >> $3/bin/conda
 chmod a+x $prefix/bin/conda
 """.strip()
 
@@ -82,6 +86,14 @@ mock_manifest = """
 # Format vars: version platform url conda_sha256 env610_sha256 env620_sha256
 
 
+mock_env_yml_template = """
+{version}
+packages:
+ - fsl-base 1234.0
+""".strip()
+
+
+
 @contextlib.contextmanager
 def installer_server(cwd=None):
     if cwd is None:
@@ -89,9 +101,12 @@ def installer_server(cwd=None):
     cwd = op.abspath(cwd)
 
     with indir(cwd), server(cwd) as srv:
-        with open('miniconda.sh', 'wt') as f: f.write(mock_miniconda_sh)
-        with open('env-6.1.0.yml', 'wt')   as f: f.write('6.1.0')
-        with open('env-6.2.0.yml', 'wt')   as f: f.write('6.2.0')
+        with open('miniconda.sh', 'wt') as f:
+            f.write(mock_miniconda_sh)
+        with open('env-6.1.0.yml', 'wt') as f:
+            f.write(mock_env_yml_template.format(version='6.1.0'))
+        with open('env-6.2.0.yml', 'wt') as f:
+            f.write(mock_env_yml_template.format(version='6.2.0'))
 
         conda_sha256  = inst.sha256('miniconda.sh')
         env610_sha256 = inst.sha256('env-6.1.0.yml')
@@ -119,15 +134,23 @@ def check_install(homedir, destdir, version):
     profile = inst.configure_shell.shell_profiles.get(shell, None)
 
     with indir(destdir):
-        with open(op.join(etc, 'fslversion'), 'rt') as f:
-            assert f.read().strip() == version
-
         # added by our mock conda env creeate call
         with open(op.join(destdir, 'env-{}.yml'.format(version)), 'rt') as f:
-            assert f.read().strip() == version
+            exp = mock_env_yml_template.format(version=version)
+            assert f.read().strip() == exp
 
-        assert op.exists(op.join(etc, 'fslinstaller.py'))
-        assert op.exists(op.join(etc, 'env-{}.yml'.format(version)))
+        # added by our mock conda install call
+        with open(op.join(destdir, 'installed'), 'rt') as f:
+            assert f.read().strip() == 'fsl-base=1234.0'
+
+        # added by our mock conda clean call
+        assert op.exists(op.join(destdir, 'cleaned'))
+
+        # added by the fslinstaller
+        with open(op.join(etc, 'fslversion'), 'rt') as f:
+            assert f.read().strip() == version
+        assert op.exists(op.join(etc,     'fslinstaller.py'))
+        assert op.exists(op.join(etc,     'env-{}.yml'.format(version)))
         assert op.exists(op.join(homedir, 'Documents', 'MATLAB'))
 
         if profile is not None:

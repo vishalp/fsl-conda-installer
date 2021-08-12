@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.3.0'
+__version__ = '1.3.1'
 """Installer script version number. This is automatically updated
 whenever a new version of the installer script is released.
 """
@@ -1276,7 +1276,7 @@ def install_fsl(ctx):
     commands = []
     if ctx.fsl_base_version is not None:
         commands.append(
-            conda + 'install -y -n base fsl-base=' + ctx.fsl_base_version)
+            conda + ' install -y -n base fsl-base=' + ctx.fsl_base_version)
     commands.append(conda + ' env update -n base -f ' + ctx.environment_file)
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
