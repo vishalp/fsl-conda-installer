@@ -52,8 +52,8 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.3.2'
-"""Installer script version number. This is automatically updated
+__version__ = '1.3.3'
+"""Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
 
@@ -62,7 +62,7 @@ DEFAULT_INSTALLATION_DIRECTORY = '/usr/local/fsl'
 """Default FSL installation directory. """
 
 
-FSL_INSTALLER_MANIFEST = 'http://18.133.213.73/releases/manifest.json'
+FSL_INSTALLER_MANIFEST = 'https://fsl.fmrib.ox.ac.uk/fsldownloads/releases'
 """URL to download the FSL installer manifest file from. The installer
 manifest file is a JSON file which contains information about available FSL
 versions.
