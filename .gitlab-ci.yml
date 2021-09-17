@@ -28,7 +28,7 @@ variables:
 
   # Directory in which new versions of the
   # installer script should be copied into.
-  FSLINSTALLER_DEPLOY_DIRECTORY: "/"
+  FSLINSTALLER_DEPLOY_DIRECTORY: "/exports/fsldownloads/fslconda/releases/"
 
   # GitLab API token with enough privileges to push a
   # branch to the fsl/conda/manifest repository, and open
