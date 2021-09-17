@@ -62,7 +62,7 @@ DEFAULT_INSTALLATION_DIRECTORY = '/usr/local/fsl'
 """Default FSL installation directory. """
 
 
-FSL_INSTALLER_MANIFEST = 'https://fsl.fmrib.ox.ac.uk/fsldownloads/releases'
+FSL_INSTALLER_MANIFEST = 'https://fsl.fmrib.ox.ac.uk/fsldownloads/fslconda/releases/manifest.json'
 """URL to download the FSL installer manifest file from. The installer
 manifest file is a JSON file which contains information about available FSL
 versions.
