@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.3.4'
+__version__ = '1.3.5'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -475,7 +475,7 @@ class Context(object):
     @staticmethod
     def download_manifest(url, workdir=None):
         """Downloads the installer manifest file, which contains information
-        about available FSL vesrions, and the most recent version number of the
+        about available FSL versions, and the most recent version number of the
         installer (this script).
 
         The manifest file is a JSON file. Lines beginning
@@ -1123,7 +1123,7 @@ def download_fsl_environment(ctx):
     # The fsl-base version is installed before any other
     # packages, as other FSL packages require it to be
     # present in order to install successfully. So we
-    # also extract the fsl-base vesrion number from
+    # also extract the fsl-base version number from
     # the environment file, and store it in the context.
     channels = []
     basever  = None
@@ -1472,7 +1472,7 @@ def self_update(manifest, workdir, checksum):
     latestver = Version(manifest['installer']['version'])
 
     if latestver <= thisver:
-        log.debug('Installer is up to date (this vesrion: %s, '
+        log.debug('Installer is up to date (this version: %s, '
                   'latest version: %s)', thisver, latestver)
         return
 
