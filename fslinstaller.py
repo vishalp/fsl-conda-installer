@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.3.5'
+__version__ = '1.3.6'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -445,7 +445,7 @@ class Context(object):
         """Prompt the user for their administrator password."""
 
         def validate_admin_password(password):
-            proc = Process.sudo_popen(['true'], password)
+            proc = Process.sudo_popen(['true'], password, stdin=sp.PIPE)
             proc.communicate()
             return proc.returncode == 0
 
@@ -1016,7 +1016,7 @@ class Process(object):
 
         admin = admin and os.getuid() != 0
 
-        if admin: password = ctx.password
+        if admin: password = ctx.admin_password
         else:     password = None
 
         cmd              = shlex.split(cmd)
@@ -1202,6 +1202,11 @@ def install_miniconda(ctx):
     printmsg('Installing miniconda at {}...'.format(ctx.destdir))
     cmd = 'sh miniconda.sh -b -p {}'.format(ctx.destdir)
     Process.monitor_progress(cmd, output, ctx.need_admin, ctx)
+
+    # Avoid WSL filesystem issue
+    # https://github.com/conda/conda/issues/9948
+    cmd = 'find {} -type f -exec touch {{}} +'.format(ctx.destdir)
+    Process.check_call(cmd, ctx.need_admin, ctx)
 
     # Create .condarc config file
     condarc = tw.dedent("""
