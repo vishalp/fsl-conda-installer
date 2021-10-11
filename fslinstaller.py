@@ -1203,6 +1203,11 @@ def install_miniconda(ctx):
     cmd = 'sh miniconda.sh -b -p {}'.format(ctx.destdir)
     Process.monitor_progress(cmd, output, ctx.need_admin, ctx)
 
+    # Avoid WSL filesystem issue
+    # https://github.com/conda/conda/issues/9948
+    cmd = 'find {} -type f -exec touch {{}} +'.format(ctx.destdir)
+    Process.check_call(cmd, ctx.need_admin, ctx)
+
     # Create .condarc config file
     condarc = tw.dedent("""
     # Try and make package downloads more robust
