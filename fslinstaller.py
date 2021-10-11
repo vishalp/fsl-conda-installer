@@ -445,7 +445,7 @@ class Context(object):
         """Prompt the user for their administrator password."""
 
         def validate_admin_password(password):
-            proc = Process.sudo_popen(['true'], password)
+            proc = Process.sudo_popen(['true'], password, stdin=sp.PIPE)
             proc.communicate()
             return proc.returncode == 0
 
@@ -1016,7 +1016,7 @@ class Process(object):
 
         admin = admin and os.getuid() != 0
 
-        if admin: password = ctx.password
+        if admin: password = ctx.admin_password
         else:     password = None
 
         cmd              = shlex.split(cmd)
