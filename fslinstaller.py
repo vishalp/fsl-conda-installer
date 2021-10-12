@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.3.6'
+__version__ = '1.3.7'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1038,7 +1038,7 @@ class Process(object):
 
         cmd  = ['sudo', '-S', '-k'] + cmd
         proc = sp.Popen(cmd, **kwargs)
-        proc.stdin.write('{}\n'.format(password))
+        proc.stdin.write('{}\n'.format(password).encode())
         return proc
 
 
