@@ -1038,7 +1038,7 @@ class Process(object):
 
         cmd  = ['sudo', '-S', '-k'] + cmd
         proc = sp.Popen(cmd, **kwargs)
-        proc.stdin.write('{}\n'.format(password))
+        proc.stdin.write('{}\n'.format(password).encode())
         return proc
 
 
