@@ -68,16 +68,18 @@ mock_manifest = """
         "latest" : "6.2.0",
         "6.2.0"  : [
             {{
-                "platform"    : "{platform}",
-                "environment" : "{url}/env-6.2.0.yml",
-                "sha256"      : "{env620_sha256}"
+                "platform"      : "{platform}",
+                "environment"   : "{url}/env-6.2.0.yml",
+                "sha256"        : "{env620_sha256}",
+                "base_packages" : ["fsl-base", "libopenblas"]
             }}
         ],
         "6.1.0"  : [
             {{
-                "platform"    : "{platform}",
-                "environment" : "{url}/env-6.1.0.yml",
-                "sha256"      : "{env610_sha256}"
+                "platform"      : "{platform}",
+                "environment"   : "{url}/env-6.1.0.yml",
+                "sha256"        : "{env610_sha256}",
+                "base_packages" : ["fsl-base", "libopenblas"]
             }}
         ]
     }}
