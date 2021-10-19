@@ -1286,7 +1286,7 @@ def install_fsl(ctx):
     commands = []
     if ctx.fsl_base_packages is not None and len(ctx.fsl_base_packages) > 0:
         basepkgs = ctx.fsl_base_packages
-        basepkgs = [f'{pkg}={ver}' for pkg, ver in basepkgs.items()]
+        basepkgs = ['{}={}'.format(pkg, ver) for pkg, ver in basepkgs.items()]
         basepkgs = ' '.join(basepkgs)
         commands.append(conda + ' install -y -n base ' + basepkgs)
     commands.append(conda + ' env update -n base -f ' + ctx.environment_file)
