@@ -1153,7 +1153,7 @@ def download_fsl_environment(ctx):
             # we install them separately
             for pkg in basepkgnames:
                 if line.strip().startswith('- {}'.format(pkg)):
-                    pkgver        = line.split(' ', 2)[2]
+                    pkgver        = line.strip().split(' ', 2)[2]
                     basepkgs[pkg] = pkgver.replace(' ', '=')
 
             outf.write(line)
