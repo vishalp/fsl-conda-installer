@@ -1125,9 +1125,14 @@ def download_fsl_environment(ctx):
     # before any other packages. So we also extract the
     # version numbers of these base packages from the
     # environment file, and store them in the context.
-    copy     = '.' + op.basename(ctx.environment_file)
-    channels = []
-    basepkgs = {}
+    # Sort base package names from longest to shortest,
+    # to avoid name conflicts (e.g. 'fsl-sub', and
+    # 'fsl-sub_plugin_sge')
+    basepkgnames = sorted(basepkgnames, key=len, reverse=True)
+    copy         = '.' + op.basename(ctx.environment_file)
+    channels     = []
+    basepkgs     = {}
+
     shutil.move(ctx.environment_file, copy)
     with open(copy,                 'rt') as inf, \
          open(ctx.environment_file, 'wt') as outf:
@@ -1149,10 +1154,14 @@ def download_fsl_environment(ctx):
                     channels.append(line.split()[-1])
                     continue
 
-            # save base package versions, as
-            # we install them separately
+            # Save base package versions, as we
+            # install them separately. Package
+            # specs in the yml file are of the
+            # form:
+            #
+            #   - <package> <version> [<build_variant>]
             for pkg in basepkgnames:
-                if line.strip().startswith('- {}'.format(pkg)):
+                if line.strip().startswith('- {} '.format(pkg)):
                     pkgver        = line.strip().split(' ', 2)[2]
                     basepkgs[pkg] = pkgver.replace(' ', '=')
 
