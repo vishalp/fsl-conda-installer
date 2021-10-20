@@ -51,7 +51,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.4.1'
+__version__ = '1.4.2'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -777,6 +777,18 @@ def sha256(filename, check_against=None, blocksize=1048576):
     return checksum
 
 
+def clean_environ():
+    """Return a dict containing a set of sanitised environment variables.
+
+    All FSL and conda related variables are removed.
+    """
+    env = os.environ.copy()
+    for v in list(env.keys()):
+        if any(('FSL' in v, 'CONDA' in v)):
+            env.pop(v)
+    return env
+
+
 def download_file(url, destination, progress=None, blocksize=131072):
     """Download a file from url, saving it to destination. """
 
@@ -1211,8 +1223,9 @@ def install_miniconda(ctx):
 
     # Install
     printmsg('Installing miniconda at {}...'.format(ctx.destdir))
+    env = clean_environ()
     cmd = 'sh miniconda.sh -b -p {}'.format(ctx.destdir)
-    Process.monitor_progress(cmd, output, ctx.need_admin, ctx)
+    Process.monitor_progress(cmd, output, ctx.need_admin, ctx, env=env)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
@@ -1227,6 +1240,17 @@ def install_miniconda(ctx):
     remote_max_retries:          10
     remote_backoff_factor:       5
     safety_checks:               warn
+
+    # Disable caching of remote channel repodata.
+    # This is a hack which is combined with the
+    # WSL1 filesystem hack above - because we have
+    # modified file timestamps, conda will assume
+    # that its channel repodata cache is is up to
+    # date, and will not bother refreshing it in
+    # the commands that we run in the install_fsl
+    # function. When we remove the WSL1 hack above,
+    # we can remove this config setting.
+    local_repodata_ttl: 0
 
     # Channel priority is important. In older versions
     # of FSL we placed the FSL conda channel at the
@@ -1254,7 +1278,7 @@ def install_miniconda(ctx):
     with open('.condarc', 'wt') as f:
         f.write(condarc)
 
-    Process.check_call('cp .condarc {}'.format(ctx.destdir),
+    Process.check_call('cp -f .condarc {}'.format(ctx.destdir),
                        ctx.need_admin, ctx)
 
 
@@ -1304,10 +1328,7 @@ def install_fsl(ctx):
 
     # Clear any environment variables that refer
     # to existing FSL or conda installations.
-    env = os.environ.copy()
-    for v in list(env.keys()):
-        if any(('FSL' in v, 'CONDA' in v)):
-            env.pop(v)
+    env = clean_environ()
 
     # post-link scripts call $FSLDIR/share/fsl/sbin/createFSLWrapper
     # (part of fsl/base), which will only do its thing if the following
