@@ -31,11 +31,8 @@ import                   tempfile
 import                   threading
 import                   traceback
 
-# TODO check py2/3
-try:
-    import urllib.request as urlrequest
-except ImportError:
-    import urllib as urlrequest
+try:                import urllib.request as urlrequest
+except ImportError: import urllib         as urlrequest
 
 try:                import queue
 except ImportError: import Queue as queue
@@ -1050,6 +1047,7 @@ class Process(object):
         cmd  = ['sudo', '-S', '-k'] + cmd
         proc = sp.Popen(cmd, **kwargs)
         proc.stdin.write('{}\n'.format(password).encode())
+        proc.stdin.flush()
         return proc
 
 
