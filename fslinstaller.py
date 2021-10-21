@@ -31,11 +31,8 @@ import                   tempfile
 import                   threading
 import                   traceback
 
-# TODO check py2/3
-try:
-    import urllib.request as urlrequest
-except ImportError:
-    import urllib as urlrequest
+try:                import urllib.request as urlrequest
+except ImportError: import urllib         as urlrequest
 
 try:                import queue
 except ImportError: import Queue as queue
@@ -51,7 +48,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.4.2'
+__version__ = '1.4.3'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1050,6 +1047,7 @@ class Process(object):
         cmd  = ['sudo', '-S', '-k'] + cmd
         proc = sp.Popen(cmd, **kwargs)
         proc.stdin.write('{}\n'.format(password).encode())
+        proc.stdin.flush()
         return proc
 
 
