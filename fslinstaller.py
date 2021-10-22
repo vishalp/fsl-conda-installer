@@ -1107,12 +1107,13 @@ class Process(object):
         with tempfilename(0o755, delete=False) as wrapper:
             with open(wrapper, 'wt') as f:
                 f.write('#!/usr/bin/env sh\n')
-                f.write('thisfile=$(cd $(dirname $0) && pwd)\n')
                 f.write('set -e\n')
+                f.write('thisfile=$0\n')
+                f.write('thisdir=$(cd $(dirname $0) && pwd)\n')
                 for k, v in append_env.items():
                     f.write('export {}="{}"\n'.format(k, v))
                 f.write(' '.join(cmd) + '\n')
-                f.write('rm $thisfile\n')
+                f.write('cd ${thisdir} && rm ${thisfile}\n')
 
         cmd  = ['sudo', '-S', '-k', wrapper]
         proc = sp.Popen(cmd, **kwargs)
@@ -1399,7 +1400,9 @@ def install_fsl(ctx):
 
     # Clear any environment variables that refer
     # to existing FSL or conda installations.
-    env = clean_environ()
+    # See Process.sudo_popen regarding append_env
+    env        = clean_environ()
+    append_env = {}
 
     # post-link scripts call $FSLDIR/share/fsl/sbin/createFSLWrapper
     # (part of fsl/base), which will only do its thing if the following
