@@ -749,6 +749,30 @@ def tempdir(override_dir=None):
             shutil.rmtree(tmpdir)
 
 
+@contextlib.contextmanager
+def tempfilename(permissions=None, delete=True):
+    """Returns a context manager which creates a temporary file, yields its
+    name, then deletes the file on exit.
+    """
+
+    fname = None
+
+    try:
+        tmpf  = tempfile.NamedTemporaryFile(delete=False)
+        fname = tmpf.name
+
+        tmpf.close()
+
+        if permissions:
+            os.chmod(fname, permissions)
+
+        yield fname
+
+    finally:
+        if delete and fname and op.exists(fname):
+            os.remove(fname)
+
+
 def sha256(filename, check_against=None, blocksize=1048576):
     """Calculate the SHA256 checksum of the given file. If check_against
     is provided, it is compared against the calculated checksum, and an
@@ -839,16 +863,29 @@ class Process(object):
     """
 
 
-    def __init__(self, cmd, admin=False, ctx=None, log_output=True, **kwargs):
+    def __init__(self,
+                 cmd,
+                 admin=False,
+                 ctx=None,
+                 log_output=True,
+                 append_env=None,
+                 **kwargs):
         """Run the specified command. Starts threads to capture stdout and
         stderr.
 
         :arg cmd:        Command to run - passed directly to subprocess.Popen
+
         :arg admin:      Run the command with administrative privileges
+
         :arg ctx:        The installer Context. Only used for admin password -
                          can be None if admin is False.
+
         :arg log_output: If True, the command and all of its stdout/stderr are
                          logged.
+
+        :arg append_env: Dictionary of additional environment to be set when
+                         the command is run.
+
         :arg kwargs:     Passed to subprocess.Popen
         """
 
@@ -862,7 +899,9 @@ class Process(object):
         if log_output:
             log.debug('Running %s [as admin: %s]', cmd, admin)
 
-        self.popen = Process.popen(self.cmd, self.admin, self.ctx, **kwargs)
+        self.popen = Process.popen(
+            self.cmd, self.admin, self.ctx,
+            append_env=append_env, **kwargs)
 
         # threads for consuming stdout/stderr
         self.stdout_thread = threading.Thread(
@@ -998,28 +1037,30 @@ class Process(object):
             line = stream.readline().decode('utf-8')
             if line == '':
                 break
-            else:
-                queue.put(line)
-                if log_output:
-                    log.debug(' [%s]: %s', streamname, line.rstrip())
+            queue.put(line)
+            if log_output:
+                log.debug(' [%s]: %s', streamname, line.rstrip())
 
 
     @staticmethod
-    def popen(cmd, admin=False, ctx=None, **kwargs):
+    def popen(cmd, admin=False, ctx=None, append_env=None, **kwargs):
         """Runs the given command via subprocess.Popen, as administrator if
         requested.
 
-        :arg cmd:    The command to run, as a string
+        :arg cmd:        The command to run, as a string
 
-        :arg admin:  Whether to run with administrative privileges
+        :arg admin:      Whether to run with administrative privileges
 
-        :arg ctx:    The installer Context object. Only required if admin is
-                     True.
+        :arg ctx:        The installer Context object. Only required if admin is
+                         True.
 
-        :arg kwargs: Passed to subprocess.Popen. stdin, stdout, and stderr
-                     will be silently clobbered
+        :arg append_env: Dictionary of additional environment to be set when
+                         the command is run.
 
-        :returns:    The subprocess.Popen object.
+        :arg kwargs:     Passed to subprocess.Popen. stdin, stdout, and stderr
+                         will be silently clobbered
+
+        :returns:        The subprocess.Popen object.
         """
 
         admin = admin and os.getuid() != 0
@@ -1032,19 +1073,48 @@ class Process(object):
         kwargs['stdout'] = sp.PIPE
         kwargs['stderr'] = sp.PIPE
 
-        if admin: proc = Process.sudo_popen(cmd, password, **kwargs)
-        else:     proc = sp.Popen(          cmd,           **kwargs)
+        if admin:
+            proc = Process.sudo_popen(cmd, password, append_env, **kwargs)
+        else:
+            # if append_env has been specified,
+            # add it to the normal env option.
+            if append_env is not None:
+                env = kwargs.get('env', os.environ.copy())
+                env.update(append_env)
+                kwargs['env'] = env
+
+            proc = sp.Popen(cmd, **kwargs)
 
         return proc
 
 
     @staticmethod
-    def sudo_popen(cmd, password, **kwargs):
+    def sudo_popen(cmd, password, append_env=None, **kwargs):
         """Runs "sudo cmd" using subprocess.Popen. Used by Process.popen.
         Assumes that kwargs contains stdin=sp.PIPE
         """
 
-        cmd  = ['sudo', '-S', '-k'] + cmd
+        # sudo will not necessarily propagate environment
+        # variables, and there is no guarantee that the
+        # sudo -E option will work. So here we create a
+        # wrapper shell script with "export VAR=VALUE"
+        # statements for all environment variables that
+        # are set.
+        append_env = kwargs.pop('append_env', {})
+
+        # Make the wrapper script delete itself
+        # after the command has been executed.
+        with tempfilename(0o755, delete=False) as wrapper:
+            with open(wrapper, 'wt') as f:
+                f.write('#!/usr/bin/env sh\n')
+                f.write('thisfile=$(cd $(dirname $0) && pwd)\n')
+                f.write('set -e\n')
+                for k, v in append_env.items():
+                    f.write('export {}="{}"\n'.format(k, v))
+                f.write(' '.join(cmd) + '\n')
+                f.write('rm $thisfile\n')
+
+        cmd  = ['sudo', '-S', '-k', wrapper]
         proc = sp.Popen(cmd, **kwargs)
         proc.stdin.write('{}\n'.format(password).encode())
         proc.stdin.flush()
@@ -1089,6 +1159,9 @@ def download_fsl_environment(ctx):
         url          = build['environment']
         checksum     = build.get('sha256',        None)
         basepkgnames = build.get('base_packages', [])
+
+    # disable checksum if env file is passed
+    # via --environment cli option
     else:
         build        = {}
         url          = ctx.args.environment
@@ -1331,8 +1404,8 @@ def install_fsl(ctx):
     # post-link scripts call $FSLDIR/share/fsl/sbin/createFSLWrapper
     # (part of fsl/base), which will only do its thing if the following
     # env vars are set
-    env['FSL_CREATE_WRAPPER_SCRIPTS'] = '1'
-    env['FSLDIR']                     = ctx.destdir
+    append_env['FSL_CREATE_WRAPPER_SCRIPTS'] = '1'
+    append_env['FSLDIR']                     = ctx.destdir
 
     # FSL environments which source packages from the internal
     # FSL conda channel will refer to the channel as:
@@ -1343,7 +1416,8 @@ def install_fsl(ctx):
     if ctx.args.username: env['FSLCONDA_USERNAME'] = ctx.args.username
     if ctx.args.password: env['FSLCONDA_PASSWORD'] = ctx.args.password
 
-    Process.monitor_progress(commands, output, ctx.need_admin, ctx, env=env)
+    Process.monitor_progress(commands, output, ctx.need_admin, ctx,
+                             append_env=append_env, env=env)
 
 
 def finalise_installation(ctx):
