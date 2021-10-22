@@ -139,3 +139,10 @@ def test_Process_sudo_popen():
             assert f.read().strip() ==  'password'
         with open('command_output', 'rt') as f:
             assert f.read().strip() == 'Running cmd'
+
+
+def test_Process_popen_append_env():
+    raise NotImplementedError()
+
+def test_Process_sudo_popen_append_env():
+    raise NotImplementedError()
