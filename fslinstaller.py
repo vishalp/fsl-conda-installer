@@ -1100,7 +1100,8 @@ class Process(object):
         # wrapper shell script with "export VAR=VALUE"
         # statements for all environment variables that
         # are set.
-        append_env = kwargs.pop('append_env', {})
+        if append_env is None:
+            append_env = {}
 
         # Make the wrapper script delete itself
         # after the command has been executed.
@@ -1112,6 +1113,7 @@ class Process(object):
                 f.write('thisdir=$(cd $(dirname $0) && pwd)\n')
                 for k, v in append_env.items():
                     f.write('export {}="{}"\n'.format(k, v))
+                # shlex.join not available in py27
                 f.write(' '.join(cmd) + '\n')
                 f.write('cd ${thisdir} && rm ${thisfile}\n')
 
