@@ -160,58 +160,63 @@ def check_install(homedir, destdir, version):
 
 
 def test_installer_normal_interactive_usage():
-    with installer_server() as srv:
-        with mock.patch('fslinstaller.FSL_INSTALLER_MANIFEST',
-                        '{}/manifest.json'.format(srv.url)):
-            # accept rel/abs paths
-            for i in range(3):
-                with inst.tempdir() as cwd:
-                    dests = ['fsl', op.join('.', 'fsl'), op.abspath('fsl')]
-                    dest  = dests[i]
-                    with mock_input(dest):
-                        inst.main(['--homedir', cwd])
-                    check_install(cwd, dest, '6.2.0')
-                    shutil.rmtree(dest)
+    with inst.tempdir():
+        with installer_server() as srv:
+            with mock.patch('fslinstaller.FSL_INSTALLER_MANIFEST',
+                            '{}/manifest.json'.format(srv.url)):
+                # accept rel/abs paths
+                for i in range(3):
+                    with inst.tempdir() as cwd:
+                        dests = ['fsl',
+                                 op.join('.', 'fsl'),
+                                 op.abspath('fsl')]
+                        dest  = dests[i]
+                        with mock_input(dest):
+                            inst.main(['--homedir', cwd])
+                        check_install(cwd, dest, '6.2.0')
+                        shutil.rmtree(dest)
 
 
 def test_installer_list_versions():
     platform = inst.Context.identify_platform()
-    with installer_server() as srv:
-        with mock.patch('fslinstaller.FSL_INSTALLER_MANIFEST',
-                        '{}/manifest.json'.format(srv.url)):
-            with inst.tempdir() as cwd:
-                with CaptureStdout() as cap:
-                    with pytest.raises(SystemExit) as e:
-                        inst.main(['--listversions'])
-                    assert e.value.code == 0
+    with inst.tempdir():
+        with installer_server() as srv:
+            with mock.patch('fslinstaller.FSL_INSTALLER_MANIFEST',
+                            '{}/manifest.json'.format(srv.url)):
+                with inst.tempdir() as cwd:
+                    with CaptureStdout() as cap:
+                        with pytest.raises(SystemExit) as e:
+                            inst.main(['--listversions'])
+                        assert e.value.code == 0
 
-                out   = strip_ansi_escape_sequences(cap.stdout)
-                lines = out.split('\n')
+                    out   = strip_ansi_escape_sequences(cap.stdout)
+                    lines = out.split('\n')
 
-                assert '6.1.0' in lines
-                assert '6.2.0' in lines
-                assert '  {} {}/env-6.1.0.yml'.format(platform, srv.url) in lines
-                assert '  {} {}/env-6.2.0.yml'.format(platform, srv.url) in lines
+                    assert '6.1.0' in lines
+                    assert '6.2.0' in lines
+                    assert '  {} {}/env-6.1.0.yml'.format(platform, srv.url) in lines
+                    assert '  {} {}/env-6.2.0.yml'.format(platform, srv.url) in lines
 
 
 def test_installer_normal_cli_usage():
-    with installer_server() as srv:
-        with mock.patch('fslinstaller.FSL_INSTALLER_MANIFEST',
-                        '{}/manifest.json'.format(srv.url)):
+    with inst.tempdir():
+        with installer_server() as srv:
+            with mock.patch('fslinstaller.FSL_INSTALLER_MANIFEST',
+                            '{}/manifest.json'.format(srv.url)):
 
-            # accept rel/abs paths
-            for i in range(3):
+                # accept rel/abs paths
+                for i in range(3):
+                    with inst.tempdir() as cwd:
+                        dests = ['fsl', op.join('.', 'fsl'), op.abspath('fsl')]
+                        dest  = dests[i]
+                        inst.main(['--homedir', cwd, '--dest', dest])
+                        check_install(cwd, dest, '6.2.0')
+                        shutil.rmtree(dest)
+
+                # install specific version
                 with inst.tempdir() as cwd:
-                    dests = ['fsl', op.join('.', 'fsl'), op.abspath('fsl')]
-                    dest  = dests[i]
-                    inst.main(['--homedir', cwd, '--dest', dest])
-                    check_install(cwd, dest, '6.2.0')
-                    shutil.rmtree(dest)
-
-            # install specific version
-            with inst.tempdir() as cwd:
-                inst.main(['--homedir', cwd,
-                           '--dest', 'fsl',
-                           '--fslversion', '6.1.0'])
-                check_install(cwd, 'fsl', '6.1.0')
-                shutil.rmtree('fsl')
+                    inst.main(['--homedir', cwd,
+                               '--dest', 'fsl',
+                               '--fslversion', '6.1.0'])
+                    check_install(cwd, 'fsl', '6.1.0')
+                    shutil.rmtree('fsl')
