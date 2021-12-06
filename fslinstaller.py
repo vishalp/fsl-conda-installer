@@ -39,7 +39,7 @@ try:                import queue
 except ImportError: import Queue as queue
 
 
-PY2 = sys.version[0] == '2'
+PYVER = sys.version_info[:2]
 
 
 log = logging.getLogger(__name__)
@@ -553,8 +553,8 @@ def prompt(prompt, *msgtypes, **kwargs):
     """
     printmsg(prompt, *msgtypes, end='', log=False, **kwargs)
 
-    if PY2: response = raw_input(' ').strip()
-    else:   response = input(    ' ').strip()
+    if PYVER[0] == 2: response = raw_input(' ').strip()
+    else:             response = input(    ' ').strip()
 
     log.debug('%s: %s', prompt, response)
 
@@ -833,20 +833,20 @@ def download_file(url,
     # We create and use an unconfigured SSL
     # context to disable SSL verification.
     # Otherwise pass None causes urlopen to
-    # use default behaviour.
-    if ssl_verify:
-        context = None
-    else:
+    # use default behaviour. The context
+    # argument is not available in py3.3
+    kwargs = {}
+    if (not ssl_verify) and (PYVER != (3, 3)):
         printmsg('Skipping SSL verification - this '
                  'is not recommended!', WARNING)
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        kwargs['context'] = ssl.SSLContext(ssl.PROTOCOL_TLS)
 
     req = None
 
     try:
         # py2: urlopen result cannot be
         # used as a context manager
-        req = urlrequest.urlopen(url, context=context)
+        req = urlrequest.urlopen(url, **kwargs)
         with open(destination, 'wb') as outf:
 
             try:             total = int(req.headers['content-length'])
