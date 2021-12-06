@@ -26,6 +26,7 @@ import                   re
 import                   readline
 import                   shlex
 import                   shutil
+import                   ssl
 import                   sys
 import                   tempfile
 import                   threading
@@ -38,7 +39,7 @@ try:                import queue
 except ImportError: import Queue as queue
 
 
-PY2 = sys.version[0] == '2'
+PYVER = sys.version_info[:2]
 
 
 log = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.5.0'
+__version__ = '1.6.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -552,8 +553,8 @@ def prompt(prompt, *msgtypes, **kwargs):
     """
     printmsg(prompt, *msgtypes, end='', log=False, **kwargs)
 
-    if PY2: response = raw_input(' ').strip()
-    else:   response = input(    ' ').strip()
+    if PYVER[0] == 2: response = raw_input(' ').strip()
+    else:             response = input(    ' ').strip()
 
     log.debug('%s: %s', prompt, response)
 
@@ -810,7 +811,11 @@ def clean_environ():
     return env
 
 
-def download_file(url, destination, progress=None, blocksize=131072):
+def download_file(url,
+                  destination,
+                  progress=None,
+                  blocksize=131072,
+                  ssl_verify=True):
     """Download a file from url, saving it to destination. """
 
     def default_progress(downloaded, total):
@@ -825,11 +830,23 @@ def download_file(url, destination, progress=None, blocksize=131072):
     if op.exists(url):
         url = 'file:' + urlrequest.pathname2url(op.abspath(url))
 
+    # We create and use an unconfigured SSL
+    # context to disable SSL verification.
+    # Otherwise pass None causes urlopen to
+    # use default behaviour. The context
+    # argument is not available in py3.3
+    kwargs = {}
+    if (not ssl_verify) and (PYVER != (3, 3)):
+        printmsg('Skipping SSL verification - this '
+                 'is not recommended!', WARNING)
+        kwargs['context'] = ssl.SSLContext(ssl.PROTOCOL_TLS)
+
     req = None
+
     try:
         # py2: urlopen result cannot be
         # used as a context manager
-        req = urlrequest.urlopen(url)
+        req = urlrequest.urlopen(url, **kwargs)
         with open(destination, 'wb') as outf:
 
             try:             total = int(req.headers['content-length'])
@@ -1317,13 +1334,16 @@ def install_miniconda(ctx):
 
     # Disable caching of remote channel repodata.
     # This is a hack which is combined with the
-    # WSL1 filesystem hack above - because we have
-    # modified file timestamps, conda will assume
-    # that its channel repodata cache is is up to
-    # date, and will not bother refreshing it in
-    # the commands that we run in the install_fsl
-    # function. When we remove the WSL1 hack above,
-    # we can remove this config setting.
+    # WSL1 filesystem hack in the fslinstaller
+    # script - because we have modified file
+    # timestamps, conda will assume that its
+    # channel repodata cache is up to date, and
+    # will not bother refreshing it in the
+    # commands that we run in the install_fsl
+    # function. When we remove the WSL1 hack from
+    # the fslinstaller, we can remove this config
+    # setting.
+    # https://github.com/conda/conda/issues/9948
     local_repodata_ttl: 0
 
     # Channel priority is important. In older versions
@@ -1341,7 +1361,20 @@ def install_miniconda(ctx):
     # https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-channels.html
     channel_priority: strict #!final
     """)
-    channels      = list(ctx.environment_channels)
+
+    if ctx.args.skip_ssl_verify:
+        printmsg('Configuring conda to skip SSL verification '
+                 '- this is not recommended!', WARNING)
+        condarc += tw.dedent("""
+        # Disable SSL verification when accessing
+        # conda channels over https:// (the
+        # fslinstaller script was called with
+        # --skip_ssl_verify). NOT RECOMMENDED.
+        ssl_verify: false
+        """)
+
+    # Set up the channel list
+    channels = list(ctx.environment_channels)
     if len(channels) > 0:
         channels[0]  += ' #!top'
         channels[-1] += ' #!bottom'
@@ -1411,6 +1444,13 @@ def install_fsl(ctx):
     # env vars are set
     append_env['FSL_CREATE_WRAPPER_SCRIPTS'] = '1'
     append_env['FSLDIR']                     = ctx.destdir
+
+    # Make sure HTTP proxy variables, if set,
+    # are available to the conda env command
+    for v in ['http_proxy', 'https_proxy',
+              'HTTP_PROXY', 'HTTPS_PROXY']:
+        if v in os.environ:
+            append_env[v] = os.environ[v]
 
     # FSL environments which source packages from the internal
     # FSL conda channel will refer to the channel as:
@@ -1779,14 +1819,14 @@ def parse_args(argv=None):
         # internal FSL conda channel, if an
         # internal/development release is being
         # installed
-        'username'       : argparse.SUPPRESS,
-        'password'       : argparse.SUPPRESS,
+        'username'        : argparse.SUPPRESS,
+        'password'        : argparse.SUPPRESS,
 
         # Do not automatically update the installer script,
-        'no_self_update' : argparse.SUPPRESS,
+        'no_self_update'  : argparse.SUPPRESS,
 
         # Path to alternative FSL release manifest.
-        'manifest'       : argparse.SUPPRESS,
+        'manifest'        : argparse.SUPPRESS,
 
         # Path to FSL conda environment.yml file.
         # Using this option will cause the
@@ -1794,22 +1834,26 @@ def parse_args(argv=None):
         # ignored. It is assumed that the
         # environment file is compatible with the
         # host platform.
-        'environment'    : argparse.SUPPRESS,
+        'environment'     : argparse.SUPPRESS,
 
         # Print debugging messages
-        'debug'          : argparse.SUPPRESS,
+        'debug'           : argparse.SUPPRESS,
 
         # Disable SHA256 checksum validation of downloaded files
-        'no_checksum'    : argparse.SUPPRESS,
+        'no_checksum'     : argparse.SUPPRESS,
 
         # Store temp files in this directory
         # rather than in a temporary directory
-        'workdir'        : argparse.SUPPRESS,
+        'workdir'         : argparse.SUPPRESS,
 
         # Treat this directory as user's home directory,
         # for the purposes of shell configuration. Must
         # already exist.
-        'homedir'        : argparse.SUPPRESS,
+        'homedir'         : argparse.SUPPRESS,
+
+        # Configure conda to skip SSL verification.
+        # Not recommended.
+        'skip_ssl_verify' : argparse.SUPPRESS,
     }
 
     parser = argparse.ArgumentParser()
@@ -1840,6 +1884,8 @@ def parse_args(argv=None):
     parser.add_argument('--password', help=helps['password'])
     parser.add_argument('--no_checksum', action='store_true',
                         help=helps['no_checksum'])
+    parser.add_argument('--skip_ssl_verify', action='store_true',
+                        help=helps['skip_ssl_verify'])
     parser.add_argument('--workdir', help=helps['workdir'])
     parser.add_argument('--homedir', help=helps['homedir'],
                         default=op.expanduser('~'))
