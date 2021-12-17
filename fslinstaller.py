@@ -16,6 +16,7 @@ import subprocess     as sp
 import textwrap       as tw
 import                   argparse
 import                   contextlib
+import                   fnmatch
 import                   getpass
 import                   hashlib
 import                   json
@@ -49,7 +50,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.6.0'
+__version__ = '1.7.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1268,6 +1269,13 @@ def download_fsl_environment(ctx):
                     pkgver        = line.strip().split(' ', 2)[2]
                     basepkgs[pkg] = pkgver.replace(' ', '=')
 
+            # Exclude packages upon user request
+            for pattern in ctx.args.exclude_package:
+                if fnmatch.fnmatch(line.strip(), '- {}'.format(pattern)):
+                    log.debug('Excluding package %s (matched '
+                              '--exclude_package %s)', line, pattern)
+                    continue
+
             outf.write(line)
 
     ctx.environment_channels = channels
@@ -1854,6 +1862,11 @@ def parse_args(argv=None):
         # Configure conda to skip SSL verification.
         # Not recommended.
         'skip_ssl_verify' : argparse.SUPPRESS,
+
+        # Do not install packages matching this
+        # fnmatch-style wildcard pattern. Can
+        # be used multiple times.
+        'exclude_package' : argparse.SUPPRESS,
     }
 
     parser = argparse.ArgumentParser()
@@ -1869,7 +1882,7 @@ def parse_args(argv=None):
                         help=helps['overwrite'])
     parser.add_argument('-l', '--listversions', action='store_true',
                         help=helps['listversions'])
-    parser.add_argument('-e', '--no_env', action='store_true',
+    parser.add_argument('-n', '--no_env', action='store_true',
                         help=helps['no_env'])
     parser.add_argument('-s', '--no_shell', action='store_true',
                         help=helps['no_shell'])
@@ -1894,6 +1907,8 @@ def parse_args(argv=None):
     parser.add_argument('--environment', help=helps['environment'])
     parser.add_argument('--no_self_update', action='store_true',
                         help=helps['no_self_update'])
+    parser.add_argument('--exclude_package', action='append',
+                        help=helps['exclude_package'])
 
     args = parser.parse_args(argv)
 
@@ -1921,6 +1936,9 @@ def parse_args(argv=None):
         args.workdir = op.abspath(args.workdir)
         if not op.exists(args.workdir):
             os.mkdir(args.workdir)
+
+    if args.exclude_package is None:
+        args.exclude_package = []
 
     # accept local path for manifest and environment
     if args.manifest is not None and op.exists(args.manifest):
