@@ -50,7 +50,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.7.0'
+__version__ = '1.7.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1274,9 +1274,9 @@ def download_fsl_environment(ctx):
                 if fnmatch.fnmatch(line.strip(), '- {}'.format(pattern)):
                     log.debug('Excluding package %s (matched '
                               '--exclude_package %s)', line, pattern)
-                    continue
-
-            outf.write(line)
+                    break
+            else:
+                outf.write(line)
 
     ctx.environment_channels = channels
     ctx.fsl_base_packages    = basepkgs
