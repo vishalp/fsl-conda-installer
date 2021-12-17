@@ -1270,8 +1270,9 @@ def download_fsl_environment(ctx):
                     basepkgs[pkg] = pkgver.replace(' ', '=')
 
             # Exclude packages upon user request
+            pkgname = line.strip(' -').split()[0]
             for pattern in ctx.args.exclude_package:
-                if fnmatch.fnmatch(line.strip(), '- {}'.format(pattern)):
+                if fnmatch.fnmatch(pkgname, pattern):
                     log.debug('Excluding package %s (matched '
                               '--exclude_package %s)', line, pattern)
                     break
