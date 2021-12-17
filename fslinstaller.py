@@ -1937,6 +1937,9 @@ def parse_args(argv=None):
         if not op.exists(args.workdir):
             os.mkdir(args.workdir)
 
+    if args.exclude_package is None:
+        args.exclude_package = []
+
     # accept local path for manifest and environment
     if args.manifest is not None and op.exists(args.manifest):
         args.manifest = op.abspath(args.manifest)
