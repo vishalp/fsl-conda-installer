@@ -50,7 +50,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.7.2'
+__version__ = '1.7.3'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1264,6 +1264,10 @@ def download_fsl_environment(ctx):
             # form:
             #
             #   - <package> <version> [<build_variant>]
+            #
+            # From this we create a dict of the form:
+            #
+            #   - <package> : <version>[=<build_variant>]
             for pkg in basepkgnames:
                 if line.strip().startswith('- {} '.format(pkg)):
                     pkgver        = line.strip().split(' ', 2)[2]
@@ -1435,7 +1439,7 @@ def install_fsl(ctx):
     commands = []
     if ctx.fsl_base_packages is not None and len(ctx.fsl_base_packages) > 0:
         basepkgs = ctx.fsl_base_packages
-        basepkgs = ['{}={}'.format(pkg, ver) for pkg, ver in basepkgs.items()]
+        basepkgs = ['{}=={}'.format(pkg, ver) for pkg, ver in basepkgs.items()]
         basepkgs = ' '.join(basepkgs)
         commands.append(conda + ' install -y -n base ' + basepkgs)
     commands.append(conda + ' env update -n base -f ' + ctx.environment_file)
