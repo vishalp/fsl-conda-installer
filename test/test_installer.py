@@ -36,7 +36,7 @@ mkdir -p $prefix/etc/
 prefix=$(cd $prefix && pwd)
 
 # called like
-#  - conda install -y -n base fslbase=1234.0
+#  - conda install -y -n base fslbase==1234.0
 #  - conda env update -n base -f <envfile>
 #  - conda clean -y --all
 echo "#!/usr/bin/env bash"  >> $3/bin/conda
@@ -143,7 +143,7 @@ def check_install(homedir, destdir, version):
 
         # added by our mock conda install call
         with open(op.join(destdir, 'installed'), 'rt') as f:
-            assert f.read().strip() == 'fsl-base=1234.0'
+            assert f.read().strip() == 'fsl-base==1234.0'
 
         # added by our mock conda clean call
         assert op.exists(op.join(destdir, 'cleaned'))
