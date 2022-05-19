@@ -56,7 +56,7 @@ whenever a new version of the installer script is released.
 """
 
 
-DEFAULT_INSTALLATION_DIRECTORY = '/usr/local/fsl'
+DEFAULT_INSTALLATION_DIRECTORY = op.join(op.expanduser('~'), 'fsl')
 """Default FSL installation directory. """
 
 
