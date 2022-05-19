@@ -50,13 +50,13 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.7.3'
+__version__ = '1.8.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
 
 
-DEFAULT_INSTALLATION_DIRECTORY = '/usr/local/fsl'
+DEFAULT_INSTALLATION_DIRECTORY = op.join(op.expanduser('~'), 'fsl')
 """Default FSL installation directory. """
 
 
@@ -1831,7 +1831,9 @@ def parse_args(argv=None):
         # Username / password for accessing
         # internal FSL conda channel, if an
         # internal/development release is being
-        # installed
+        # installed. If not set, will be read from
+        # FSLCONDA_USERNAME/FSLCONDA_PASSWORD
+        # environment variables.
         'username'        : argparse.SUPPRESS,
         'password'        : argparse.SUPPRESS,
 
@@ -1929,9 +1931,10 @@ def parse_args(argv=None):
                  'asked for your administrator password if required.',
                  WARNING, EMPHASIS)
 
-    if (args.username is not None) and (args.password is     None) or \
-       (args.username is     None) and (args.password is not None):
-        parser.error('Both --username and --password must be specified')
+    if args.username is None:
+        args.username = os.environ.get('FSLCONDA_USERNAME', None)
+    if args.password is None:
+        args.password = os.environ.get('FSLCONDA_PASSWORD', None)
 
     if args.no_env:
         args.no_shell  = True
