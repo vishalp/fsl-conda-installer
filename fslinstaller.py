@@ -627,14 +627,20 @@ class Progress(object):
         if it cannot be determined.
         """
         # os.get_terminal_size added in python
-        # 3.3, so we try it but fall back to tput
+        # 3.3, so we try it but fall back to
+        # COLUMNS, or tput as a last resort.
         try:
             return os.get_terminal_size()[0]
         except Exception:
             pass
 
         try:
-            result = sp.check_output(('tput', 'cols'))
+            return int(os.environ['COLUMNS'])
+        except Exception:
+            pass
+
+        try:
+            result = Process.check_output('tput cols')
             return int(result.strip())
         except Exception:
             return fallback
