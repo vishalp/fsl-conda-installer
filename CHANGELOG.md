@@ -1,5 +1,18 @@
 # FSL installer script release history
 
+# 1.9.0
+
+ - Removed/disabled the `--update` option, for updating an existing FSL
+   installation. This option may be re-enabled in the future.
+ - Removed the hidden `--environment` option.
+ - Update the `fslinstaller.py` script to work with the new CUDA package
+   arrangement - FSL environment specifications are no longer provided
+   for each supported CUDA version. Instead, all CUDA packages are included
+   as part of the `linux-64` environment. The `--cuda` option can be used
+   to select one set of packages to be installed, and the `--no_cuda` option
+   can be used to exclude all CUDA packages from the installation.
+
+
 # 1.8.0
 
  - The default FSL installation directory has been changed from `/usr/local/fsl/`
