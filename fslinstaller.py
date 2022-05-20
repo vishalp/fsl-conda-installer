@@ -135,7 +135,6 @@ class Context(object):
         # the property accessors defined below, or all
         # all updated via the finalise-settings method.
         self.__platform       = None
-        self.__cuda           = None
         self.__manifest       = None
         self.__build          = None
         self.__destdir        = None
@@ -175,7 +174,6 @@ class Context(object):
         """
         self.manifest
         self.platform
-        self.cuda
         self.build
         self.destdir
         self.need_admin
@@ -188,17 +186,6 @@ class Context(object):
         if self.__platform is None:
             self.__platform = Context.identify_platform()
         return self.__platform
-
-
-    @property
-    def cuda(self):
-        """The available CUDA version, or a CUDA version requested by the user.
-        """
-        if self.__cuda is not None:
-            return self.__cuda
-        if self.args.cuda is not None:
-            self.__cuda = self.args.cuda
-        return self.__cuda
 
 
     @property
