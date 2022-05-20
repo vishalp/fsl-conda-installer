@@ -1615,6 +1615,9 @@ def update_destdir(ctx):
 
     Returns the old FSL version string if the existing FSL installation
     should be updated, or None if it should be overwritten.
+
+    Note: This functionality is not currently supported - the --update
+    command-line option is hidden for the time being.
     """
 
     installed = read_fslversion(ctx.destdir)
@@ -1734,8 +1737,6 @@ def parse_args(argv=None):
         'listversions' : 'List available FSL versions and exit',
         'dest'         : 'Install FSL into this folder (default: '
                          '{})'.format(DEFAULT_INSTALLATION_DIRECTORY),
-        'update'       : 'Update existing FSL installation if possible, '
-                         'without asking',
         'overwrite'    : 'Delete existing destination directory if it exists, '
                          'without asking',
         'no_env'       : 'Do not modify your shell or MATLAB configuration '
@@ -1746,6 +1747,12 @@ def parse_args(argv=None):
         'cuda'         : 'Install FSL packages for this CUDA version only '
                          '(default: install packages for all CUDA versions)',
         'no_cuda'      : 'Do not install any FSL CUDA packages',
+
+        # Update existing FSL installation if
+        # possible, without asking.  This
+        # option is hidden/unsupported at the
+        # moment, but may be added in the future.
+        'update'          : argparse.SUPPRESS,
 
         # Username / password for accessing
         # internal FSL conda channel, if an
@@ -1974,7 +1981,8 @@ def main(argv=None):
         ctx.exists = op.exists(ctx.destdir)
 
         if ctx.exists:
-            ctx.update = update_destdir(ctx)
+            # The update facility is currently disabled.
+            # ctx.update = update_destdir(ctx)
             if not ctx.update:
                 overwrite_destdir(ctx)
 
