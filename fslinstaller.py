@@ -116,8 +116,8 @@ class Version(object):
 
 
 class Context(object):
-    """Bag of information and settings created in main, and passed around
-    this script.
+    """Bag of information and settings created in the main function, and passed
+    around this script.
 
     Several settings are lazily evaluated on first access, but once evaluated,
     their values are immutable.
@@ -198,16 +198,13 @@ class Context(object):
             return self.__cuda
         if self.args.cuda is not None:
             self.__cuda = self.args.cuda
-        if self.__cuda is None:
-            self.__cuda = Context.identify_cuda()
         return self.__cuda
 
 
     @property
     def build(self):
         """Returns a suitable FSL build (a dictionary entry from the FSL
-        installer manifest) for the target platform and requested FSL/CUDA
-        versions.
+        installer manifest) for the target platform.
 
         The returned dictionary has the following elements:
           - 'version'      FSL version.
@@ -216,8 +213,6 @@ class Context(object):
           - 'sha256':      Checksum of environment file
           - 'output':      Number of lines of expected output, for reporting
                            progress
-          - 'cuda':        X.Y CUDA version, if a CUDA-enabled version of FSL
-                           is to be installed.
         """
 
         if self.__build is not None:
@@ -236,53 +231,27 @@ class Context(object):
         if fslversion == 'latest':
             fslversion = self.manifest['versions']['latest']
 
-        # Find refs to all compatible builds,
-        # separating the default (no CUDA) build
-        # from CUDA-enabled builds. We assume
-        # that there is only one default build
-        # for each platform.
-        default    = None
-        candidates = []
+        # Find refs to a suitable build for this
+        # platform. We assume that there is only
+        # one default build for each platform.
+        # in the list of builds for a given FSL
+        # version.
+        build = None
 
-        for build in self.manifest['versions'][fslversion]:
-            if build['platform'] == self.platform:
-                if build.get('cuda', None) is None:
-                    default = build
-                else:
-                    candidates.append(build)
+        for candidate in self.manifest['versions'][fslversion]:
+            if candidate['platform'] == self.platform:
+                build = candidate
+                break
 
-        if (default is None) and (len(candidates) == 0):
+        if build is None:
             raise Exception(
-                'Cannot find a version of FSL matching platform '
-                '{} and CUDA {}'.format(self.platform, self.cuda))
+                'Cannot find a version of FSL matching '
+                'platform {}'.format(self.platform))
 
-        # If we have CUDA (or the user has
-        # specifically requested a CUDA build),
-        # try and find a suitable build
-        match = default
-        if self.cuda is not None:
-            candidates = sorted(candidates, key=lambda b: float(b['cuda']))
+        printmsg('FSL {} selected for installation'.format(build['version']))
 
-            for build in reversed(candidates):
-                if self.cuda >= float(build['cuda']):
-                    match = build
-                    break
-            else:
-                available = [b['cuda'] for b in candidates]
-                printmsg('Could not find a suitable FSL CUDA '
-                         'build for CUDA version {} (available: '
-                         '{}. Installing default (non-CUDA) '
-                         'FSL build.'.format(self.cuda, available),
-                         WARNING)
-                printmsg('You can use the --cuda command-line option '
-                         'to install a FSL build that is compatible '
-                         'with a specific CUDA version', INFO)
-
-        printmsg('FSL {} [CUDA: {}] selected for installation'.format(
-            match['version'], match.get('cuda', 'n/a')))
-
-        self.__build = match
-        return match
+        self.__build = build
+        return build
 
 
     @property
@@ -391,41 +360,6 @@ class Context(object):
                                 system, cpu, supported))
 
         return platforms[key]
-
-
-    @staticmethod
-    def identify_cuda():
-        """Identifies the CUDA version supported on the platform. Returns a
-        float representing the X.Y CUDA version, or None if CUDA is not
-        available on the platform.
-        """
-
-        # see below - no_cuda is set to prevent unnecessary
-        # attempts to call nvidia-smi more than once
-        if getattr(Context.identify_cuda, 'no_cuda', False):
-            return None
-
-        try:
-            output = Process.check_output('nvidia-smi')
-        except Exception:
-            Context.identify_cuda.no_cuda = True
-            return None
-
-        pat   = r'CUDA Version: (\S+)'
-        lines = output.split('\n')
-        for line in lines:
-            match = re.search(pat, line)
-            if match:
-                cudaver = match.group(1)
-                break
-        else:
-            # message for debugging - the output
-            # will be present in the logfile
-            log.debug('Could not parse nvidia-smi output')
-            Context.identify_cuda.no_cuda = True
-            return None
-
-        return float(cudaver)
 
 
     @staticmethod
@@ -1150,20 +1084,13 @@ def list_available_versions(manifest):
             continue
         printmsg(version, IMPORTANT, EMPHASIS)
         for build in manifest['versions'][version]:
-            if build.get('cuda', '').strip() != '':
-                template = '  {platform} [CUDA {cuda}]'
-            else:
-                template = '  {platform}'
-            printmsg(template.format(**build), EMPHASIS, end=' ')
+            printmsg('  {}'.format(build['platform']), EMPHASIS, end=' ')
             printmsg(build['environment'], INFO)
 
 
 def download_fsl_environment(ctx):
     """Downloads the environment specification file for the selected FSL
     version.
-
-    If the (hidden) --environment option is provided, the specified file
-    is used instead.
 
     Internal/development FSL versions may source packages from the internal
     FSL conda channel, which requires a username+password to authenticate.
@@ -1175,19 +1102,10 @@ def download_fsl_environment(ctx):
     are prompted for them.
     """
 
-    if ctx.args.environment is None:
-        build        = ctx.build
-        url          = build['environment']
-        checksum     = build.get('sha256',        None)
-        basepkgnames = build.get('base_packages', [])
-
-    # disable checksum if env file is passed
-    # via --environment cli option
-    else:
-        build        = {}
-        url          = ctx.args.environment
-        checksum     = None
-        basepkgnames = []
+    build        = ctx.build
+    url          = build['environment']
+    checksum     = build.get('sha256',        None)
+    basepkgnames = build.get('base_packages', [])
 
     printmsg('Downloading FSL environment specification '
              'from {}...'.format(url))
@@ -1825,8 +1743,9 @@ def parse_args(argv=None):
         'no_shell'     : 'Do not modify your shell configuration',
         'no_matlab'    : 'Do not modify your MATLAB configuration',
         'fslversion'   : 'Install this specific version of FSL',
-        'cuda'         : 'Install FSL for this CUDA version (default: '
-                         'automatically detected)',
+        'cuda'         : 'Install FSL packages for this CUDA version only '
+                         '(default: install packages for all CUDA versions)',
+        'no_cuda'      : 'Do not install any FSL CUDA packages',
 
         # Username / password for accessing
         # internal FSL conda channel, if an
@@ -1842,14 +1761,6 @@ def parse_args(argv=None):
 
         # Path to alternative FSL release manifest.
         'manifest'        : argparse.SUPPRESS,
-
-        # Path to FSL conda environment.yml file.
-        # Using this option will cause the
-        # --fslversion and --cuda options to be
-        # ignored. It is assumed that the
-        # environment file is compatible with the
-        # host platform.
-        'environment'     : argparse.SUPPRESS,
 
         # Print debugging messages
         'debug'           : argparse.SUPPRESS,
@@ -1897,7 +1808,13 @@ def parse_args(argv=None):
                         help=helps['no_matlab'])
     parser.add_argument('-V', '--fslversion', default='latest',
                         help=helps['version'])
-    parser.add_argument('-c', '--cuda', help=helps['cuda'], type=float)
+
+    # CUDA packages are currently
+    # only built for linux-64
+    if Context.identify_platform() == 'linux-64':
+        parser.add_argument('-c', '--cuda',     help=helps['cuda'], type=float)
+        parser.add_argument('-nc', '--no_cuda', help=helps['no_cuda'],
+                            action='store_true')
 
     # hidden options
     parser.add_argument('--username', help=helps['username'])
@@ -1911,7 +1828,6 @@ def parse_args(argv=None):
                         default=op.expanduser('~'))
     parser.add_argument('--manifest', default=FSL_INSTALLER_MANIFEST,
                         help=helps['manifest'])
-    parser.add_argument('--environment', help=helps['environment'])
     parser.add_argument('--no_self_update', action='store_true',
                         help=helps['no_self_update'])
     parser.add_argument('--exclude_package', action='append',
@@ -1951,8 +1867,6 @@ def parse_args(argv=None):
     # accept local path for manifest and environment
     if args.manifest is not None and op.exists(args.manifest):
         args.manifest = op.abspath(args.manifest)
-    if args.environment is not None and op.exists(args.environment):
-        args.environment = op.abspath(args.environment)
 
     return args
 
