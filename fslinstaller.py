@@ -1826,7 +1826,8 @@ def parse_args(argv=None):
     # CUDA packages are currently
     # only built for linux-64
     if Context.identify_platform() == 'linux-64':
-        parser.add_argument('-c', '--cuda',     help=helps['cuda'], type=float)
+        parser.add_argument('-c', '--cuda',     help=helps['cuda'],
+                            type=float, metavar='X.Y')
         parser.add_argument('-nc', '--no_cuda', help=helps['no_cuda'],
                             action='store_true')
 
