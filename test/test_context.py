@@ -36,47 +36,6 @@ def test_Context_identify_plaform():
             assert inst.Context.identify_platform() == expected
 
 
-def test_Context_identify_cuda():
-    with inst.tempdir() as cwd:
-        with onpath(cwd):
-
-            nvidia_smi = tw.dedent("""
-            #!/usr/bin/env bash
-            echo "{stdout}"
-            exit {retcode}
-            """).strip()
-
-            # test when nvidia-smi doesn't exist
-            # (assuming that it won't be present
-            # in any of the mock paths)
-            path = op.pathsep.join(('/usr/sbin', '/usr/bin', '/sbin', '/bin'))
-            with mock.patch.dict(os.environ, PATH=path):
-                assert inst.Context.identify_cuda() is None
-                if hasattr(inst.Context.identify_cuda, 'no_cuda'):
-                    delattr(inst.Context.identify_cuda, 'no_cuda')
-
-            with open('nvidia-smi', 'wt') as f:
-                f.write(nvidia_smi.format(stdout='CUDA Version: 10.1', retcode=0))
-            os.chmod('nvidia-smi', 0o755)
-            assert  inst.Context.identify_cuda() == 10.1
-            if hasattr(inst.Context.identify_cuda, 'no_cuda'):
-                delattr(inst.Context.identify_cuda, 'no_cuda')
-
-            with open('nvidia-smi', 'wt') as f:
-                f.write(nvidia_smi.format(stdout='CUDA Version: 11.2', retcode=0))
-            os.chmod('nvidia-smi', 0o755)
-            assert  inst.Context.identify_cuda() == 11.2
-            if hasattr(inst.Context.identify_cuda, 'no_cuda'):
-                delattr(inst.Context.identify_cuda, 'no_cuda')
-
-            with open('nvidia-smi', 'wt') as f:
-                f.write(nvidia_smi.format(stdout='CUDA Version: 11.2', retcode=1))
-            os.chmod('nvidia-smi', 0o755)
-            assert  inst.Context.identify_cuda() is None
-            if hasattr(inst.Context.identify_cuda, 'no_cuda'):
-                delattr(inst.Context.identify_cuda, 'no_cuda')
-
-
 def test_Context_get_admin_password():
     sudo = tw.dedent("""
     #!/usr/bin/env bash
