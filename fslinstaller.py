@@ -50,7 +50,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.8.0'
+__version__ = '1.9.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -648,6 +648,16 @@ def isstr(s):
     except Exception: return isinstance(s, str)
 
 
+def match_any(s, patterns):
+    """Test if the string s matches any of the fnmatch-style patterns.
+    Returns the matched pattern, or None.
+    """
+    for pat in patterns:
+        if fnmatch.fnmatch(s, pat):
+            return pat
+    return None
+
+
 @contextlib.contextmanager
 def tempdir(override_dir=None):
     """Returns a context manager which creates, changes into, and returns a
@@ -1087,6 +1097,10 @@ def download_fsl_environment(ctx):
 
     If the user has not provided a username+password on the command-line, they
     are prompted for them.
+
+    The downloaded environment file may be modified - if the user has requested
+    a specific CUDA version, or no CUDA packages (--cuda or --no_cuda), all
+    CUDA packages are removed from the environment file.
     """
 
     build        = ctx.build
@@ -1178,13 +1192,13 @@ def download_fsl_environment(ctx):
                     pkgver        = line.strip().split(' ', 2)[2]
                     basepkgs[pkg] = pkgver.replace(' ', '=')
 
-            # Exclude packages upon user request
+            # Include/exclude packages upon user request
             pkgname = line.strip(' -').split()[0]
-            for pattern in ctx.args.exclude_package:
-                if fnmatch.fnmatch(pkgname, pattern):
-                    log.debug('Excluding package %s (matched '
-                              '--exclude_package %s)', line, pattern)
-                    break
+            exclude = match_any(pkgname, ctx.args.exclude_package)
+            include = match_any(pkgname, ctx.args.include_package)
+            if exclude and not include:
+                log.debug('Excluding package %s (matched '
+                          '--exclude_package %s)', line, exclude)
             else:
                 outf.write(line)
 
@@ -1857,6 +1871,22 @@ def parse_args(argv=None):
 
     if args.exclude_package is None:
         args.exclude_package = []
+
+    # The download_fsl_environment function also checks
+    # package names against this "include_package" list,
+    # although it is not exposed on the command
+    # line. This is used to override any patterns in
+    # exclude_package, and is currently used to select
+    # packages for a specific CUDA version.
+    #
+    # All FSL cuda packages have a name ending with
+    # "-cuda-X.Y".
+    args.include_package = []
+
+    if args.cuda is not None:
+        args.include_package.append('fsl-*-cuda-{:0.1f}'.format(args.cuda))
+    if args.no_cuda or (args.cuda is not None):
+        args.exclude_package.append('fsl-*-cuda-*')
 
     # accept local path for manifest and environment
     if args.manifest is not None and op.exists(args.manifest):
