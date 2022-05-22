@@ -162,7 +162,7 @@ def check_install(homedir, destdir, version):
 def test_installer_normal_interactive_usage():
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fslinstaller.FSL_INSTALLER_MANIFEST',
+            with mock.patch('fslinstaller.FSL_RELEASE_MANIFEST',
                             '{}/manifest.json'.format(srv.url)):
                 # accept rel/abs paths
                 for i in range(3):
@@ -181,7 +181,7 @@ def test_installer_list_versions():
     platform = inst.Context.identify_platform()
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fslinstaller.FSL_INSTALLER_MANIFEST',
+            with mock.patch('fslinstaller.FSL_RELEASE_MANIFEST',
                             '{}/manifest.json'.format(srv.url)):
                 with inst.tempdir() as cwd:
                     with CaptureStdout() as cap:
@@ -201,7 +201,7 @@ def test_installer_list_versions():
 def test_installer_normal_cli_usage():
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fslinstaller.FSL_INSTALLER_MANIFEST',
+            with mock.patch('fslinstaller.FSL_RELEASE_MANIFEST',
                             '{}/manifest.json'.format(srv.url)):
 
                 # accept rel/abs paths
