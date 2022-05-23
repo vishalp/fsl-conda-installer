@@ -386,7 +386,7 @@ class Context(object):
                                 'list from {}!'.format(FSL_DEV_RELEASES))
 
             with open('devreleases.txt', 'rt') as f:
-                urls = f.readlines()
+                urls = f.read().strip().split('\n')
                 urls = [l.strip() for l in urls]
 
             for url in urls:
