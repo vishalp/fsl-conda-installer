@@ -4,6 +4,7 @@ import os
 import os.path  as op
 import contextlib
 import shutil
+import json
 
 import fslinstaller as inst
 
@@ -96,6 +97,18 @@ packages:
 
 
 
+def patch_manifest(src, dest, latest):
+    with open(src, 'rt') as f:
+        manifest = json.loads(f.read())
+
+    prev                           = manifest['versions']['latest']
+    manifest['versions']['latest'] = latest
+    manifest['versions'][latest]   = manifest['versions'][prev]
+
+    with open(dest, 'wt') as f:
+        f.write(json.dumps(manifest))
+
+
 @contextlib.contextmanager
 def installer_server(cwd=None):
     if cwd is None:
@@ -128,7 +141,19 @@ def installer_server(cwd=None):
         yield srv
 
 
-def check_install(homedir, destdir, version):
+def check_install(homedir, destdir, version, envver=None):
+    # the devrelease test patches the manifest
+    # file with devrelease versions, but leaves
+    # the env files untouched, and referring to
+    # the hard- coded versions in the temlates
+    # above. So the "version" argument specifies
+    # the actual version (which should be written
+    # to $FSLDIR/etc/fslversion), and the
+    # "envver" argument gives the version that
+    # the yml file should refer to.
+
+    if envver is None:
+        envver = version
 
     destdir = op.abspath(destdir)
     etc     = op.join(destdir, 'etc')
@@ -137,8 +162,8 @@ def check_install(homedir, destdir, version):
 
     with indir(destdir):
         # added by our mock conda env creeate call
-        with open(op.join(destdir, 'env-{}.yml'.format(version)), 'rt') as f:
-            exp = mock_env_yml_template.format(version=version)
+        with open(op.join(destdir, 'env-{}.yml'.format(envver)), 'rt') as f:
+            exp = mock_env_yml_template.format(version=envver)
             assert f.read().strip() == exp
 
         # added by our mock conda install call
@@ -152,7 +177,7 @@ def check_install(homedir, destdir, version):
         with open(op.join(etc, 'fslversion'), 'rt') as f:
             assert f.read().strip() == version
         assert op.exists(op.join(etc,     'fslinstaller.py'))
-        assert op.exists(op.join(etc,     'env-{}.yml'.format(version)))
+        assert op.exists(op.join(etc,     'env-{}.yml'.format(envver)))
         assert op.exists(op.join(homedir, 'Documents', 'MATLAB'))
 
         if profile is not None:
@@ -162,7 +187,7 @@ def check_install(homedir, destdir, version):
 def test_installer_normal_interactive_usage():
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fslinstaller.FSL_INSTALLER_MANIFEST',
+            with mock.patch('fslinstaller.FSL_RELEASE_MANIFEST',
                             '{}/manifest.json'.format(srv.url)):
                 # accept rel/abs paths
                 for i in range(3):
@@ -181,7 +206,7 @@ def test_installer_list_versions():
     platform = inst.Context.identify_platform()
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fslinstaller.FSL_INSTALLER_MANIFEST',
+            with mock.patch('fslinstaller.FSL_RELEASE_MANIFEST',
                             '{}/manifest.json'.format(srv.url)):
                 with inst.tempdir() as cwd:
                     with CaptureStdout() as cap:
@@ -201,7 +226,7 @@ def test_installer_list_versions():
 def test_installer_normal_cli_usage():
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fslinstaller.FSL_INSTALLER_MANIFEST',
+            with mock.patch('fslinstaller.FSL_RELEASE_MANIFEST',
                             '{}/manifest.json'.format(srv.url)):
 
                 # accept rel/abs paths
@@ -220,3 +245,47 @@ def test_installer_normal_cli_usage():
                                '--fslversion', '6.1.0'])
                     check_install(cwd, 'fsl', '6.1.0')
                     shutil.rmtree('fsl')
+
+
+def test_installer_devrelease():
+    with inst.tempdir():
+        with installer_server() as srv:
+            with mock.patch('fslinstaller.FSL_DEV_RELEASES',
+                            '{}/devreleases.txt'.format(srv.url)):
+                patch_manifest('manifest.json',
+                               'manifest-6.1.0.20220518.abcdefg.master.json',
+                               '6.1.0.20220518')
+                patch_manifest('manifest.json',
+                               'manifest-6.1.0.20220519.asdjeia.master.json',
+                               '6.1.0.20220519')
+                patch_manifest('manifest.json',
+                               'manifest-6.1.0.20220520.rkjlvis.master.json',
+                               '6.1.0.20220520')
+
+                # the installer should order
+                # entries by date, newest first
+                with open('devreleases.txt', 'wt') as f:
+                    f.write('{}/manifest-6.1.0.20220518.abcdefg.master.json\n'.format(srv.url))
+                    f.write('{}/manifest-6.1.0.20220520.rkjlvis.master.json\n'.format(srv.url))
+                    f.write('{}/manifest-6.1.0.20220519.asdjeia.master.json\n'.format(srv.url))
+
+                with inst.tempdir() as cwd:
+                    dest = 'fsl'
+                    with mock_input('2', dest):
+                        inst.main(['--homedir', cwd, '--devrelease'])
+                    check_install(cwd, dest, '6.1.0.20220519', '6.2.0')
+                    shutil.rmtree(dest)
+                # default option is newest devrelease
+                with inst.tempdir() as cwd:
+                    dest = 'fsl'
+                    with mock_input('', dest):
+                        inst.main(['--homedir', cwd, '--devrelease'])
+                    check_install(cwd, dest, '6.1.0.20220520', '6.2.0')
+                    shutil.rmtree(dest)
+
+                with inst.tempdir() as cwd:
+                    dest = 'fsl'
+                    with mock_input(dest):
+                        inst.main(['--homedir', cwd, '--devlatest'])
+                    check_install(cwd, dest, '6.1.0.20220520', '6.2.0')
+                    shutil.rmtree(dest)

@@ -36,6 +36,10 @@ import                   traceback
 try:                import urllib.request as urlrequest
 except ImportError: import urllib         as urlrequest
 
+
+try:                import urllib.parse as urlparse
+except ImportError: import                 urlparse
+
 try:                import queue
 except ImportError: import Queue as queue
 
@@ -50,7 +54,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.9.0'
+__version__ = '1.10.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -60,7 +64,8 @@ DEFAULT_INSTALLATION_DIRECTORY = op.join(op.expanduser('~'), 'fsl')
 """Default FSL installation directory. """
 
 
-FSL_INSTALLER_MANIFEST = 'https://fsl.fmrib.ox.ac.uk/fsldownloads/fslconda/releases/manifest.json'
+FSL_RELEASE_MANIFEST = 'https://fsl.fmrib.ox.ac.uk/fsldownloads/' \
+                       'fslconda/releases/manifest.json'
 """URL to download the FSL installer manifest file from. The installer
 manifest file is a JSON file which contains information about available FSL
 versions.
@@ -70,6 +75,13 @@ in test/data/manifest.json, for more details.
 
 A custom manifest URL can be specified with the -a/--manifest command-line
 option.
+"""
+
+
+FSL_DEV_RELEASES = 'https://fsl.fmrib.ox.ac.uk/fsldownloads/' \
+                   'fslconda/releases/devreleases.txt'
+"""URL to the devreleases.txt file, which contains a list of available
+internal/development FSL releases.
 """
 
 
@@ -136,6 +148,7 @@ class Context(object):
         # all updated via the finalise-settings method.
         self.__platform       = None
         self.__manifest       = None
+        self.__devmanifest    = None
         self.__build          = None
         self.__destdir        = None
         self.__need_admin     = None
@@ -313,9 +326,102 @@ class Context(object):
     def manifest(self):
         """Returns the FSL installer manifest as a dictionary. """
         if self.__manifest is None:
+            if self.devmanifest is not None:
+                self.args.manifest = self.devmanifest
+
             self.__manifest = Context.download_manifest(self.args.manifest,
                                                         self.args.workdir)
         return self.__manifest
+
+
+    @property
+    def devmanifest(self):
+        """Returns a URL to a development manifest to use for installation.
+        This will only return a value if the --devrelease or --devlatest
+        options are active.
+
+        If this is the case, the FSL_DEV_RELEASES file is downloaded - this
+        file contains a list of available development manifest URLS. The
+        user is then prompted to choose which development manifest to use
+        for the installation, unless --devlatest is active, in which case
+        the newest manifest is selected.
+        """
+        if not self.args.devrelease:
+            return None
+        if self.__devmanifest == 'na':
+            return None
+        elif self.__devmanifest is not None:
+            return self.__devmanifest
+
+        # parse a dev manifest file name, returning
+        # a sequence containing the tage, date, commit
+        # hash, and branch name. Dev manifest files
+        # are named like so:
+        #
+        #   manifest-<tag>.<date>.<commit>.<branch>.json
+        #
+        # where <tag> is the tag of the most recent
+        # public FSL release, and everything else is
+        # self-explanatory.
+        def parse_devrelease_name(url):
+            name = urlparse.urlparse(url).path
+            name = op.basename(name)
+            name = name.lstrip('manifest-').rstrip('.json')
+            # Awkward - the tag may have periods in it
+            name = name.rsplit('.', 3)
+            return name
+
+        # list of (url, tag, date, commit, branch),
+        # sorted by date
+        devreleases = []
+
+        with tempdir(self.args.workdir):
+
+            try:
+                download_file(FSL_DEV_RELEASES, 'devreleases.txt')
+            except Exception as e:
+                log.debug('Error downloading devreleases.txt from %s',
+                          FSL_DEV_RELEASES, exc_info=True)
+                raise Exception('Unable to download development manifest '
+                                'list from {}!'.format(FSL_DEV_RELEASES))
+
+            with open('devreleases.txt', 'rt') as f:
+                urls = f.readlines()
+                urls = [l.strip() for l in urls]
+
+            for url in urls:
+                devreleases.append([url] + parse_devrelease_name(url))
+
+        devreleases = sorted(devreleases, key=lambda r: r[2], reverse=True)
+
+        if len(devreleases) == 0:
+            self.__devmanifest = 'na'
+            return None
+
+        # automatically choose latest dev manifest?
+        if self.args.devlatest:
+            devrelease = devreleases[0][0]
+        # show the user a list, ask them which one they want
+        else:
+            printmsg('Available development releases:', EMPHASIS)
+            for i, (url, tag, date, commit, branch) in enumerate(devreleases):
+                printmsg('  [{}]: {} [{} commit {}]'.format(
+                    i + 1, date, branch, commit), IMPORTANT)
+            while True:
+                selection = prompt('Which release would you like to '
+                                   'install? [1]:', PROMPT)
+                if selection == '':
+                    selection = '1'
+                try:
+                    selection = int(selection) - 1
+                except Exception:
+                    continue
+                if selection >= 0 and selection < len(devreleases):
+                    break
+            devrelease = devreleases[selection][0]
+
+        self.__devmanifest = devrelease
+        return self.__devmanifest
 
 
     @staticmethod
@@ -408,7 +514,15 @@ class Context(object):
         log.debug('Downloading FSL installer manifest from %s', url)
 
         with tempdir(workdir):
-            download_file(url, 'manifest.json')
+
+            try:
+                download_file(url, 'manifest.json')
+            except Exception:
+                log.debug('Error downloading FSL release manifest from %s',
+                          url, exc_info=True)
+                raise Exception('Unable to download FSL release manifest '
+                                'from {}!'.format(url))
+
             with open('manifest.json') as f:
                 lines = f.readlines()
 
@@ -1773,6 +1887,19 @@ def parse_args(argv=None):
         # Do not automatically update the installer script,
         'no_self_update'  : argparse.SUPPRESS,
 
+        # Install a development release. This
+        # option will cause the installer to
+        # download the devrelreases.txt file,
+        # which contains a list of available
+        # internal/development manifests. The
+        # user will be prompted to choose one,
+        # which will be propagated on to the
+        # --manifest option. If --devlatest
+        # is used, the most recent developmet
+        # release is automatically selected.
+        'devrelease'      : argparse.SUPPRESS,
+        'devlatest'       : argparse.SUPPRESS,
+
         # Path to alternative FSL release manifest.
         'manifest'        : argparse.SUPPRESS,
 
@@ -1841,7 +1968,11 @@ def parse_args(argv=None):
     parser.add_argument('--workdir', help=helps['workdir'])
     parser.add_argument('--homedir', help=helps['homedir'],
                         default=op.expanduser('~'))
-    parser.add_argument('--manifest', default=FSL_INSTALLER_MANIFEST,
+    parser.add_argument('--devrelease', help=helps['devrelease'],
+                        action='store_true')
+    parser.add_argument('--devlatest', help=helps['devlatest'],
+                        action='store_true')
+    parser.add_argument('--manifest', default=FSL_RELEASE_MANIFEST,
                         help=helps['manifest'])
     parser.add_argument('--no_self_update', action='store_true',
                         help=helps['no_self_update'])
@@ -1875,6 +2006,9 @@ def parse_args(argv=None):
         args.workdir = op.abspath(args.workdir)
         if not op.exists(args.workdir):
             os.mkdir(args.workdir)
+
+    if args.devlatest:
+        args.devrelease = True
 
     if args.exclude_package is None:
         args.exclude_package = []
@@ -1976,6 +2110,10 @@ def main(argv=None):
     configures the user's environment.
     """
 
+    printmsg('FSL installer version:', EMPHASIS, UNDERLINE, end='')
+    printmsg(' {}'.format(__version__))
+    printmsg('Press CTRL+C at any time to cancel installation', INFO)
+
     args = parse_args(argv)
     ctx  = Context(args)
 
@@ -1986,16 +2124,17 @@ def main(argv=None):
     if not args.no_self_update:
         self_update(ctx.manifest, args.workdir, not args.no_checksum)
 
-    printmsg('FSL installer version:', EMPHASIS, UNDERLINE, end='')
-    printmsg(' {}'.format(__version__))
-    printmsg('Press CTRL+C at any time to cancel installation', INFO)
     printmsg('Installation log file: {}\n'.format(ctx.logfile), INFO)
 
     if args.listversions:
         list_available_versions(ctx.manifest)
         sys.exit(0)
 
-    ctx.finalise_settings()
+    try:
+        ctx.finalise_settings()
+    except Exception as e:
+        printmsg('An error has occurred: {}'.format(e), ERROR)
+        sys.exit(1)
 
     with tempdir(args.workdir):
 
