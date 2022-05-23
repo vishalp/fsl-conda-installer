@@ -368,7 +368,7 @@ class Context(object):
             name = op.basename(name)
             name = name.lstrip('manifest-').rstrip('.json')
             # Awkward - the tag may have periods in it
-            name = name.rsplit('.', maxsplit=3)
+            name = name.rsplit('.', 3)
             return name
 
         # list of (url, tag, date, commit, branch),
