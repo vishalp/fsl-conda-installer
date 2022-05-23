@@ -54,7 +54,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.9.0'
+__version__ = '1.10.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
