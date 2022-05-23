@@ -1,5 +1,15 @@
 # FSL installer script release history
 
+
+# 1.10.1
+
+ - Small adjustment to how the `devreleases.txt` file is parsed.
+
+# 1.10.0
+
+ - New hidden `--devrelease` and `--devlatest` options, for installing
+   development releases.
+
 # 1.9.0
 
  - Removed/disabled the `--update` option, for updating an existing FSL
