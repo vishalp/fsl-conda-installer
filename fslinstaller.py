@@ -54,7 +54,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.10.1'
+__version__ = '1.10.2'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -2024,9 +2024,13 @@ def parse_args(argv=None):
     # "-cuda-X.Y".
     args.include_package = []
 
-    if args.cuda is not None:
+    # args.[cuda|no_cuda] won't be added on macOS
+    cuda    = getattr(args, 'cuda',    None)
+    no_cuda = getattr(args, 'no_cuda', False)
+
+    if cuda is not None:
         args.include_package.append('fsl-*-cuda-{:0.1f}'.format(args.cuda))
-    if args.no_cuda or (args.cuda is not None):
+    if no_cuda or (cuda is not None):
         args.exclude_package.append('fsl-*-cuda-*')
 
     # accept local path for manifest and environment
