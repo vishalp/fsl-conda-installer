@@ -1,6 +1,11 @@
 # FSL installer script release history
 
 
+# 1.10.2
+
+ - Fix to handling of the `--cuda` / `--no_cuda` options on macOS.
+
+
 # 1.10.1
 
  - Small adjustment to how the `devreleases.txt` file is parsed.
