@@ -11,11 +11,14 @@ set -e
 
 
 # Make sure that the installer version matches the tag
-scriptver=$(cat fslinstaller.py | grep "__version__ = " | cut -d " " -f 3 | tr -d "'")
+scriptver=$(cat fsl/installer/fslinstaller.py |
+              grep "__version__ = "           |
+              cut -d " " -f 3                 |
+              tr -d "'")
 
 if [ "$scriptver" != "$CI_COMMIT_TAG" ]; then
   echo "Version in fslinstaller.py does not match tag! $scriptver != $CI_COMMIT_TAG"
   exit 1
 fi
 
-cp fslinstaller.py $FSLINSTALLER_DEPLOY_DIRECTORY/
+cp fsl/installer/fslinstaller.py $FSLINSTALLER_DEPLOY_DIRECTORY/

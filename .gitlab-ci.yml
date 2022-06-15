@@ -1,18 +1,31 @@
 # CI / CD for the fsl/conda/installer project.
-#
-# Unit tests are run every time commits are
-# pushed to any branch.
-#
-# Release jobs are run every time a new tag
-# is added. Release jobs assume that they
+
+# Unit tests are run in the test stage every
+# time commits are pushed to any branch.
+
+# The check-version stage is run on
+# non-master branches - it checks that the
+# fslinstaller version has been changed.
+
+# The release stage is run every time a new
+# tag is added. Release jobs assume that they
 # are running in an environment with a
 # directory $FSLINSTALLER_DEPLOY_DIRECTORY
 # into which the fslinstaller.py script can
 # be copied.
+
+# The fsl-ci stages are defined in the
+# fsl/conda/fsl-ci-rules repository - they are
+# used to build the fslinstaller conda package.
 stages:
   - test
   - check-version
   - release
+  - fsl-ci-pre
+  - fsl-ci-build
+  - fsl-ci-test
+  - fsl-ci-deploy
+
 
 # Don't run pipeline on MRs
 workflow:
