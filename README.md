@@ -13,6 +13,7 @@ The `fslinstaller.py` script in this repository is the successor to the
 `fslinstaller.py` script from the fsl/installer> repository.  _This_ version
 is for **conda-based** FSL release, from FSL version 6.1.0 onwards.
 
+
 `fslinstaller.py`  is a Python script which can run with any version of
 Python from 2.7 onwards. Normal usage of `fslinstaller.py` will look like
 one of the following:
@@ -26,7 +27,8 @@ one of the following:
 
 
 The `fslinstaller` script is also built as a Python package, and importable
-via the `fsl.installer` package.
+via the `fsl.installer` package.  The conda package is called `fsl-installer`,
+and is built at the fsl/conda/fsl-installer> repository.
 
 
 In normal usage, the `fslinstaller.py` script performs the following tasks:
