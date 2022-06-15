@@ -23,9 +23,6 @@ include:
    file:    .gitlab-ci.yml
 
 stages:
-  - test
-  - check-version
-  - release
   - fsl-ci-pre
   - fsl-ci-build
   - fsl-ci-test
@@ -57,7 +54,7 @@ variables:
 
 
 .test-template:
-  stage: test
+  stage: fsl-ci-test
   tags:
     - fsl-ci
     - docker
@@ -98,8 +95,12 @@ test:py39:
   extends: .test-template
   image:    python:3.9
 
+test:py310:
+  extends: .test-template
+  image:    python:3.10
+
 check-version:
-  stage: check-version
+  stage: fsl-ci-test
   image: python:3.9
   tags:
     - fsl-ci
@@ -111,7 +112,7 @@ check-version:
 
 
 release-new-version:
-  stage: release
+  stage: fsl-ci-deploy
   tags:
     - fslconda-channel-host
   rules:
@@ -122,7 +123,7 @@ release-new-version:
 
 
 update-fsl-manifest:
-  stage: release
+  stage: fsl-ci-deploy
   image: python:3.9
   tags:
     - fsl-ci
