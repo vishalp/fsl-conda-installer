@@ -15,7 +15,7 @@ This script must:
    the Python standard library).
 
  - be importable as a Python module - this script contains functions and
-   classes that are used by other scripts in the fslinstaller package.
+   classes that may be used by other scripts.
 """
 
 
@@ -65,7 +65,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.10.2'
+__version__ = '2.0.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -92,7 +92,8 @@ option.
 FSL_DEV_RELEASES = 'https://fsl.fmrib.ox.ac.uk/fsldownloads/' \
                    'fslconda/releases/devreleases.txt'
 """URL to the devreleases.txt file, which contains a list of available
-internal/development FSL releases.
+internal/development FSL releases. See the download_dev_releases function
+for more details.
 """
 
 
@@ -104,6 +105,7 @@ QUESTION  = 3
 PROMPT    = 4
 WARNING   = 5
 ERROR     = 6
+EMPH      = 7
 EMPHASIS  = 7
 UNDERLINE = 8
 RESET     = 9
@@ -120,21 +122,42 @@ ANSICODES = {
 }
 
 
-def printmsg(msg='', *msgtypes, **kwargs):
-    """Prints msg according to the ANSI codes provided in msgtypes.
+def printmsg(*args, **kwargs):
+    """Prints a sequence of strings formatted with ANSI codes. Expects
+    positional arguments to be of the form::
+
+        printable, ANSICODE, printable, ANSICODE, ...
+
+    :arg log: Must be specified as a keyword argument. If True (default),
+              the message is logged.
+
     All other keyword arguments are passed through to the print function.
-
-    :arg msgtypes: Message types to control formatting
-    :arg log:      If True (default), the message is logged.
-
-    All other keyword arguments are passed to the built-in print function.
     """
-    logmsg   = kwargs.pop('log', msg != '')
-    msgcodes = [ANSICODES[t] for t in msgtypes]
-    msgcodes = ''.join(msgcodes)
-    if logmsg:
-        log.debug(msg)
-    print('{}{}{}'.format(msgcodes, msg, ANSICODES[RESET]), **kwargs)
+
+    args     = list(args)
+    blockids = [i for i in range(len(args)) if (args[i] not in ANSICODES)]
+    logmsg   = kwargs.pop('log', True)
+    uncoded  = ''
+
+    for i, idx in enumerate(blockids):
+        if i == len(blockids) - 1:
+            slc = slice(idx + 1, None)
+        else:
+            slc = slice(idx + 1, blockids[i + 1])
+
+        msg      = args[idx]
+        msgcodes = args[slc]
+        msgcodes = [ANSICODES[c] for c in msgcodes]
+        msgcodes = ''.join(msgcodes)
+        uncoded += msg
+
+        print('{}{}{}'.format(msgcodes, msg, ANSICODES[RESET]), end='')
+
+    if len(blockids) > 0:
+        print(**kwargs)
+        if logmsg:
+            log.debug(uncoded)
+
     sys.stdout.flush()
 
 
@@ -423,6 +446,62 @@ def download_manifest(url, workdir=None):
             build['version'] = version
 
     return manifest
+
+
+def download_dev_releases(url, workdir=None):
+    """Downloads the FSL_DEV_RELEASES file. This file contains a list of
+    available development manifest URLS. Returns a list of tuples, one
+    for each development release, with each tuple containing:
+
+      - URL to the manifest file
+      - Most recent release tag
+      - Date of the release
+      - Commit hash (on the fsl/conda/manifest repository)
+      - Branch name (on the fsl/conda/manifest repository)
+
+    The list is sorted by date, newest first.
+    """
+
+    # parse a dev manifest file name, returning
+    # a sequence containing the tage, date, commit
+    # hash, and branch name. Dev manifest files
+    # are named like so:
+    #
+    #   manifest-<tag>.<date>.<commit>.<branch>.json
+    #
+    # where <tag> is the tag of the most recent
+    # public FSL release, and everything else is
+    # self-explanatory.
+    def parse_devrelease_name(url):
+        name = urlparse.urlparse(url).path
+        name = op.basename(name)
+        name = name.lstrip('manifest-').rstrip('.json')
+        # Awkward - the tag may have periods in it
+        name = name.rsplit('.', 3)
+        return name
+
+    # list of (url, tag, date, commit, branch)
+    devreleases = []
+
+    with tempdir(workdir):
+
+        try:
+            download_file(url, 'devreleases.txt')
+        except Exception as e:
+            log.debug('Error downloading devreleases.txt from %s',
+                      url, exc_info=True)
+            raise Exception('Unable to download development manifest '
+                            'list from {}!'.format(url))
+
+        with open('devreleases.txt', 'rt') as f:
+            urls = f.read().strip().split('\n')
+            urls = [l.strip() for l in urls]
+
+        for url in urls:
+            devreleases.append([url] + parse_devrelease_name(url))
+
+    # sort by date, newest first
+    return sorted(devreleases, key=lambda r: r[2], reverse=True)
 
 
 class Progress(object):
@@ -1115,46 +1194,8 @@ class Context(object):
         elif self.__devmanifest is not None:
             return self.__devmanifest
 
-        # parse a dev manifest file name, returning
-        # a sequence containing the tage, date, commit
-        # hash, and branch name. Dev manifest files
-        # are named like so:
-        #
-        #   manifest-<tag>.<date>.<commit>.<branch>.json
-        #
-        # where <tag> is the tag of the most recent
-        # public FSL release, and everything else is
-        # self-explanatory.
-        def parse_devrelease_name(url):
-            name = urlparse.urlparse(url).path
-            name = op.basename(name)
-            name = name.lstrip('manifest-').rstrip('.json')
-            # Awkward - the tag may have periods in it
-            name = name.rsplit('.', 3)
-            return name
-
-        # list of (url, tag, date, commit, branch),
-        # sorted by date
-        devreleases = []
-
-        with tempdir(self.args.workdir):
-
-            try:
-                download_file(FSL_DEV_RELEASES, 'devreleases.txt')
-            except Exception as e:
-                log.debug('Error downloading devreleases.txt from %s',
-                          FSL_DEV_RELEASES, exc_info=True)
-                raise Exception('Unable to download development manifest '
-                                'list from {}!'.format(FSL_DEV_RELEASES))
-
-            with open('devreleases.txt', 'rt') as f:
-                urls = f.read().strip().split('\n')
-                urls = [l.strip() for l in urls]
-
-            for url in urls:
-                devreleases.append([url] + parse_devrelease_name(url))
-
-        devreleases = sorted(devreleases, key=lambda r: r[2], reverse=True)
+        devreleases = download_dev_releases(FSL_DEV_RELEASES,
+                                            self.args.workdir)
 
         if len(devreleases) == 0:
             self.__devmanifest = 'na'
