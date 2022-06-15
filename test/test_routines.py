@@ -18,7 +18,21 @@ import pytest
 
 from . import onpath, server
 
-import fslinstaller as inst
+import fsl.fslinstaller as inst
+
+
+def test_identify_plaform():
+    tests = [
+        [('linux',  'x86_64'), 'linux-64'],
+        [('darwin', 'x86_64'), 'macos-64'],
+        [('darwin', 'arm64'),  'macos-64'],
+    ]
+
+    for info, expected in tests:
+        sys, cpu = info
+        with mock.patch('platform.system', return_value=sys), \
+             mock.patch('platform.machine', return_value=cpu):
+            assert inst.identify_platform() == expected
 
 
 def test_Version():
@@ -44,6 +58,47 @@ def test_read_fslversion():
         with open(op.join('etc', 'fslversion'), 'wt') as f:
             f.write('abcde:fghij')
         assert inst.read_fslversion(cwd) == 'abcde'
+
+
+def test_get_admin_password():
+    sudo = tw.dedent("""
+    #!/usr/bin/env bash
+    echo -n "Password: "
+    read -e password
+    if [ "$password" = "password" ]; then exit 0
+    else exit 1
+    fi
+    """).strip()
+
+    with inst.tempdir() as cwd:
+
+        path = op.pathsep.join((cwd, os.environ['PATH']))
+
+        with open('sudo', 'wt') as f:
+            f.write(sudo)
+        os.chmod('sudo', 0o755)
+
+        # right password first time
+        with mock.patch.dict(os.environ, PATH=path), \
+             mock.patch('getpass.getpass', return_value='password'):
+            assert inst.get_admin_password() == 'password'
+
+        # wrong, then right
+        returnvals = ['wrong', 'password']
+        def getpass(*a):
+            return returnvals.pop(0)
+        with mock.patch.dict(os.environ, PATH=path), \
+             mock.patch('getpass.getpass', getpass):
+            assert inst.get_admin_password() == 'password'
+
+        # wrong wrong wrong
+        returnvals = ['wrong', 'bad', 'no']
+        def getpass(*a):
+            return returnvals.pop(0)
+        with mock.patch.dict(os.environ, PATH=path), \
+             mock.patch('getpass.getpass', getpass):
+            with pytest.raises(Exception):
+                inst.get_admin_password()
 
 
 def test_download_file():

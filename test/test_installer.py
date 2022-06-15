@@ -6,7 +6,7 @@ import contextlib
 import shutil
 import json
 
-import fslinstaller as inst
+import fsl.fslinstaller as inst
 
 try:
     from unittest import mock
@@ -129,7 +129,7 @@ def installer_server(cwd=None):
 
         manifest = mock_manifest.format(
             version=inst.__version__,
-            platform=inst.Context.identify_platform(),
+            platform=inst.identify_platform(),
             url=srv.url,
             conda_sha256=conda_sha256,
             env610_sha256=env610_sha256,
@@ -187,7 +187,7 @@ def check_install(homedir, destdir, version, envver=None):
 def test_installer_normal_interactive_usage():
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fslinstaller.FSL_RELEASE_MANIFEST',
+            with mock.patch('fsl.fslinstaller.FSL_RELEASE_MANIFEST',
                             '{}/manifest.json'.format(srv.url)):
                 # accept rel/abs paths
                 for i in range(3):
@@ -203,10 +203,10 @@ def test_installer_normal_interactive_usage():
 
 
 def test_installer_list_versions():
-    platform = inst.Context.identify_platform()
+    platform = inst.identify_platform()
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fslinstaller.FSL_RELEASE_MANIFEST',
+            with mock.patch('fsl.fslinstaller.FSL_RELEASE_MANIFEST',
                             '{}/manifest.json'.format(srv.url)):
                 with inst.tempdir() as cwd:
                     with CaptureStdout() as cap:
@@ -226,7 +226,7 @@ def test_installer_list_versions():
 def test_installer_normal_cli_usage():
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fslinstaller.FSL_RELEASE_MANIFEST',
+            with mock.patch('fsl.fslinstaller.FSL_RELEASE_MANIFEST',
                             '{}/manifest.json'.format(srv.url)):
 
                 # accept rel/abs paths
@@ -250,7 +250,7 @@ def test_installer_normal_cli_usage():
 def test_installer_devrelease():
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fslinstaller.FSL_DEV_RELEASES',
+            with mock.patch('fsl.fslinstaller.FSL_DEV_RELEASES',
                             '{}/devreleases.txt'.format(srv.url)):
                 patch_manifest('manifest.json',
                                'manifest-6.1.0.20220518.abcdefg.master.json',
