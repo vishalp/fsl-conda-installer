@@ -96,7 +96,6 @@ internal/development FSL releases.
 """
 
 
-
 # List of modifiers which can be used to change how
 # a message is printed by the printmsg function.
 INFO      = 1
@@ -1070,7 +1069,7 @@ class Context(object):
         if self.__need_admin is not None:
             return self.__need_admin
         parentdir = op.dirname(self.destdir)
-        self.__need_admin = Context.check_need_admin(parentdir)
+        self.__need_admin = check_need_admin(parentdir)
         return self.__need_admin
 
 
@@ -1082,7 +1081,7 @@ class Context(object):
             return self.__admin_password
         if self.__need_admin == False:
             return None
-        self.__admin_password = Context.get_admin_password()
+        self.__admin_password = get_admin_password()
 
 
     @property
@@ -1444,7 +1443,7 @@ def install_fsl(ctx):
     # install, used for progress reporting.
     # If manifest does not contain expected
     # #lines, we fall back to a spinner.
-    output = ctx.build.get('output', {}).get(ctx.update, None)
+    output = ctx.build.get('output', {}).get('install', None)
 
     if output in ('', None): output = None
     else:                    output = int(output)
@@ -1830,8 +1829,6 @@ def parse_args(argv=None):
                         version=__version__, help=helps['version'])
     parser.add_argument('-d', '--dest', metavar='DESTDIR',
                         help=helps['dest'])
-    parser.add_argument('-u', '--update', action='store_true',
-                        help=helps['update'])
     parser.add_argument('-o', '--overwrite', action='store_true',
                         help=helps['overwrite'])
     parser.add_argument('-l', '--listversions', action='store_true',
