@@ -11,7 +11,7 @@ This repository is the home of `fslinstaller.py`, the installer script for
 
 The `fslinstaller.py` script in this repository is the successor to the
 `fslinstaller.py` script from the fsl/installer> repository.  _This_ version
-is for **conda-based** FSL release, from FSL version 6.0.6 onwards.
+is for **conda-based** FSL release, from FSL version 6.1.0 onwards.
 
 `fslinstaller.py`  is a Python script which can run with any version of
 Python from 2.7 onwards. Normal usage of `fslinstaller.py` will look like
@@ -23,6 +23,11 @@ one of the following:
     python3 fslinstaller.py
     curl https://some_url/fslinstaller.py | python
     ```
+
+
+The `fslinstaller` script is also built as a Python package, and importable
+via the `fsl.installer` package.
+
 
 In normal usage, the `fslinstaller.py` script performs the following tasks:
  1. Downloads the FSL release manifest file from a hard-coded URL, which is a
@@ -41,8 +46,8 @@ In normal usage, the `fslinstaller.py` script performs the following tasks:
     their shell environment.
 
 
-Several advanced options are available - run `python fslinstaller.py -h` for
-more details.
+Several advanced options are available - run `python fslinstaller.py -h`, and
+read the `parse_args` function for more details on the advanced/hidden options.
 
 
 # Managing `fslinstaller.py` versions and releases
@@ -63,6 +68,7 @@ where:
 All changes to the `fslinstaller.py` must be accompanied by a change to the
 `__version__` attribute in the `fslinstaller.py` script.
 
+
 New versions of the `fslinstaller.py` script can be released simply by
 creating a new tag, containing the new version identifier, on the
 fsl/conda/installer> GitLab repository. This will cause the following
@@ -71,8 +77,13 @@ automated routines to run:
  - The new version of the `fslinstaller.py` script is deployed to a web server,
    available for download.
 
- - A merge request is opened on the fsl/conda/manifest> repository, updating
-   the installer version number in the FSL release manifest JSON file.
+ - A merge request is opened on the fsl/conda/fsl-installer> conda recipe
+   repository, causing the new version to be built as a conda package.
+
+ - A merge request is optionally opened on the fsl/conda/manifest> repository,
+   updating the installer version number in the FSL release manifest JSON
+   file.
+
 
 Note that the tag must be identical to the value of the `__version__`
 attribute in the `fslinstaller.py` script.

@@ -15,7 +15,7 @@ import pytest
 
 from . import onpath, server
 
-import fslinstaller as inst
+import fsl.installer.fslinstaller as inst
 
 
 SUDO = """

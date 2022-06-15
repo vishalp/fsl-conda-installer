@@ -2,9 +2,20 @@
 #
 # FSL installer script.
 #
-"""This is the FSL installation script. It can be used to install FSL, or
-to update an existing FSL installation.  This script can be executed with
-Python 2.7 or newer.
+"""This is the FSL installation script, which can be used to install FSL.
+
+This script must:
+
+ - be able to be executed with Python 2.7 or newer.
+
+ - be able to be executed in a "vanilla" Python environment, with no third
+   party dependencies.
+
+ - be self-contained, with no dependencies on any other modules (apart from
+   the Python standard library).
+
+ - be importable as a Python module - this script contains functions and
+   classes that may be used by other scripts.
 """
 
 
@@ -54,7 +65,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '1.10.2'
+__version__ = '2.0.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -70,7 +81,7 @@ FSL_RELEASE_MANIFEST = 'https://fsl.fmrib.ox.ac.uk/fsldownloads/' \
 manifest file is a JSON file which contains information about available FSL
 versions.
 
-See the Context.download_manifest function, and an example manifest file
+See the download_manifest function, and an example manifest file
 in test/data/manifest.json, for more details.
 
 A custom manifest URL can be specified with the -a/--manifest command-line
@@ -81,464 +92,9 @@ option.
 FSL_DEV_RELEASES = 'https://fsl.fmrib.ox.ac.uk/fsldownloads/' \
                    'fslconda/releases/devreleases.txt'
 """URL to the devreleases.txt file, which contains a list of available
-internal/development FSL releases.
+internal/development FSL releases. See the download_dev_releases function
+for more details.
 """
-
-
-FIRST_FSL_CONDA_RELEASE = '6.0.6'
-"""Oldest conda-based FSL version that can be updated in-place by this
-installer script. Versions older than this will need to be overwritten.
-"""
-
-
-@ft.total_ordering
-class Version(object):
-    """Class to represent and compare version strings.  Accepted version
-    strings are of the form W.X.Y.Z, where W, X, Y, and Z are all integers.
-    """
-    def __init__(self, verstr):
-        # Version identifiers for official FSL
-        # releases will have up to four
-        # components (X.Y.Z.W), but We accept
-        # any number of (integer) components,
-        # as internal releases may have more.
-        components = []
-
-        for comp in verstr.split('.'):
-            try:              components.append(int(comp))
-            except Exception: break
-
-        self.components = components
-        self.verstr     = verstr
-
-    def __str__(self):
-        return self.verstr
-
-    def __eq__(self, other):
-        for sn, on in zip(self.components, other.components):
-            if sn != on:
-                 return False
-        return len(self.components) == len(other.components)
-
-    def __lt__(self, other):
-        for p1, p2 in zip(self.components, other.components):
-            if p1 < p2: return True
-            if p1 > p2: return False
-        return len(self.components) < len(other.components)
-
-
-class Context(object):
-    """Bag of information and settings created in the main function, and passed
-    around this script.
-
-    Several settings are lazily evaluated on first access, but once evaluated,
-    their values are immutable.
-    """
-
-    def __init__(self, args):
-        """Create the context with the argparse.Namespace object containing
-        parsed command-line arguments.
-        """
-
-        self.args  = args
-        self.shell = op.basename(os.environ.get('SHELL', 'sh')).lower()
-
-        # These attributes are updated on-demand via
-        # the property accessors defined below, or all
-        # all updated via the finalise-settings method.
-        self.__platform       = None
-        self.__manifest       = None
-        self.__devmanifest    = None
-        self.__build          = None
-        self.__destdir        = None
-        self.__need_admin     = None
-        self.__admin_password = None
-
-        # These attributes are set by main - exists is
-        # a flag denoting whether the dest dir already
-        # exists, and update is the version string of
-        # the existing FSL installation if the user
-        # has selected to update it, or None otherwise.
-        self.exists = False
-        self.update = None
-
-        # If the destination directory already exists,
-        # and the user chooses to overwrite it, it is
-        # moved so that, if the installation fails, it
-        # can be restored. The new path is stored
-        # here - refer to overwrite_destdir.
-        self.old_destdir = None
-
-        # The download_fsl_environment function stores
-        # the path to the FSL conda environment file,
-        # list of conda channels, and versions of a
-        # small set of "base" packages here.
-        self.environment_file     = None
-        self.environment_channels = None
-        self.fsl_base_packages    = None
-
-        # The config_logging function stores the path
-        # to the fslinstaller log file here.
-        self.logfile = None
-
-
-    def finalise_settings(self):
-        """Finalise values for all information and settings in the Context.
-        """
-        self.manifest
-        self.platform
-        self.build
-        self.destdir
-        self.need_admin
-        self.admin_password
-
-
-    @property
-    def platform(self):
-        """The platform we are running on, e.g. "linux-64", "macos-64". """
-        if self.__platform is None:
-            self.__platform = Context.identify_platform()
-        return self.__platform
-
-
-    @property
-    def build(self):
-        """Returns a suitable FSL build (a dictionary entry from the FSL
-        installer manifest) for the target platform.
-
-        The returned dictionary has the following elements:
-          - 'version'      FSL version.
-          - 'platform':    Platform identifier (e.g. 'linux-64')
-          - 'environment': Environment file to download
-          - 'sha256':      Checksum of environment file
-          - 'output':      Number of lines of expected output, for reporting
-                           progress
-        """
-
-        if self.__build is not None:
-            return self.__build
-
-        # defaults to "latest" if
-        # not specified by the user
-        fslversion = self.args.fslversion
-
-        if fslversion not in self.manifest['versions']:
-            available = ', '.join(self.manifest['versions'].keys())
-            raise Exception(
-                'FSL version "{}" is not available - available '
-                'versions: {}'.format(fslversion, available))
-
-        if fslversion == 'latest':
-            fslversion = self.manifest['versions']['latest']
-
-        # Find refs to a suitable build for this
-        # platform. We assume that there is only
-        # one default build for each platform.
-        # in the list of builds for a given FSL
-        # version.
-        build = None
-
-        for candidate in self.manifest['versions'][fslversion]:
-            if candidate['platform'] == self.platform:
-                build = candidate
-                break
-
-        if build is None:
-            raise Exception(
-                'Cannot find a version of FSL matching '
-                'platform {}'.format(self.platform))
-
-        printmsg('FSL {} selected for installation'.format(build['version']))
-
-        self.__build = build
-        return build
-
-
-    @property
-    def destdir(self):
-        """Installation directory. If not specified at the command line, the
-        user is prompted to enter a directory.
-        """
-
-        if self.__destdir is not None:
-            return self.__destdir
-
-        # The loop below validates the destination directory
-        # both when specified at commmand line or
-        # interactively.  In either case, if invalid, the
-        # user is re-prompted to enter a new destination.
-        destdir = None
-        if self.args.dest is not None: response = self.args.dest
-        else:                          response = None
-
-        while destdir is None:
-
-            if response is None:
-                printmsg('\nWhere do you want to install FSL?',
-                         IMPORTANT, EMPHASIS)
-                printmsg('Press enter to install to the default location '
-                         '[{}]\n'.format(DEFAULT_INSTALLATION_DIRECTORY), INFO)
-                response = prompt('FSL installation directory [{}]:'.format(
-                    DEFAULT_INSTALLATION_DIRECTORY), QUESTION, EMPHASIS)
-                response = response.rstrip(op.sep)
-
-                if response == '':
-                    response = DEFAULT_INSTALLATION_DIRECTORY
-
-            response  = op.expanduser(op.expandvars(response))
-            response  = op.abspath(response)
-            parentdir = op.dirname(response)
-            if op.exists(parentdir):
-                destdir = response
-            else:
-                printmsg('Destination directory {} does not '
-                         'exist!'.format(parentdir), ERROR)
-                response = None
-
-        self.__destdir = destdir
-        return self.__destdir
-
-
-    @property
-    def need_admin(self):
-        """Returns True if administrator privileges will be needed to install
-        FSL.
-        """
-        if self.__need_admin is not None:
-            return self.__need_admin
-        parentdir = op.dirname(self.destdir)
-        self.__need_admin = Context.check_need_admin(parentdir)
-        return self.__need_admin
-
-
-    @property
-    def admin_password(self):
-        """Returns the user's administrator password, prompting them if needed.
-        """
-        if self.__admin_password is not None:
-            return self.__admin_password
-        if self.__need_admin == False:
-            return None
-        self.__admin_password = Context.get_admin_password()
-
-
-    @property
-    def manifest(self):
-        """Returns the FSL installer manifest as a dictionary. """
-        if self.__manifest is None:
-            if self.devmanifest is not None:
-                self.args.manifest = self.devmanifest
-
-            self.__manifest = Context.download_manifest(self.args.manifest,
-                                                        self.args.workdir)
-        return self.__manifest
-
-
-    @property
-    def devmanifest(self):
-        """Returns a URL to a development manifest to use for installation.
-        This will only return a value if the --devrelease or --devlatest
-        options are active.
-
-        If this is the case, the FSL_DEV_RELEASES file is downloaded - this
-        file contains a list of available development manifest URLS. The
-        user is then prompted to choose which development manifest to use
-        for the installation, unless --devlatest is active, in which case
-        the newest manifest is selected.
-        """
-        if not self.args.devrelease:
-            return None
-        if self.__devmanifest == 'na':
-            return None
-        elif self.__devmanifest is not None:
-            return self.__devmanifest
-
-        # parse a dev manifest file name, returning
-        # a sequence containing the tage, date, commit
-        # hash, and branch name. Dev manifest files
-        # are named like so:
-        #
-        #   manifest-<tag>.<date>.<commit>.<branch>.json
-        #
-        # where <tag> is the tag of the most recent
-        # public FSL release, and everything else is
-        # self-explanatory.
-        def parse_devrelease_name(url):
-            name = urlparse.urlparse(url).path
-            name = op.basename(name)
-            name = name.lstrip('manifest-').rstrip('.json')
-            # Awkward - the tag may have periods in it
-            name = name.rsplit('.', 3)
-            return name
-
-        # list of (url, tag, date, commit, branch),
-        # sorted by date
-        devreleases = []
-
-        with tempdir(self.args.workdir):
-
-            try:
-                download_file(FSL_DEV_RELEASES, 'devreleases.txt')
-            except Exception as e:
-                log.debug('Error downloading devreleases.txt from %s',
-                          FSL_DEV_RELEASES, exc_info=True)
-                raise Exception('Unable to download development manifest '
-                                'list from {}!'.format(FSL_DEV_RELEASES))
-
-            with open('devreleases.txt', 'rt') as f:
-                urls = f.read().strip().split('\n')
-                urls = [l.strip() for l in urls]
-
-            for url in urls:
-                devreleases.append([url] + parse_devrelease_name(url))
-
-        devreleases = sorted(devreleases, key=lambda r: r[2], reverse=True)
-
-        if len(devreleases) == 0:
-            self.__devmanifest = 'na'
-            return None
-
-        # automatically choose latest dev manifest?
-        if self.args.devlatest:
-            devrelease = devreleases[0][0]
-        # show the user a list, ask them which one they want
-        else:
-            printmsg('Available development releases:', EMPHASIS)
-            for i, (url, tag, date, commit, branch) in enumerate(devreleases):
-                printmsg('  [{}]: {} [{} commit {}]'.format(
-                    i + 1, date, branch, commit), IMPORTANT)
-            while True:
-                selection = prompt('Which release would you like to '
-                                   'install? [1]:', PROMPT)
-                if selection == '':
-                    selection = '1'
-                try:
-                    selection = int(selection) - 1
-                except Exception:
-                    continue
-                if selection >= 0 and selection < len(devreleases):
-                    break
-            devrelease = devreleases[selection][0]
-
-        self.__devmanifest = devrelease
-        return self.__devmanifest
-
-
-    @staticmethod
-    def identify_platform():
-        """Figures out what platform we are running on. Returns a platform
-        identifier string - one of:
-
-          - "linux-64" (Linux, x86_64)
-          - "macos-64" (macOS, x86_64)
-        """
-
-        platforms = {
-            ('linux',  'x86_64') : 'linux-64',
-            ('darwin', 'x86_64') : 'macos-64',
-
-            # M1 builds (and possbily ARM for Linux)
-            # will be added in the future
-            ('darwin', 'arm64')  : 'macos-64',
-        }
-
-        system = platform.system().lower()
-        cpu    = platform.machine()
-        key    = (system, cpu)
-
-        if key not in platforms:
-            supported = ', '.join(['[{}, {}]' for s, c in platforms])
-            raise Exception('This platform [{}, {}] is unrecognised or '
-                            'unsupported! Supported platforms: {}'.format(
-                                system, cpu, supported))
-
-        return platforms[key]
-
-
-    @staticmethod
-    def check_need_admin(dirname):
-        """Returns True if dirname needs administrator privileges to write to,
-        False otherwise.
-        """
-        # os.supports_effective_ids added in
-        # python 3.3, so can't be used here
-        return not os.access(dirname, os.W_OK | os.X_OK)
-
-
-    @staticmethod
-    def get_admin_password():
-        """Prompt the user for their administrator password."""
-
-        def validate_admin_password(password):
-            proc = Process.sudo_popen(['true'], password, stdin=sp.PIPE)
-            proc.communicate()
-            return proc.returncode == 0
-
-        for attempt in range(3):
-            if attempt == 0:
-                msg = 'Your administrator password is needed to ' \
-                      'install FSL: '
-            else:
-                msg = 'Your administrator password is needed to ' \
-                      'install FSL [attempt {} of 3]:'.format(attempt + 1)
-            printmsg(msg, IMPORTANT, end='')
-            password = getpass.getpass('')
-            valid    = validate_admin_password(password)
-
-            if valid:
-                printmsg('Password accepted', INFO)
-                break
-            else:
-                printmsg('Incorrect password', WARNING)
-
-        if not valid:
-            raise Exception('Incorrect password')
-
-        return password
-
-
-    @staticmethod
-    def download_manifest(url, workdir=None):
-        """Downloads the installer manifest file, which contains information
-        about available FSL versions, and the most recent version number of the
-        installer (this script).
-
-        The manifest file is a JSON file. Lines beginning
-        with a double-forward-slash are ignored. See test/data/manifes.json
-        for an example.
-
-        This function modifies the manifest structure by adding a 'version'
-        attribute to all FSL build entries.
-        """
-
-        log.debug('Downloading FSL installer manifest from %s', url)
-
-        with tempdir(workdir):
-
-            try:
-                download_file(url, 'manifest.json')
-            except Exception:
-                log.debug('Error downloading FSL release manifest from %s',
-                          url, exc_info=True)
-                raise Exception('Unable to download FSL release manifest '
-                                'from {}!'.format(url))
-
-            with open('manifest.json') as f:
-                lines = f.readlines()
-
-        # Drop comments
-        lines = [l for l in lines if not l.lstrip().startswith('//')]
-
-        manifest = json.loads('\n'.join(lines))
-
-        # Add "version" to every build
-        for version, builds in manifest['versions'].items():
-            if version == 'latest':
-                continue
-            for build in builds:
-                build['version'] = version
-
-        return manifest
 
 
 # List of modifiers which can be used to change how
@@ -549,6 +105,7 @@ QUESTION  = 3
 PROMPT    = 4
 WARNING   = 5
 ERROR     = 6
+EMPH      = 7
 EMPHASIS  = 7
 UNDERLINE = 8
 RESET     = 9
@@ -565,36 +122,423 @@ ANSICODES = {
 }
 
 
-def printmsg(msg='', *msgtypes, **kwargs):
-    """Prints msg according to the ANSI codes provided in msgtypes.
+def printmsg(*args, **kwargs):
+    """Prints a sequence of strings formatted with ANSI codes. Expects
+    positional arguments to be of the form::
+
+        printable, ANSICODE, printable, ANSICODE, ...
+
+    :arg log: Must be specified as a keyword argument. If True (default),
+              the message is logged.
+
     All other keyword arguments are passed through to the print function.
-
-    :arg msgtypes: Message types to control formatting
-    :arg log:      If True (default), the message is logged.
-
-    All other keyword arguments are passed to the built-in print function.
     """
-    logmsg   = kwargs.pop('log', msg != '')
-    msgcodes = [ANSICODES[t] for t in msgtypes]
-    msgcodes = ''.join(msgcodes)
-    if logmsg:
-        log.debug(msg)
-    print('{}{}{}'.format(msgcodes, msg, ANSICODES[RESET]), **kwargs)
+
+    args     = list(args)
+    blockids = [i for i in range(len(args)) if (args[i] not in ANSICODES)]
+    logmsg   = kwargs.pop('log', True)
+    uncoded  = ''
+
+    for i, idx in enumerate(blockids):
+        if i == len(blockids) - 1:
+            slc = slice(idx + 1, None)
+        else:
+            slc = slice(idx + 1, blockids[i + 1])
+
+        msg      = args[idx]
+        msgcodes = args[slc]
+        msgcodes = [ANSICODES[c] for c in msgcodes]
+        msgcodes = ''.join(msgcodes)
+        uncoded += msg
+
+        print('{}{}{}'.format(msgcodes, msg, ANSICODES[RESET]), end='')
+
+    if len(blockids) > 0:
+        print(**kwargs)
+        if logmsg:
+            log.debug(uncoded)
+
     sys.stdout.flush()
 
 
-def prompt(prompt, *msgtypes, **kwargs):
+def prompt(promptmsg, *msgtypes, **kwargs):
     """Prompts the user for some input. msgtypes and kwargs are passed
     through to the printmsg function.
     """
-    printmsg(prompt, *msgtypes, end='', log=False, **kwargs)
+    printmsg(promptmsg, *msgtypes, end='', log=False, **kwargs)
 
     if PYVER[0] == 2: response = raw_input(' ').strip()
     else:             response = input(    ' ').strip()
 
-    log.debug('%s: %s', prompt, response)
+    log.debug('%s: %s', promptmsg, response)
 
     return response
+
+
+def identify_platform():
+    """Figures out what platform we are running on. Returns a platform
+    identifier string - one of:
+
+      - "linux-64" (Linux, x86_64)
+      - "macos-64" (macOS, x86_64)
+    """
+
+    platforms = {
+        ('linux',  'x86_64') : 'linux-64',
+        ('darwin', 'x86_64') : 'macos-64',
+
+        # M1 builds (and possbily ARM for Linux)
+        # will be added in the future
+        ('darwin', 'arm64')  : 'macos-64',
+    }
+
+    system = platform.system().lower()
+    cpu    = platform.machine()
+    key    = (system, cpu)
+
+    if key not in platforms:
+        supported = ', '.join(['[{}, {}]' for s, c in platforms])
+        raise Exception('This platform [{}, {}] is unrecognised or '
+                        'unsupported! Supported platforms: {}'.format(
+                            system, cpu, supported))
+
+    return platforms[key]
+
+
+def check_need_admin(dirname):
+    """Returns True if dirname needs administrator privileges to write to,
+    False otherwise.
+    """
+    # os.supports_effective_ids added in
+    # python 3.3, so can't be used here
+    return not os.access(dirname, os.W_OK | os.X_OK)
+
+
+def get_admin_password(action='install FSL'):
+    """Prompt the user for their administrator password. An Exception is raised
+    if an incorrect password is entered three times.a
+
+    :arg action: String which describes what the password is needed for, i.e.:
+                 "Your administrator password is needed to {action}"
+    :returns:    the validated administrator password
+    """
+
+    def validate_admin_password(password):
+        proc = Process.sudo_popen(['true'], password, stdin=sp.PIPE)
+        proc.communicate()
+        return proc.returncode == 0
+
+    for attempt in range(3):
+        if attempt == 0:
+            msg = 'Your administrator password is ' \
+                  'needed to {}'.format(action)
+        else:
+            msg = 'Your administrator password is needed to {} ' \
+                  '[attempt {} of 3]:'.format(action, attempt + 1)
+        printmsg(msg, IMPORTANT, end='')
+        password = getpass.getpass('')
+        valid    = validate_admin_password(password)
+
+        if valid:
+            printmsg('Password accepted', INFO)
+            break
+        else:
+            printmsg('Incorrect password', WARNING)
+
+    if not valid:
+        raise Exception('Incorrect password')
+
+    return password
+
+
+def isstr(s):
+    """Returns True if s is a string, False otherwise, Works on python 2.7
+    and >=3.3.
+    """
+    try:              return isinstance(s, basestring)
+    except Exception: return isinstance(s, str)
+
+
+def match_any(s, patterns):
+    """Test if the string s matches any of the fnmatch-style patterns.
+    Returns the matched pattern, or None.
+    """
+    for pat in patterns:
+        if fnmatch.fnmatch(s, pat):
+            return pat
+    return None
+
+
+@contextlib.contextmanager
+def tempdir(override_dir=None):
+    """Returns a context manager which creates, changes into, and returns a
+    temporary directory, and then deletes it on exit.
+
+    If override_dir is not None, instead of creating and changing into a
+    temporary directory, this function just changes into override_dir.
+    """
+
+    if override_dir is None: tmpdir = tempfile.mkdtemp()
+    else:                    tmpdir = override_dir
+
+    prevdir = os.getcwd()
+
+    try:
+        os.chdir(tmpdir)
+        yield tmpdir
+
+    finally:
+        os.chdir(prevdir)
+        if override_dir is None:
+            shutil.rmtree(tmpdir)
+
+
+@contextlib.contextmanager
+def tempfilename(permissions=None, delete=True):
+    """Returns a context manager which creates a temporary file, yields its
+    name, then deletes the file on exit.
+    """
+
+    fname = None
+
+    try:
+        tmpf  = tempfile.NamedTemporaryFile(delete=False)
+        fname = tmpf.name
+
+        tmpf.close()
+
+        if permissions:
+            os.chmod(fname, permissions)
+
+        yield fname
+
+    finally:
+        if delete and fname and op.exists(fname):
+            os.remove(fname)
+
+
+def sha256(filename, check_against=None, blocksize=1048576):
+    """Calculate the SHA256 checksum of the given file. If check_against
+    is provided, it is compared against the calculated checksum, and an
+    error is raised if they are not the same.
+    """
+
+    hashobj = hashlib.sha256()
+
+    with open(filename, 'rb') as f:
+        while True:
+            block = f.read(blocksize)
+            if len(block) == 0:
+                break
+            hashobj.update(block)
+
+    checksum = hashobj.hexdigest()
+
+    if check_against is not None:
+        if checksum != check_against:
+            raise Exception('File {} does not match expected checksum '
+                            '({})'.format(filename, check_against))
+
+    return checksum
+
+
+def clean_environ():
+    """Return a dict containing a set of sanitised environment variables.
+
+    All FSL and conda related variables are removed.
+    """
+    env = os.environ.copy()
+    for v in list(env.keys()):
+        if any(('FSL' in v, 'CONDA' in v)):
+            env.pop(v)
+    return env
+
+
+def install_environ(fsldir, username=None, password=None):
+    """Returns a dict containing some environment variables that should
+    be added to the shell environment when the FSL conda environment is
+    being installed.
+    """
+    env = {}
+    # post-link scripts call $FSLDIR/share/fsl/sbin/createFSLWrapper
+    # (part of fsl/base), which will only do its thing if the following
+    # env vars are set
+    env['FSL_CREATE_WRAPPER_SCRIPTS'] = '1'
+    env['FSLDIR']                     = fsldir
+
+    # Make sure HTTP proxy variables, if set,
+    # are available to the conda env command
+    for v in ['http_proxy', 'https_proxy',
+              'HTTP_PROXY', 'HTTPS_PROXY']:
+        if v in os.environ:
+            env[v] = os.environ[v]
+
+    # FSL environments which source packages from the internal
+    # FSL conda channel will refer to the channel as:
+    #
+    # http://${FSLCONDA_USERNAME}:${FSLCONDA_PASSWORD}/abc.com/
+    #
+    # so we need to set those variables
+    if username: env['FSLCONDA_USERNAME'] = username
+    if password: env['FSLCONDA_PASSWORD'] = password
+
+    return env
+
+
+def download_file(url,
+                  destination,
+                  progress=None,
+                  blocksize=131072,
+                  ssl_verify=True):
+    """Download a file from url, saving it to destination. """
+
+    def default_progress(downloaded, total):
+        pass
+
+    if progress is None:
+        progress = default_progress
+
+    log.debug('Downloading %s ...', url)
+
+    # Path to local file
+    if op.exists(url):
+        url = 'file:' + urlrequest.pathname2url(op.abspath(url))
+
+    # We create and use an unconfigured SSL
+    # context to disable SSL verification.
+    # Otherwise pass None causes urlopen to
+    # use default behaviour. The context
+    # argument is not available in py3.3
+    kwargs = {}
+    if (not ssl_verify) and (PYVER != (3, 3)):
+        printmsg('Skipping SSL verification - this '
+                 'is not recommended!', WARNING)
+        kwargs['context'] = ssl.SSLContext(ssl.PROTOCOL_TLS)
+
+    req = None
+
+    try:
+        # py2: urlopen result cannot be
+        # used as a context manager
+        req = urlrequest.urlopen(url, **kwargs)
+        with open(destination, 'wb') as outf:
+
+            try:             total = int(req.headers['content-length'])
+            except KeyError: total = None
+
+            downloaded = 0
+
+            progress(downloaded, total)
+            while True:
+                block = req.read(blocksize)
+                if len(block) == 0:
+                    break
+                downloaded += len(block)
+                outf.write(block)
+                progress(downloaded, total)
+
+    finally:
+        if req:
+            req.close()
+
+
+def download_manifest(url, workdir=None):
+    """Downloads the installer manifest file, which contains information
+    about available FSL versions, and the most recent version number of the
+    installer (this script).
+
+    The manifest file is a JSON file. Lines beginning
+    with a double-forward-slash are ignored. See test/data/manifes.json
+    for an example.
+
+    This function modifies the manifest structure by adding a 'version'
+    attribute to all FSL build entries.
+    """
+
+    log.debug('Downloading FSL installer manifest from %s', url)
+
+    with tempdir(workdir):
+
+        try:
+            download_file(url, 'manifest.json')
+        except Exception:
+            log.debug('Error downloading FSL release manifest from %s',
+                      url, exc_info=True)
+            raise Exception('Unable to download FSL release manifest '
+                            'from {}!'.format(url))
+
+        with open('manifest.json') as f:
+            lines = f.readlines()
+
+    # Drop comments
+    lines = [l for l in lines if not l.lstrip().startswith('//')]
+
+    manifest = json.loads('\n'.join(lines))
+
+    # Add "version" to every build
+    for version, builds in manifest['versions'].items():
+        if version == 'latest':
+            continue
+        for build in builds:
+            build['version'] = version
+
+    return manifest
+
+
+def download_dev_releases(url, workdir=None):
+    """Downloads the FSL_DEV_RELEASES file. This file contains a list of
+    available development manifest URLS. Returns a list of tuples, one
+    for each development release, with each tuple containing:
+
+      - URL to the manifest file
+      - Most recent release tag
+      - Date of the release
+      - Commit hash (on the fsl/conda/manifest repository)
+      - Branch name (on the fsl/conda/manifest repository)
+
+    The list is sorted by date, newest first.
+    """
+
+    # parse a dev manifest file name, returning
+    # a sequence containing the tage, date, commit
+    # hash, and branch name. Dev manifest files
+    # are named like so:
+    #
+    #   manifest-<tag>.<date>.<commit>.<branch>.json
+    #
+    # where <tag> is the tag of the most recent
+    # public FSL release, and everything else is
+    # self-explanatory.
+    def parse_devrelease_name(url):
+        name = urlparse.urlparse(url).path
+        name = op.basename(name)
+        name = name.lstrip('manifest-').rstrip('.json')
+        # Awkward - the tag may have periods in it
+        name = name.rsplit('.', 3)
+        return name
+
+    # list of (url, tag, date, commit, branch)
+    devreleases = []
+
+    with tempdir(workdir):
+
+        try:
+            download_file(url, 'devreleases.txt')
+        except Exception as e:
+            log.debug('Error downloading devreleases.txt from %s',
+                      url, exc_info=True)
+            raise Exception('Unable to download development manifest '
+                            'list from {}!'.format(url))
+
+        with open('devreleases.txt', 'rt') as f:
+            urls = f.read().strip().split('\n')
+            urls = [l.strip() for l in urls]
+
+        for url in urls:
+            devreleases.append([url] + parse_devrelease_name(url))
+
+    # sort by date, newest first
+    return sorted(devreleases, key=lambda r: r[2], reverse=True)
 
 
 class Progress(object):
@@ -758,166 +702,6 @@ class Progress(object):
             return int(result.strip())
         except Exception:
             return fallback
-
-
-def isstr(s):
-    """Returns True if s is a string, False otherwise, Works on python 2.7
-    and >=3.3.
-    """
-    try:              return isinstance(s, basestring)
-    except Exception: return isinstance(s, str)
-
-
-def match_any(s, patterns):
-    """Test if the string s matches any of the fnmatch-style patterns.
-    Returns the matched pattern, or None.
-    """
-    for pat in patterns:
-        if fnmatch.fnmatch(s, pat):
-            return pat
-    return None
-
-
-@contextlib.contextmanager
-def tempdir(override_dir=None):
-    """Returns a context manager which creates, changes into, and returns a
-    temporary directory, and then deletes it on exit.
-
-    If override_dir is not None, instead of creating and changing into a
-    temporary directory, this function just changes into override_dir.
-    """
-
-    if override_dir is None: tmpdir = tempfile.mkdtemp()
-    else:                    tmpdir = override_dir
-
-    prevdir = os.getcwd()
-
-    try:
-        os.chdir(tmpdir)
-        yield tmpdir
-
-    finally:
-        os.chdir(prevdir)
-        if override_dir is None:
-            shutil.rmtree(tmpdir)
-
-
-@contextlib.contextmanager
-def tempfilename(permissions=None, delete=True):
-    """Returns a context manager which creates a temporary file, yields its
-    name, then deletes the file on exit.
-    """
-
-    fname = None
-
-    try:
-        tmpf  = tempfile.NamedTemporaryFile(delete=False)
-        fname = tmpf.name
-
-        tmpf.close()
-
-        if permissions:
-            os.chmod(fname, permissions)
-
-        yield fname
-
-    finally:
-        if delete and fname and op.exists(fname):
-            os.remove(fname)
-
-
-def sha256(filename, check_against=None, blocksize=1048576):
-    """Calculate the SHA256 checksum of the given file. If check_against
-    is provided, it is compared against the calculated checksum, and an
-    error is raised if they are not the same.
-    """
-
-    hashobj = hashlib.sha256()
-
-    with open(filename, 'rb') as f:
-        while True:
-            block = f.read(blocksize)
-            if len(block) == 0:
-                break
-            hashobj.update(block)
-
-    checksum = hashobj.hexdigest()
-
-    if check_against is not None:
-        if checksum != check_against:
-            raise Exception('File {} does not match expected checksum '
-                            '({})'.format(filename, check_against))
-
-    return checksum
-
-
-def clean_environ():
-    """Return a dict containing a set of sanitised environment variables.
-
-    All FSL and conda related variables are removed.
-    """
-    env = os.environ.copy()
-    for v in list(env.keys()):
-        if any(('FSL' in v, 'CONDA' in v)):
-            env.pop(v)
-    return env
-
-
-def download_file(url,
-                  destination,
-                  progress=None,
-                  blocksize=131072,
-                  ssl_verify=True):
-    """Download a file from url, saving it to destination. """
-
-    def default_progress(downloaded, total):
-        pass
-
-    if progress is None:
-        progress = default_progress
-
-    log.debug('Downloading %s ...', url)
-
-    # Path to local file
-    if op.exists(url):
-        url = 'file:' + urlrequest.pathname2url(op.abspath(url))
-
-    # We create and use an unconfigured SSL
-    # context to disable SSL verification.
-    # Otherwise pass None causes urlopen to
-    # use default behaviour. The context
-    # argument is not available in py3.3
-    kwargs = {}
-    if (not ssl_verify) and (PYVER != (3, 3)):
-        printmsg('Skipping SSL verification - this '
-                 'is not recommended!', WARNING)
-        kwargs['context'] = ssl.SSLContext(ssl.PROTOCOL_TLS)
-
-    req = None
-
-    try:
-        # py2: urlopen result cannot be
-        # used as a context manager
-        req = urlrequest.urlopen(url, **kwargs)
-        with open(destination, 'wb') as outf:
-
-            try:             total = int(req.headers['content-length'])
-            except KeyError: total = None
-
-            downloaded = 0
-
-            progress(downloaded, total)
-            while True:
-                block = req.read(blocksize)
-                if len(block) == 0:
-                    break
-                downloaded += len(block)
-                outf.write(block)
-                progress(downloaded, total)
-
-    finally:
-        if req:
-            req.close()
 
 
 class Process(object):
@@ -1193,6 +977,273 @@ class Process(object):
         return proc
 
 
+@ft.total_ordering
+class Version(object):
+    """Class to represent and compare version strings.  Accepted version
+    strings are of the form W.X.Y.Z, where W, X, Y, and Z are all integers.
+    """
+    def __init__(self, verstr):
+        # Version identifiers for official FSL
+        # releases will have up to four
+        # components (X.Y.Z.W), but We accept
+        # any number of (integer) components,
+        # as internal releases may have more.
+        components = []
+
+        for comp in verstr.split('.'):
+            try:              components.append(int(comp))
+            except Exception: break
+
+        self.components = components
+        self.verstr     = verstr
+
+    def __str__(self):
+        return self.verstr
+
+    def __eq__(self, other):
+        for sn, on in zip(self.components, other.components):
+            if sn != on:
+                return False
+        return len(self.components) == len(other.components)
+
+    def __lt__(self, other):
+        for p1, p2 in zip(self.components, other.components):
+            if p1 < p2: return True
+            if p1 > p2: return False
+        return len(self.components) < len(other.components)
+
+
+class Context(object):
+    """Bag of information and settings created in the main function, and passed
+    around this script.
+
+    Several settings are lazily evaluated on first access, but once evaluated,
+    their values are immutable.
+    """
+
+    def __init__(self, args):
+        """Create the context with the argparse.Namespace object containing
+        parsed command-line arguments.
+        """
+
+        self.args  = args
+        self.shell = op.basename(os.environ.get('SHELL', 'sh')).lower()
+
+        # These attributes are updated on-demand via
+        # the property accessors defined below, or all
+        # all updated via the finalise-settings method.
+        self.__platform       = None
+        self.__manifest       = None
+        self.__devmanifest    = None
+        self.__build          = None
+        self.__destdir        = None
+        self.__need_admin     = None
+        self.__admin_password = None
+
+        # If the destination directory already exists,
+        # and the user chooses to overwrite it, it is
+        # moved so that, if the installation fails, it
+        # can be restored. The new path is stored
+        # here - refer to overwrite_destdir.
+        self.old_destdir = None
+
+        # The download_fsl_environment function stores
+        # the path to the FSL conda environment file,
+        # list of conda channels, and versions of a
+        # small set of "base" packages here.
+        self.environment_file     = None
+        self.environment_channels = None
+        self.fsl_base_packages    = None
+
+        # The config_logging function stores the path
+        # to the fslinstaller log file here.
+        self.logfile = None
+
+
+    def finalise_settings(self):
+        """Finalise values for all information and settings in the Context.
+        """
+        self.manifest
+        self.platform
+        self.build
+        self.destdir
+        self.need_admin
+        self.admin_password
+
+
+    @property
+    def platform(self):
+        """The platform we are running on, e.g. "linux-64", "macos-64". """
+        if self.__platform is None:
+            self.__platform = identify_platform()
+        return self.__platform
+
+
+    @property
+    def build(self):
+        """Returns a suitable FSL build (a dictionary entry from the FSL
+        installer manifest) for the target platform.
+
+        The returned dictionary has the following elements:
+          - 'version'      FSL version.
+          - 'platform':    Platform identifier (e.g. 'linux-64')
+          - 'environment': Environment file to download
+          - 'sha256':      Checksum of environment file
+          - 'output':      Number of lines of expected output, for reporting
+                           progress
+        """
+
+        if self.__build is not None:
+            return self.__build
+
+        # defaults to "latest" if
+        # not specified by the user
+        fslversion = self.args.fslversion
+
+        if fslversion not in self.manifest['versions']:
+            available = ', '.join(self.manifest['versions'].keys())
+            raise Exception(
+                'FSL version "{}" is not available - available '
+                'versions: {}'.format(fslversion, available))
+
+        if fslversion == 'latest':
+            fslversion = self.manifest['versions']['latest']
+
+        # Find refs to a suitable build for this
+        # platform. We assume that there is only
+        # one default build for each platform.
+        # in the list of builds for a given FSL
+        # version.
+        build = None
+
+        for candidate in self.manifest['versions'][fslversion]:
+            if candidate['platform'] == self.platform:
+                build = candidate
+                break
+
+        if build is None:
+            raise Exception(
+                'Cannot find a version of FSL matching '
+                'platform {}'.format(self.platform))
+
+        printmsg('FSL {} selected for installation'.format(build['version']))
+
+        self.__build = build
+        return build
+
+
+    @property
+    def destdir(self):
+        """Installation directory. If not specified at the command line, the
+        user is prompted to enter a directory.
+        """
+
+        if self.__destdir is not None:
+            return self.__destdir
+
+        # The loop below validates the destination directory
+        # both when specified at commmand line or
+        # interactively.  In either case, if invalid, the
+        # user is re-prompted to enter a new destination.
+        destdir = None
+        if self.args.dest is not None: response = self.args.dest
+        else:                          response = None
+
+        while destdir is None:
+
+            if response is None:
+                printmsg('\nWhere do you want to install FSL?',
+                         IMPORTANT, EMPHASIS)
+                printmsg('Press enter to install to the default location '
+                         '[{}]\n'.format(DEFAULT_INSTALLATION_DIRECTORY), INFO)
+                response = prompt('FSL installation directory [{}]:'.format(
+                    DEFAULT_INSTALLATION_DIRECTORY), QUESTION, EMPHASIS)
+                response = response.rstrip(op.sep)
+
+                if response == '':
+                    response = DEFAULT_INSTALLATION_DIRECTORY
+
+            response  = op.expanduser(op.expandvars(response))
+            response  = op.abspath(response)
+            parentdir = op.dirname(response)
+            if op.exists(parentdir):
+                destdir = response
+            else:
+                printmsg('Destination directory {} does not '
+                         'exist!'.format(parentdir), ERROR)
+                response = None
+
+        self.__destdir = destdir
+        return self.__destdir
+
+
+    @property
+    def need_admin(self):
+        """Returns True if administrator privileges will be needed to install
+        FSL.
+        """
+        if self.__need_admin is not None:
+            return self.__need_admin
+        parentdir = op.dirname(self.destdir)
+        self.__need_admin = check_need_admin(parentdir)
+        return self.__need_admin
+
+
+    @property
+    def admin_password(self):
+        """Returns the user's administrator password, prompting them if needed.
+        """
+        if self.__admin_password is not None:
+            return self.__admin_password
+        if self.__need_admin == False:
+            return None
+        self.__admin_password = get_admin_password()
+
+
+    @property
+    def manifest(self):
+        """Returns the FSL installer manifest as a dictionary. """
+        if self.__manifest is None:
+            if self.devmanifest is not None:
+                self.args.manifest = self.devmanifest
+
+            self.__manifest = download_manifest(self.args.manifest,
+                                                self.args.workdir)
+        return self.__manifest
+
+
+    @property
+    def devmanifest(self):
+        """Returns a URL to a development manifest to use for installation.
+        This will only return a value if the --devrelease or --devlatest
+        options are active.
+
+        If this is the case, the FSL_DEV_RELEASES file is downloaded - this
+        file contains a list of available development manifest URLS. The
+        user is then prompted to choose which development manifest to use
+        for the installation, unless --devlatest is active, in which case
+        the newest manifest is selected.
+        """
+        if not self.args.devrelease:
+            return None
+        if self.__devmanifest == 'na':
+            return None
+        elif self.__devmanifest is not None:
+            return self.__devmanifest
+
+        devreleases = download_dev_releases(FSL_DEV_RELEASES,
+                                            self.args.workdir)
+
+        if len(devreleases) == 0:
+            self.__devmanifest = 'na'
+            return None
+
+        self.__devmanifest = prompt_dev_release(devreleases,
+                                                self.args.devlatest)
+
+        return self.__devmanifest
+
+
 def list_available_versions(manifest):
     """Lists available FSL versions. """
     printmsg('Available FSL versions:', EMPHASIS)
@@ -1203,6 +1254,40 @@ def list_available_versions(manifest):
         for build in manifest['versions'][version]:
             printmsg('  {}'.format(build['platform']), EMPHASIS, end=' ')
             printmsg(build['environment'], INFO)
+
+
+def prompt_dev_release(devreleases, latest):
+    """Prompts the user to select a development release.
+
+    :arg devreleases: List of development releases, as returned by
+                      download_dev_releases.
+    :arg latest:      If True, the latest develeopment release is returned.
+    """
+
+    if len(devreleases) == 0:
+        return None
+
+    # automatically choose latest dev manifest?
+    if latest:
+        return devreleases[0][0]
+
+    # show the user a list, ask them which one they want
+    printmsg('Available development releases:', EMPHASIS)
+    for i, (url, tag, date, commit, branch) in enumerate(devreleases):
+        printmsg('  [{}]: {} [{} commit {}]'.format(
+            i + 1, date, branch, commit), IMPORTANT)
+    while True:
+        selection = prompt('Which release would you like to '
+                           'install? [1]:', PROMPT)
+        if selection == '':
+            selection = '1'
+        try:
+            selection = int(selection) - 1
+        except Exception:
+            continue
+        if selection >= 0 and selection < len(devreleases):
+            break
+    return devreleases[selection][0]
 
 
 def download_fsl_environment(ctx):
@@ -1218,9 +1303,8 @@ def download_fsl_environment(ctx):
     If the user has not provided a username+password on the command-line, they
     are prompted for them.
 
-    The downloaded environment file may be modified - if the user has requested
-    a specific CUDA version, or no CUDA packages (--cuda or --no_cuda), all
-    CUDA packages are removed from the environment file.
+    The downloaded environment file may be modified - if the (hidden)
+    --exclude_package option has been used.
     """
 
     build        = ctx.build
@@ -1315,8 +1399,7 @@ def download_fsl_environment(ctx):
             # Include/exclude packages upon user request
             pkgname = line.strip(' -').split()[0]
             exclude = match_any(pkgname, ctx.args.exclude_package)
-            include = match_any(pkgname, ctx.args.include_package)
-            if exclude and not include:
+            if exclude:
                 log.debug('Excluding package %s (matched '
                           '--exclude_package %s)', line, exclude)
             else:
@@ -1449,13 +1532,10 @@ def install_fsl(ctx):
     """
 
     # expected number of output lines for new
-    # install or upgrade, used for progress
-    # reporting. If manifest does not contain
-    # expected #lines, we fall back to a spinner.
-    if ctx.update is None:
-        output = ctx.build.get('output', {}).get('install', None)
-    else:
-        output = ctx.build.get('output', {}).get(ctx.update, None)
+    # install, used for progress reporting.
+    # If manifest does not contain expected
+    # #lines, we fall back to a spinner.
+    output = ctx.build.get('output', {}).get('install', None)
 
     if output in ('', None): output = None
     else:                    output = int(output)
@@ -1489,29 +1569,9 @@ def install_fsl(ctx):
     # to existing FSL or conda installations.
     # See Process.sudo_popen regarding append_env
     env        = clean_environ()
-    append_env = {}
-
-    # post-link scripts call $FSLDIR/share/fsl/sbin/createFSLWrapper
-    # (part of fsl/base), which will only do its thing if the following
-    # env vars are set
-    append_env['FSL_CREATE_WRAPPER_SCRIPTS'] = '1'
-    append_env['FSLDIR']                     = ctx.destdir
-
-    # Make sure HTTP proxy variables, if set,
-    # are available to the conda env command
-    for v in ['http_proxy', 'https_proxy',
-              'HTTP_PROXY', 'HTTPS_PROXY']:
-        if v in os.environ:
-            append_env[v] = os.environ[v]
-
-    # FSL environments which source packages from the internal
-    # FSL conda channel will refer to the channel as:
-    #
-    # http://${FSLCONDA_USERNAME}:${FSLCONDA_PASSWORD}/abc.com/
-    #
-    # so we need to set those variables
-    if ctx.args.username: env['FSLCONDA_USERNAME'] = ctx.args.username
-    if ctx.args.password: env['FSLCONDA_PASSWORD'] = ctx.args.password
+    append_env = install_environ(ctx.destdir,
+                                 ctx.args.username,
+                                 ctx.args.password)
 
     Process.monitor_progress(commands, output, ctx.need_admin, ctx,
                              append_env=append_env, env=env)
@@ -1724,94 +1784,9 @@ def read_fslversion(destdir):
     try:
         with open(fslversion, 'rt') as f:
             fslversion = f.readline().split(':')[0]
-    except:
+    except Exception:
         return None
     return fslversion
-
-
-def update_destdir(ctx):
-    """Called by main. Checks if the destination directory is an FSL
-    installation, and determines / asks the user whether they want to update
-    it.
-
-    Returns the old FSL version string if the existing FSL installation
-    should be updated, or None if it should be overwritten.
-
-    Note: This functionality is not currently supported - the --update
-    command-line option is hidden for the time being.
-    """
-
-    installed = read_fslversion(ctx.destdir)
-
-    # Cannot detect a FSL installation
-    if installed is None:
-        return None
-
-    printmsg()
-    printmsg('Existing FSL installation [version {}] detected '
-             'at {}'.format(installed, ctx.destdir), INFO)
-
-    installed  = Version(installed)
-    requested  = Version(ctx.build['version'])
-    updateable = Version(FIRST_FSL_CONDA_RELEASE)
-
-    # Too old (pre-conda)
-    if installed < updateable:
-        printmsg('FSL version {} is too old to update - you will need '
-                 'to overwrite/re-install FSL'.format(installed), INFO)
-        return None
-
-    # Existing install is equal to
-    # or newer than requested
-    if installed >= requested:
-        if installed == requested:
-            msg       = '\nFSL version {installed} is already installed!'
-            promptmsg = 'Do you want to re-install FSL {installed} [y/N]?'
-        else:
-            msg       = '\nInstalled version [{installed}] is newer than ' \
-                        'the requested version [{requested}]!'
-            promptmsg = 'Do you want to replace your existing version ' \
-                        '[{installed}] with an older version [{requested}] ' \
-                        '[y/N]?'
-
-        msg       = msg      .format(installed=installed, requested=requested)
-        promptmsg = promptmsg.format(installed=installed, requested=requested)
-
-        printmsg(msg, WARNING, EMPHASIS)
-        response = prompt(promptmsg, QUESTION, EMPHASIS)
-
-        # Overwrite/re-install - don't ask user
-        # again if they want to overwrite destdir
-        if response.lower() in ('y', 'yes'):
-            ctx.args.overwrite = True
-            return None
-        else:
-            printmsg('Aborting installation', ERROR, EMPHASIS)
-            sys.exit(1)
-
-    # User specified --update -> don't prompt
-    if ctx.args.update:
-        return str(installed)
-
-    printmsg('Would you like to upgrade your existing FSL installation from '
-             'version {} to version {}, or replace your installation?'.format(
-                 installed, requested), IMPORTANT, EMPHASIS)
-    printmsg('Upgrading an existing FSL installation is experimental '
-             'and might fail - replacing your installation will take '
-             'longer, but is usually a safer option\n', INFO)
-    response = prompt('Upgrade (u), replace (r), or cancel? [u/r/C]:',
-                      QUESTION, EMPHASIS)
-
-    if response.lower() in ('u'):
-        return str(installed)
-    # main routine will go on to ask
-    # if they want to overwrite
-    elif response.lower() in ('r'):
-        ctx.args.overwrite = True
-        return None
-    else:
-        printmsg('Aborting installation', ERROR, EMPHASIS)
-        sys.exit(1)
 
 
 def overwrite_destdir(ctx):
@@ -1865,15 +1840,6 @@ def parse_args(argv=None):
         'no_shell'     : 'Do not modify your shell configuration',
         'no_matlab'    : 'Do not modify your MATLAB configuration',
         'fslversion'   : 'Install this specific version of FSL',
-        'cuda'         : 'Install FSL packages for this CUDA version only '
-                         '(default: install packages for all CUDA versions)',
-        'no_cuda'      : 'Do not install any FSL CUDA packages',
-
-        # Update existing FSL installation if
-        # possible, without asking.  This
-        # option is hidden/unsupported at the
-        # moment, but may be added in the future.
-        'update'          : argparse.SUPPRESS,
 
         # Username / password for accessing
         # internal FSL conda channel, if an
@@ -1935,8 +1901,6 @@ def parse_args(argv=None):
                         version=__version__, help=helps['version'])
     parser.add_argument('-d', '--dest', metavar='DESTDIR',
                         help=helps['dest'])
-    parser.add_argument('-u', '--update', action='store_true',
-                        help=helps['update'])
     parser.add_argument('-o', '--overwrite', action='store_true',
                         help=helps['overwrite'])
     parser.add_argument('-l', '--listversions', action='store_true',
@@ -1949,14 +1913,6 @@ def parse_args(argv=None):
                         help=helps['no_matlab'])
     parser.add_argument('-V', '--fslversion', default='latest',
                         help=helps['version'])
-
-    # CUDA packages are currently
-    # only built for linux-64
-    if Context.identify_platform() == 'linux-64':
-        parser.add_argument('-c', '--cuda',     help=helps['cuda'],
-                            type=float, metavar='X.Y')
-        parser.add_argument('-nc', '--no_cuda', help=helps['no_cuda'],
-                            action='store_true')
 
     # hidden options
     parser.add_argument('--username', help=helps['username'])
@@ -2013,26 +1969,6 @@ def parse_args(argv=None):
     if args.exclude_package is None:
         args.exclude_package = []
 
-    # The download_fsl_environment function also checks
-    # package names against this "include_package" list,
-    # although it is not exposed on the command
-    # line. This is used to override any patterns in
-    # exclude_package, and is currently used to select
-    # packages for a specific CUDA version.
-    #
-    # All FSL cuda packages have a name ending with
-    # "-cuda-X.Y".
-    args.include_package = []
-
-    # args.[cuda|no_cuda] won't be added on macOS
-    cuda    = getattr(args, 'cuda',    None)
-    no_cuda = getattr(args, 'no_cuda', False)
-
-    if cuda is not None:
-        args.include_package.append('fsl-*-cuda-{:0.1f}'.format(args.cuda))
-    if no_cuda or (cuda is not None):
-        args.exclude_package.append('fsl-*-cuda-*')
-
     # accept local path for manifest and environment
     if args.manifest is not None and op.exists(args.manifest):
         args.manifest = op.abspath(args.manifest)
@@ -2082,14 +2018,7 @@ def handle_error(ctx):
         tb = traceback.format_tb(sys.exc_info()[2])
         log.debug(''.join(tb))
 
-        # Don't remove a failed update, despite
-        # it potentially being corrupt (because
-        # it might also be fine)
-        if ctx.update:
-            printmsg('Update failed - your FSL installation '
-                     'might be corrupt!', WARNING, EMPHASIS)
-
-        elif op.exists(ctx.destdir):
+        if op.exists(ctx.destdir):
             printmsg('Removing failed installation directory '
                      '{}'.format(ctx.destdir), WARNING)
             Process.check_call('rm -r ' + ctx.destdir, ctx.need_admin, ctx)
@@ -2142,27 +2071,17 @@ def main(argv=None):
 
     with tempdir(args.workdir):
 
-        # Ask the user if they want to update or
-        # overwrite an existing installation
-        ctx.update = None
-        ctx.exists = op.exists(ctx.destdir)
-
-        if ctx.exists:
-            # The update facility is currently disabled.
-            # ctx.update = update_destdir(ctx)
-            if not ctx.update:
-                overwrite_destdir(ctx)
+        # Ask the user if they want to overwrite
+        # an existing installation
+        if op.exists(ctx.destdir):
+            overwrite_destdir(ctx)
 
         download_fsl_environment(ctx)
 
-        if ctx.update: action = 'Updating'
-        else:          action = 'Installing'
-        printmsg('\n{} FSL in {}\n'.format(action, ctx.destdir), EMPHASIS)
-
+        printmsg('\nInstalling FSL in {}\n'.format(ctx.destdir), EMPHASIS)
         with handle_error(ctx):
-            if not ctx.update:
-                download_miniconda(ctx)
-                install_miniconda(ctx)
+            download_miniconda(ctx)
+            install_miniconda(ctx)
             install_fsl(ctx)
             finalise_installation(ctx)
             post_install_cleanup(ctx)
