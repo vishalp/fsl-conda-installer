@@ -1215,9 +1215,8 @@ def download_fsl_environment(ctx):
     If the user has not provided a username+password on the command-line, they
     are prompted for them.
 
-    The downloaded environment file may be modified - if the user has requested
-    a specific CUDA version, or no CUDA packages (--cuda or --no_cuda), all
-    CUDA packages are removed from the environment file.
+    The downloaded environment file may be modified - if the (hidden)
+    --exclude_package option has been used.
     """
 
     build        = ctx.build
@@ -1312,8 +1311,7 @@ def download_fsl_environment(ctx):
             # Include/exclude packages upon user request
             pkgname = line.strip(' -').split()[0]
             exclude = match_any(pkgname, ctx.args.exclude_package)
-            include = match_any(pkgname, ctx.args.include_package)
-            if exclude and not include:
+            if exclude:
                 log.debug('Excluding package %s (matched '
                           '--exclude_package %s)', line, exclude)
             else:
@@ -1774,9 +1772,6 @@ def parse_args(argv=None):
         'no_shell'     : 'Do not modify your shell configuration',
         'no_matlab'    : 'Do not modify your MATLAB configuration',
         'fslversion'   : 'Install this specific version of FSL',
-        'cuda'         : 'Install FSL packages for this CUDA version only '
-                         '(default: install packages for all CUDA versions)',
-        'no_cuda'      : 'Do not install any FSL CUDA packages',
 
         # Username / password for accessing
         # internal FSL conda channel, if an
@@ -1853,14 +1848,6 @@ def parse_args(argv=None):
     parser.add_argument('-V', '--fslversion', default='latest',
                         help=helps['version'])
 
-    # CUDA packages are currently
-    # only built for linux-64
-    if Context.identify_platform() == 'linux-64':
-        parser.add_argument('-c', '--cuda',     help=helps['cuda'],
-                            type=float, metavar='X.Y')
-        parser.add_argument('-nc', '--no_cuda', help=helps['no_cuda'],
-                            action='store_true')
-
     # hidden options
     parser.add_argument('--username', help=helps['username'])
     parser.add_argument('--password', help=helps['password'])
@@ -1915,26 +1902,6 @@ def parse_args(argv=None):
 
     if args.exclude_package is None:
         args.exclude_package = []
-
-    # The download_fsl_environment function also checks
-    # package names against this "include_package" list,
-    # although it is not exposed on the command
-    # line. This is used to override any patterns in
-    # exclude_package, and is currently used to select
-    # packages for a specific CUDA version.
-    #
-    # All FSL cuda packages have a name ending with
-    # "-cuda-X.Y".
-    args.include_package = []
-
-    # args.[cuda|no_cuda] won't be added on macOS
-    cuda    = getattr(args, 'cuda',    None)
-    no_cuda = getattr(args, 'no_cuda', False)
-
-    if cuda is not None:
-        args.include_package.append('fsl-*-cuda-{:0.1f}'.format(args.cuda))
-    if no_cuda or (cuda is not None):
-        args.exclude_package.append('fsl-*-cuda-*')
 
     # accept local path for manifest and environment
     if args.manifest is not None and op.exists(args.manifest):
