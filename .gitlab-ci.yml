@@ -95,6 +95,10 @@ test:py39:
   extends: .test-template
   image:    python:3.9
 
+test:py310:
+  extends: .test-template
+  image:    python:3.10
+
 check-version:
   stage: fsl-ci-test
   image: python:3.9
