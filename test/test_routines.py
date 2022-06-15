@@ -18,7 +18,7 @@ import pytest
 
 from . import onpath, server
 
-import fsl.fslinstaller as inst
+import fsl.installer.fslinstaller as inst
 
 
 def test_identify_plaform():
