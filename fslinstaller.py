@@ -2,9 +2,20 @@
 #
 # FSL installer script.
 #
-"""This is the FSL installation script. It can be used to install FSL, or
-to update an existing FSL installation.  This script can be executed with
-Python 2.7 or newer.
+"""This is the FSL installation script, which can be used to install FSL.
+
+This script must:
+
+ - be able to be executed with Python 2.7 or newer.
+
+ - be able to be executed in a "vanilla" Python environment, with no third
+   party dependencies.
+
+ - be self-contained, with no dependencies on any other modules (apart from
+   the Python standard library).
+
+ - be importable as a Python module - this script contains functions and
+   classes that are used by other scripts in the fslinstaller package.
 """
 
 
@@ -85,12 +96,6 @@ internal/development FSL releases.
 """
 
 
-FIRST_FSL_CONDA_RELEASE = '6.0.6'
-"""Oldest conda-based FSL version that can be updated in-place by this
-installer script. Versions older than this will need to be overwritten.
-"""
-
-
 @ft.total_ordering
 class Version(object):
     """Class to represent and compare version strings.  Accepted version
@@ -117,7 +122,7 @@ class Version(object):
     def __eq__(self, other):
         for sn, on in zip(self.components, other.components):
             if sn != on:
-                 return False
+                return False
         return len(self.components) == len(other.components)
 
     def __lt__(self, other):
@@ -153,14 +158,6 @@ class Context(object):
         self.__destdir        = None
         self.__need_admin     = None
         self.__admin_password = None
-
-        # These attributes are set by main - exists is
-        # a flag denoting whether the dest dir already
-        # exists, and update is the version string of
-        # the existing FSL installation if the user
-        # has selected to update it, or None otherwise.
-        self.exists = False
-        self.update = None
 
         # If the destination directory already exists,
         # and the user chooses to overwrite it, it is
@@ -1449,13 +1446,10 @@ def install_fsl(ctx):
     """
 
     # expected number of output lines for new
-    # install or upgrade, used for progress
-    # reporting. If manifest does not contain
-    # expected #lines, we fall back to a spinner.
-    if ctx.update is None:
-        output = ctx.build.get('output', {}).get('install', None)
-    else:
-        output = ctx.build.get('output', {}).get(ctx.update, None)
+    # install, used for progress reporting.
+    # If manifest does not contain expected
+    # #lines, we fall back to a spinner.
+    output = ctx.build.get('output', {}).get(ctx.update, None)
 
     if output in ('', None): output = None
     else:                    output = int(output)
@@ -1724,94 +1718,9 @@ def read_fslversion(destdir):
     try:
         with open(fslversion, 'rt') as f:
             fslversion = f.readline().split(':')[0]
-    except:
+    except Exception:
         return None
     return fslversion
-
-
-def update_destdir(ctx):
-    """Called by main. Checks if the destination directory is an FSL
-    installation, and determines / asks the user whether they want to update
-    it.
-
-    Returns the old FSL version string if the existing FSL installation
-    should be updated, or None if it should be overwritten.
-
-    Note: This functionality is not currently supported - the --update
-    command-line option is hidden for the time being.
-    """
-
-    installed = read_fslversion(ctx.destdir)
-
-    # Cannot detect a FSL installation
-    if installed is None:
-        return None
-
-    printmsg()
-    printmsg('Existing FSL installation [version {}] detected '
-             'at {}'.format(installed, ctx.destdir), INFO)
-
-    installed  = Version(installed)
-    requested  = Version(ctx.build['version'])
-    updateable = Version(FIRST_FSL_CONDA_RELEASE)
-
-    # Too old (pre-conda)
-    if installed < updateable:
-        printmsg('FSL version {} is too old to update - you will need '
-                 'to overwrite/re-install FSL'.format(installed), INFO)
-        return None
-
-    # Existing install is equal to
-    # or newer than requested
-    if installed >= requested:
-        if installed == requested:
-            msg       = '\nFSL version {installed} is already installed!'
-            promptmsg = 'Do you want to re-install FSL {installed} [y/N]?'
-        else:
-            msg       = '\nInstalled version [{installed}] is newer than ' \
-                        'the requested version [{requested}]!'
-            promptmsg = 'Do you want to replace your existing version ' \
-                        '[{installed}] with an older version [{requested}] ' \
-                        '[y/N]?'
-
-        msg       = msg      .format(installed=installed, requested=requested)
-        promptmsg = promptmsg.format(installed=installed, requested=requested)
-
-        printmsg(msg, WARNING, EMPHASIS)
-        response = prompt(promptmsg, QUESTION, EMPHASIS)
-
-        # Overwrite/re-install - don't ask user
-        # again if they want to overwrite destdir
-        if response.lower() in ('y', 'yes'):
-            ctx.args.overwrite = True
-            return None
-        else:
-            printmsg('Aborting installation', ERROR, EMPHASIS)
-            sys.exit(1)
-
-    # User specified --update -> don't prompt
-    if ctx.args.update:
-        return str(installed)
-
-    printmsg('Would you like to upgrade your existing FSL installation from '
-             'version {} to version {}, or replace your installation?'.format(
-                 installed, requested), IMPORTANT, EMPHASIS)
-    printmsg('Upgrading an existing FSL installation is experimental '
-             'and might fail - replacing your installation will take '
-             'longer, but is usually a safer option\n', INFO)
-    response = prompt('Upgrade (u), replace (r), or cancel? [u/r/C]:',
-                      QUESTION, EMPHASIS)
-
-    if response.lower() in ('u'):
-        return str(installed)
-    # main routine will go on to ask
-    # if they want to overwrite
-    elif response.lower() in ('r'):
-        ctx.args.overwrite = True
-        return None
-    else:
-        printmsg('Aborting installation', ERROR, EMPHASIS)
-        sys.exit(1)
 
 
 def overwrite_destdir(ctx):
@@ -1868,12 +1777,6 @@ def parse_args(argv=None):
         'cuda'         : 'Install FSL packages for this CUDA version only '
                          '(default: install packages for all CUDA versions)',
         'no_cuda'      : 'Do not install any FSL CUDA packages',
-
-        # Update existing FSL installation if
-        # possible, without asking.  This
-        # option is hidden/unsupported at the
-        # moment, but may be added in the future.
-        'update'          : argparse.SUPPRESS,
 
         # Username / password for accessing
         # internal FSL conda channel, if an
@@ -2082,14 +1985,7 @@ def handle_error(ctx):
         tb = traceback.format_tb(sys.exc_info()[2])
         log.debug(''.join(tb))
 
-        # Don't remove a failed update, despite
-        # it potentially being corrupt (because
-        # it might also be fine)
-        if ctx.update:
-            printmsg('Update failed - your FSL installation '
-                     'might be corrupt!', WARNING, EMPHASIS)
-
-        elif op.exists(ctx.destdir):
+        if op.exists(ctx.destdir):
             printmsg('Removing failed installation directory '
                      '{}'.format(ctx.destdir), WARNING)
             Process.check_call('rm -r ' + ctx.destdir, ctx.need_admin, ctx)
@@ -2142,27 +2038,17 @@ def main(argv=None):
 
     with tempdir(args.workdir):
 
-        # Ask the user if they want to update or
-        # overwrite an existing installation
-        ctx.update = None
-        ctx.exists = op.exists(ctx.destdir)
-
-        if ctx.exists:
-            # The update facility is currently disabled.
-            # ctx.update = update_destdir(ctx)
-            if not ctx.update:
-                overwrite_destdir(ctx)
+        # Ask the user if they want to overwrite
+        # an existing installation
+        if op.exists(ctx.destdir):
+            overwrite_destdir(ctx)
 
         download_fsl_environment(ctx)
 
-        if ctx.update: action = 'Updating'
-        else:          action = 'Installing'
-        printmsg('\n{} FSL in {}\n'.format(action, ctx.destdir), EMPHASIS)
-
+        printmsg('\nInstalling FSL in {}\n'.format(ctx.destdir), EMPHASIS)
         with handle_error(ctx):
-            if not ctx.update:
-                download_miniconda(ctx)
-                install_miniconda(ctx)
+            download_miniconda(ctx)
+            install_miniconda(ctx)
             install_fsl(ctx)
             finalise_installation(ctx)
             post_install_cleanup(ctx)
