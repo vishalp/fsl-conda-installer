@@ -1239,7 +1239,6 @@ class Context(object):
             return None
 
         self.__devmanifest = prompt_dev_release(devreleases,
-                                                self.args.workdir,
                                                 self.args.devlatest)
 
         return self.__devmanifest
