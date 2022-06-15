@@ -17,6 +17,11 @@
 # The fsl-ci stages are defined in the
 # fsl/conda/fsl-ci-rules repository - they are
 # used to build the fslinstaller conda package.
+
+include:
+ - project: fsl/conda/fsl-ci-rules
+   file:    .gitlab-ci.yml
+
 stages:
   - test
   - check-version
