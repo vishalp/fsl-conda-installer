@@ -214,8 +214,14 @@ def check_need_admin(dirname):
     return not os.access(dirname, os.W_OK | os.X_OK)
 
 
-def get_admin_password():
-    """Prompt the user for their administrator password."""
+def get_admin_password(action='install FSL'):
+    """Prompt the user for their administrator password. An Exception is raised
+    if an incorrect password is entered three times.a
+
+    :arg action: String which describes what the password is needed for, i.e.:
+                 "Your administrator password is needed to {action}"
+    :returns:    the validated administrator password
+    """
 
     def validate_admin_password(password):
         proc = Process.sudo_popen(['true'], password, stdin=sp.PIPE)
@@ -224,11 +230,11 @@ def get_admin_password():
 
     for attempt in range(3):
         if attempt == 0:
-            msg = 'Your administrator password is needed to ' \
-                  'install FSL: '
+            msg = 'Your administrator password is ' \
+                  'needed to {}'.format(action)
         else:
-            msg = 'Your administrator password is needed to ' \
-                  'install FSL [attempt {} of 3]:'.format(attempt + 1)
+            msg = 'Your administrator password is needed to {} ' \
+                  '[attempt {} of 3]:'.format(action, attempt + 1)
         printmsg(msg, IMPORTANT, end='')
         password = getpass.getpass('')
         valid    = validate_admin_password(password)
@@ -345,6 +351,37 @@ def clean_environ():
     for v in list(env.keys()):
         if any(('FSL' in v, 'CONDA' in v)):
             env.pop(v)
+    return env
+
+
+def install_environ(fsldir, username=None, password=None):
+    """Returns a dict containing some environment variables that should
+    be added to the shell environment when the FSL conda environment is
+    being installed.
+    """
+    env = {}
+    # post-link scripts call $FSLDIR/share/fsl/sbin/createFSLWrapper
+    # (part of fsl/base), which will only do its thing if the following
+    # env vars are set
+    env['FSL_CREATE_WRAPPER_SCRIPTS'] = '1'
+    env['FSLDIR']                     = fsldir
+
+    # Make sure HTTP proxy variables, if set,
+    # are available to the conda env command
+    for v in ['http_proxy', 'https_proxy',
+              'HTTP_PROXY', 'HTTPS_PROXY']:
+        if v in os.environ:
+            env[v] = os.environ[v]
+
+    # FSL environments which source packages from the internal
+    # FSL conda channel will refer to the channel as:
+    #
+    # http://${FSLCONDA_USERNAME}:${FSLCONDA_PASSWORD}/abc.com/
+    #
+    # so we need to set those variables
+    if username: env['FSLCONDA_USERNAME'] = username
+    if password: env['FSLCONDA_PASSWORD'] = password
+
     return env
 
 
@@ -1201,29 +1238,10 @@ class Context(object):
             self.__devmanifest = 'na'
             return None
 
-        # automatically choose latest dev manifest?
-        if self.args.devlatest:
-            devrelease = devreleases[0][0]
-        # show the user a list, ask them which one they want
-        else:
-            printmsg('Available development releases:', EMPHASIS)
-            for i, (url, tag, date, commit, branch) in enumerate(devreleases):
-                printmsg('  [{}]: {} [{} commit {}]'.format(
-                    i + 1, date, branch, commit), IMPORTANT)
-            while True:
-                selection = prompt('Which release would you like to '
-                                   'install? [1]:', PROMPT)
-                if selection == '':
-                    selection = '1'
-                try:
-                    selection = int(selection) - 1
-                except Exception:
-                    continue
-                if selection >= 0 and selection < len(devreleases):
-                    break
-            devrelease = devreleases[selection][0]
+        self.__devmanifest = prompt_dev_release(devreleases,
+                                                self.args.workdir,
+                                                self.args.devlatest)
 
-        self.__devmanifest = devrelease
         return self.__devmanifest
 
 
@@ -1237,6 +1255,40 @@ def list_available_versions(manifest):
         for build in manifest['versions'][version]:
             printmsg('  {}'.format(build['platform']), EMPHASIS, end=' ')
             printmsg(build['environment'], INFO)
+
+
+def prompt_dev_release(devreleases, latest):
+    """Prompts the user to select a development release.
+
+    :arg devreleases: List of development releases, as returned by
+                      download_dev_releases.
+    :arg latest:      If True, the latest develeopment release is returned.
+    """
+
+    if len(devreleases) == 0:
+        return None
+
+    # automatically choose latest dev manifest?
+    if latest:
+        return devreleases[0][0]
+
+    # show the user a list, ask them which one they want
+    printmsg('Available development releases:', EMPHASIS)
+    for i, (url, tag, date, commit, branch) in enumerate(devreleases):
+        printmsg('  [{}]: {} [{} commit {}]'.format(
+            i + 1, date, branch, commit), IMPORTANT)
+    while True:
+        selection = prompt('Which release would you like to '
+                           'install? [1]:', PROMPT)
+        if selection == '':
+            selection = '1'
+        try:
+            selection = int(selection) - 1
+        except Exception:
+            continue
+        if selection >= 0 and selection < len(devreleases):
+            break
+    return devreleases[selection][0]
 
 
 def download_fsl_environment(ctx):
@@ -1518,29 +1570,9 @@ def install_fsl(ctx):
     # to existing FSL or conda installations.
     # See Process.sudo_popen regarding append_env
     env        = clean_environ()
-    append_env = {}
-
-    # post-link scripts call $FSLDIR/share/fsl/sbin/createFSLWrapper
-    # (part of fsl/base), which will only do its thing if the following
-    # env vars are set
-    append_env['FSL_CREATE_WRAPPER_SCRIPTS'] = '1'
-    append_env['FSLDIR']                     = ctx.destdir
-
-    # Make sure HTTP proxy variables, if set,
-    # are available to the conda env command
-    for v in ['http_proxy', 'https_proxy',
-              'HTTP_PROXY', 'HTTPS_PROXY']:
-        if v in os.environ:
-            append_env[v] = os.environ[v]
-
-    # FSL environments which source packages from the internal
-    # FSL conda channel will refer to the channel as:
-    #
-    # http://${FSLCONDA_USERNAME}:${FSLCONDA_PASSWORD}/abc.com/
-    #
-    # so we need to set those variables
-    if ctx.args.username: env['FSLCONDA_USERNAME'] = ctx.args.username
-    if ctx.args.password: env['FSLCONDA_PASSWORD'] = ctx.args.password
+    append_env = install_environ(ctx.destdir,
+                                 ctx.args.username,
+                                 ctx.args.password)
 
     Process.monitor_progress(commands, output, ctx.need_admin, ctx,
                              append_env=append_env, env=env)
