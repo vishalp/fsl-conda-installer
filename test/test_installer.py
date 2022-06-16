@@ -176,7 +176,6 @@ def check_install(homedir, destdir, version, envver=None):
         # added by the fslinstaller
         with open(op.join(etc, 'fslversion'), 'rt') as f:
             assert f.read().strip() == version
-        assert op.exists(op.join(etc,     'fslinstaller.py'))
         assert op.exists(op.join(etc,     'env-{}.yml'.format(envver)))
         assert op.exists(op.join(homedir, 'Documents', 'MATLAB'))
 

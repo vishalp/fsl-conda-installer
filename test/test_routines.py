@@ -46,20 +46,6 @@ def test_Version():
     assert inst.Version('1.2.3.0') >  inst.Version('1.2.3')
 
 
-def test_read_fslversion():
-    with inst.tempdir() as cwd:
-        os.mkdir('etc')
-        assert inst.read_fslversion(cwd) is None
-
-        with open(op.join('etc', 'fslversion'), 'wt') as f:
-            f.write('abcde')
-        assert inst.read_fslversion(cwd) == 'abcde'
-
-        with open(op.join('etc', 'fslversion'), 'wt') as f:
-            f.write('abcde:fghij')
-        assert inst.read_fslversion(cwd) == 'abcde'
-
-
 def test_get_admin_password():
     sudo = tw.dedent("""
     #!/usr/bin/env bash
@@ -289,6 +275,7 @@ def test_download_install_miniconda():
             ctx.args                 = MockObject()
             ctx.destdir              = destdir
             ctx.need_admin           = False
+            ctx.admin_password       = None
             ctx.args.no_checksum     = False
             ctx.args.skip_ssl_verify = False
             ctx.platform             = 'linux'
