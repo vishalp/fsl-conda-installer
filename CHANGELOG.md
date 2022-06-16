@@ -1,6 +1,16 @@
 # FSL installer script release history
 
 
+# 2.0.1
+
+ - Internal changes to improve usability in other scripts.
+
+# 2.0.0
+
+ - Removed the `--cuda` / `--no_cuda` options.
+ - Re-arrange the code to make it installable as a Python library.
+
+
 # 1.10.2
 
  - Fix to handling of the `--cuda` / `--no_cuda` options on macOS.

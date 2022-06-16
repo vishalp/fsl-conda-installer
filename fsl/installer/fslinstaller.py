@@ -34,7 +34,6 @@ import                   json
 import                   logging
 import                   os
 import                   platform
-import                   re
 import                   readline
 import                   shlex
 import                   shutil
@@ -65,7 +64,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '2.0.0'
+__version__ = '2.0.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -228,13 +227,11 @@ def get_admin_password(action='install FSL'):
         proc.communicate()
         return proc.returncode == 0
 
+    msg = 'Your administrator password is needed to {}'.format(action)
+
     for attempt in range(3):
-        if attempt == 0:
-            msg = 'Your administrator password is ' \
-                  'needed to {}'.format(action)
-        else:
-            msg = 'Your administrator password is needed to {} ' \
-                  '[attempt {} of 3]:'.format(action, attempt + 1)
+        if attempt == 0: msg = '{}:'.format(msg)
+        else:            msg = '{} [attempt {} of 3]:'.format(msg, attempt + 1)
         printmsg(msg, IMPORTANT, end='')
         password = getpass.getpass('')
         valid    = validate_admin_password(password)
@@ -448,7 +445,7 @@ def download_manifest(url, workdir=None):
     installer (this script).
 
     The manifest file is a JSON file. Lines beginning
-    with a double-forward-slash are ignored. See test/data/manifes.json
+    with a double-forward-slash are ignored. See test/data/manifest.json
     for an example.
 
     This function modifies the manifest structure by adding a 'version'
@@ -719,19 +716,20 @@ class Process(object):
     def __init__(self,
                  cmd,
                  admin=False,
-                 ctx=None,
+                 password=None,
                  log_output=True,
                  append_env=None,
                  **kwargs):
         """Run the specified command. Starts threads to capture stdout and
         stderr.
 
-        :arg cmd:        Command to run - passed directly to subprocess.Popen
+        :arg cmd:        Command to run - passed through shlex.split, then
+                         passed to subprocess.Popen
 
         :arg admin:      Run the command with administrative privileges
 
-        :arg ctx:        The installer Context. Only used for admin password -
-                         can be None if admin is False.
+        :arg password:   Administrator password - can be None if admin is
+                         False.
 
         :arg log_output: If True, the command and all of its stdout/stderr are
                          logged.
@@ -742,19 +740,15 @@ class Process(object):
         :arg kwargs:     Passed to subprocess.Popen
         """
 
-        self.ctx        = ctx
-        self.cmd        = cmd
-        self.admin      = admin
-        self.log_output = log_output
-        self.stdoutq    = queue.Queue()
-        self.stderrq    = queue.Queue()
+        self.cmd     = cmd
+        self.stdoutq = queue.Queue()
+        self.stderrq = queue.Queue()
 
         if log_output:
             log.debug('Running %s [as admin: %s]', cmd, admin)
 
-        self.popen = Process.popen(
-            self.cmd, self.admin, self.ctx,
-            append_env=append_env, **kwargs)
+        self.popen = Process.popen(cmd, admin, password,
+                                   append_env=append_env, **kwargs)
 
         # threads for consuming stdout/stderr
         self.stdout_thread = threading.Thread(
@@ -896,7 +890,7 @@ class Process(object):
 
 
     @staticmethod
-    def popen(cmd, admin=False, ctx=None, append_env=None, **kwargs):
+    def popen(cmd, admin=False, password=None, append_env=None, **kwargs):
         """Runs the given command via subprocess.Popen, as administrator if
         requested.
 
@@ -904,7 +898,7 @@ class Process(object):
 
         :arg admin:      Whether to run with administrative privileges
 
-        :arg ctx:        The installer Context object. Only required if admin is
+        :arg pssword:    Administrator password. Only required if admin is
                          True.
 
         :arg append_env: Dictionary of additional environment to be set when
@@ -917,9 +911,6 @@ class Process(object):
         """
 
         admin = admin and os.getuid() != 0
-
-        if admin: password = ctx.admin_password
-        else:     password = None
 
         cmd              = shlex.split(cmd)
         kwargs['stdin']  = sp.PIPE
@@ -985,7 +976,7 @@ class Version(object):
     def __init__(self, verstr):
         # Version identifiers for official FSL
         # releases will have up to four
-        # components (X.Y.Z.W), but We accept
+        # components (X.Y.Z.W), but we accept
         # any number of (integer) components,
         # as internal releases may have more.
         components = []
@@ -1021,9 +1012,14 @@ class Context(object):
     their values are immutable.
     """
 
-    def __init__(self, args):
+    def __init__(self, args, destdir=None, action='install FSL'):
         """Create the context with the argparse.Namespace object containing
         parsed command-line arguments.
+
+        :arg args:    argparse.Namespace containing command-line arguments
+        :arg destdir: Installation directory. If not provided, read from
+                      args.dest, or read from the user,
+        :arg action:  Passed to get_admin_password as a prompt.a
         """
 
         self.args  = args
@@ -1036,9 +1032,10 @@ class Context(object):
         self.__manifest       = None
         self.__devmanifest    = None
         self.__build          = None
-        self.__destdir        = None
+        self.__destdir        = destdir
         self.__need_admin     = None
         self.__admin_password = None
+        self.__action         = action
 
         # If the destination directory already exists,
         # and the user chooses to overwrite it, it is
@@ -1099,6 +1096,8 @@ class Context(object):
         # defaults to "latest" if
         # not specified by the user
         fslversion = self.args.fslversion
+        if fslversion is None:
+            fslversion = 'latest'
 
         if fslversion not in self.manifest['versions']:
             available = ', '.join(self.manifest['versions'].keys())
@@ -1195,9 +1194,11 @@ class Context(object):
         """
         if self.__admin_password is not None:
             return self.__admin_password
+        # need_admin may be None or False,
+        # so don't rely on truthiness.
         if self.__need_admin == False:
             return None
-        self.__admin_password = get_admin_password()
+        self.__admin_password = get_admin_password(self.__action)
 
 
     @property
@@ -1451,12 +1452,13 @@ def install_miniconda(ctx):
     printmsg('Installing miniconda at {}...'.format(ctx.destdir))
     env = clean_environ()
     cmd = 'sh miniconda.sh -b -p {}'.format(ctx.destdir)
-    Process.monitor_progress(cmd, output, ctx.need_admin, ctx, env=env)
+    Process.monitor_progress(cmd, output, ctx.need_admin,
+                             ctx.admin_password, env=env)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
     cmd = 'find {} -type f -exec touch {{}} +'.format(ctx.destdir)
-    Process.check_call(cmd, ctx.need_admin, ctx)
+    Process.check_call(cmd, ctx.need_admin, ctx.admin_password)
 
     # Create .condarc config file
     condarc = tw.dedent("""
@@ -1521,7 +1523,7 @@ def install_miniconda(ctx):
         f.write(condarc)
 
     Process.check_call('cp -f .condarc {}'.format(ctx.destdir),
-                       ctx.need_admin, ctx)
+                       ctx.need_admin, ctx.admin_password)
 
 
 def install_fsl(ctx):
@@ -1573,8 +1575,9 @@ def install_fsl(ctx):
                                  ctx.args.username,
                                  ctx.args.password)
 
-    Process.monitor_progress(commands, output, ctx.need_admin, ctx,
-                             append_env=append_env, env=env)
+    Process.monitor_progress(commands, output, ctx.need_admin,
+                             ctx.admin_password, append_env=append_env,
+                             env=env)
 
 
 def finalise_installation(ctx):
@@ -1586,12 +1589,13 @@ def finalise_installation(ctx):
     with open('fslversion', 'wt') as f:
         f.write(ctx.build['version'])
 
-    call    = ft.partial(Process.check_call, admin=ctx.need_admin, ctx=ctx)
-    etcdir  = op.join(ctx.destdir, 'etc')
+    call   = ft.partial(Process.check_call,
+                        admin=ctx.need_admin,
+                        password=ctx.admin_password)
+    etcdir = op.join(ctx.destdir, 'etc')
 
     call('cp fslversion {}'.format(etcdir))
     call('cp {} {}'        .format(ctx.environment_file, etcdir))
-    call('cp {} {}'        .format(__absfile__,          etcdir))
 
 
 def post_install_cleanup(ctx):
@@ -1600,7 +1604,7 @@ def post_install_cleanup(ctx):
     conda = op.join(ctx.destdir, 'bin', 'conda')
     cmd   = conda + ' clean -y --all'
 
-    Process.check_call(cmd, ctx.need_admin, ctx)
+    Process.check_call(cmd, ctx.need_admin, ctx.admin_password)
 
 
 def patch_file(filename, searchline, numlines, content):
@@ -1774,21 +1778,6 @@ def self_update(manifest, workdir, checksum):
     os.execv(sys.executable, cmd)
 
 
-def read_fslversion(destdir):
-    """Reads the FSL version from an existing FSL installation. Returns the
-    version string, or None if it can't be read.
-    """
-    fslversion = op.join(destdir, 'etc', 'fslversion')
-    if not op.exists(fslversion):
-        return None
-    try:
-        with open(fslversion, 'rt') as f:
-            fslversion = f.readline().split(':')[0]
-    except Exception:
-        return None
-    return fslversion
-
-
 def overwrite_destdir(ctx):
     """Called by main if the destination directory already exists. Asks the
     user if they want to overwrite it. If they do, or if the --overwrite
@@ -1821,7 +1810,7 @@ def overwrite_destdir(ctx):
 
     printmsg('Deleting directory {}'.format(ctx.destdir), IMPORTANT)
     Process.check_call('mv {} {}'.format(ctx.destdir, ctx.old_destdir),
-                       ctx.need_admin, ctx)
+                       ctx.need_admin, ctx.admin_password)
 
 
 def parse_args(argv=None):
@@ -1937,17 +1926,12 @@ def parse_args(argv=None):
 
     args = parser.parse_args(argv)
 
-    args.homedir = op.abspath(args.homedir)
-    if not op.isdir(args.homedir):
-        printmsg('Home directory {} does not exist!'.format(args.homedir),
-                 ERROR, EMPHASIS)
-        sys.exit(1)
-
-    if os.getuid() == 0:
-        printmsg('Running the installer script as root user is discouraged! '
-                 'You should run this script as a regular user - you will be '
-                 'asked for your administrator password if required.',
-                 WARNING, EMPHASIS)
+    if args.homedir is not None:
+        args.homedir = op.abspath(args.homedir)
+        if not op.isdir(args.homedir):
+            printmsg('Home directory {} does not exist!'.format(args.homedir),
+                     ERROR, EMPHASIS)
+            sys.exit(1)
 
     if args.username is None:
         args.username = os.environ.get('FSLCONDA_USERNAME', None)
@@ -1976,28 +1960,29 @@ def parse_args(argv=None):
     return args
 
 
-def config_logging(ctx):
+def config_logging(prefix='fslinstaller_', logdir=None):
     """Configures logging. Log messages are directed to
     $TMPDIR/fslinstaller_<unique_token>.log, or
-    workdir/fslinstaller_<unique_token>.log
+    logdir/fslinstaller_<unique_token>.log
     """
-    if ctx.args.workdir is not None: logdir = ctx.args.workdir
-    else:                            logdir = tempfile.gettempdir()
+    if logdir is None:
+        logdir = tempfile.gettempdir()
 
     # Use a unique name for the log file
     # (important for multi-user systems)
-    logfilef, logfile = tempfile.mkstemp(prefix='fslinstaller_',
+    logfilef, logfile = tempfile.mkstemp(prefix=prefix,
                                          suffix='.log',
                                          dir=logdir)
     os.close(logfilef)
 
-    ctx.logfile = logfile
-    handler     = logging.FileHandler(logfile)
-    formatter   = logging.Formatter(
+    handler   = logging.FileHandler(logfile)
+    formatter = logging.Formatter(
         '%(asctime)s %(filename)s:%(lineno)4d: %(message)s', '%H:%M:%S')
     handler.setFormatter(formatter)
     log.addHandler(handler)
     log.setLevel(logging.DEBUG)
+
+    return logfile
 
 
 @contextlib.contextmanager
@@ -2021,7 +2006,8 @@ def handle_error(ctx):
         if op.exists(ctx.destdir):
             printmsg('Removing failed installation directory '
                      '{}'.format(ctx.destdir), WARNING)
-            Process.check_call('rm -r ' + ctx.destdir, ctx.need_admin, ctx)
+            Process.check_call('rm -r ' + ctx.destdir,
+                               ctx.need_admin, ctx.admin_password)
 
         # overwrite_destdir moves the existing
         # destdir to a temp location, so we can
@@ -2030,7 +2016,7 @@ def handle_error(ctx):
             printmsg('Restoring contents of {}'.format(ctx.destdir),
                      WARNING)
             Process.check_call('mv {} {}'.format(ctx.old_destdir, ctx.destdir),
-                               ctx.need_admin, ctx)
+                               ctx.need_admin, ctx.admin_password)
 
         printmsg('\nFSL installation failed!', ERROR, EMPHASIS)
         printmsg('The log file may contain some more information to help '
@@ -2047,10 +2033,15 @@ def main(argv=None):
     printmsg(' {}'.format(__version__))
     printmsg('Press CTRL+C at any time to cancel installation', INFO)
 
-    args = parse_args(argv)
-    ctx  = Context(args)
+    if os.getuid() == 0:
+        printmsg('Running the installer script as root user is discouraged! '
+                 'You should run this script as a regular user - you will be '
+                 'asked for your administrator password if required.',
+                 WARNING, EMPHASIS)
 
-    config_logging(ctx)
+    args        = parse_args(argv)
+    ctx         = Context(args)
+    ctx.logfile = config_logging(logdir=ctx.args.workdir)
 
     log.debug(' '.join(sys.argv))
 
