@@ -981,6 +981,11 @@ class Version(object):
         # as internal releases may have more.
         components = []
 
+        # ignore a leading "v", e.g. v1.2.3
+        verstr = verstr.lower()
+        if verstr.startswith('v'):
+            verstr = verstr[1:]
+
         for comp in verstr.split('.'):
             try:              components.append(int(comp))
             except Exception: break
