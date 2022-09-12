@@ -718,26 +718,30 @@ class Process(object):
                  admin=False,
                  password=None,
                  log_output=True,
+                 print_output=False,
                  append_env=None,
                  **kwargs):
         """Run the specified command. Starts threads to capture stdout and
         stderr.
 
-        :arg cmd:        Command to run - passed through shlex.split, then
-                         passed to subprocess.Popen
+        :arg cmd:          Command to run - passed through shlex.split, then
+                           passed to subprocess.Popen
 
-        :arg admin:      Run the command with administrative privileges
+        :arg admin:        Run the command with administrative privileges
 
-        :arg password:   Administrator password - can be None if admin is
-                         False.
+        :arg password:     Administrator password - can be None if admin is
+                           False.
 
-        :arg log_output: If True, the command and all of its stdout/stderr are
-                         logged.
+        :arg log_output:   If True, the command and all of its stdout/stderr
+                           are logged.
 
-        :arg append_env: Dictionary of additional environment to be set when
-                         the command is run.
+        :arg print_output: If True, the command and all of its stdout/stderr
+                           are logged.
 
-        :arg kwargs:     Passed to subprocess.Popen
+        :arg append_env:   Dictionary of additional environment to be set when
+                           the command is run.
+
+        :arg kwargs:       Passed to subprocess.Popen
         """
 
         self.cmd     = cmd
@@ -753,10 +757,12 @@ class Process(object):
         # threads for consuming stdout/stderr
         self.stdout_thread = threading.Thread(
             target=Process.forward_stream,
-            args=(self.popen.stdout, self.stdoutq, cmd, 'stdout', log_output))
+            args=(self.popen.stdout, self.stdoutq, cmd,
+                  'stdout', log_output, print_output))
         self.stderr_thread = threading.Thread(
             target=Process.forward_stream,
-            args=(self.popen.stderr, self.stderrq, cmd, 'stderr', log_output))
+            args=(self.popen.stderr, self.stderrq, cmd,
+                  'stderr', log_output, print_output))
 
         self.stdout_thread.daemon = True
         self.stderr_thread.daemon = True
@@ -869,15 +875,21 @@ class Process(object):
 
 
     @staticmethod
-    def forward_stream(stream, queue, cmd, streamname, log_output):
+    def forward_stream(stream,
+                       queue,
+                       cmd,
+                       streamname,
+                       log_output,
+                       print_output):
         """Reads lines from stream and pushes them onto queue until popen
         is finished. Logs every line.
 
-        :arg stream:     stream to forward
-        :arg queue:      queue.Queue to push lines onto
-        :arg cmd:        string - the command that is running
-        :arg streamname: string - 'stdout' or 'stderr'
-        :arg log_output: If True, log all stdout/stderr.
+        :arg stream:       stream to forward
+        :arg queue:        queue.Queue to push lines onto
+        :arg cmd:          string - the command that is running
+        :arg streamname:   string - 'stdout' or 'stderr'
+        :arg log_output:   If True, log all stdout/stderr.
+        :arg print_output: If True, print all stdout/stderr.
         """
 
         while True:
@@ -887,6 +899,8 @@ class Process(object):
             queue.put(line)
             if log_output:
                 log.debug(' [%s]: %s', streamname, line.rstrip())
+            if print_output:
+                print(' [{}]: {}'.format(streamname, line.rstrip()))
 
 
     @staticmethod
