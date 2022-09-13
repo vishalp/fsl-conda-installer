@@ -1045,8 +1045,8 @@ class Context(object):
         self.shell = op.basename(os.environ.get('SHELL', 'sh')).lower()
 
         # These attributes are updated on-demand via
-        # the property accessors defined below, or all
-        # all updated via the finalise-settings method.
+        # the property accessors defined below, or are
+        # all updated via the finalise_settings method.
         self.__platform       = None
         self.__manifest       = None
         self.__devmanifest    = None
