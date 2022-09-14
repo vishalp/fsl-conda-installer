@@ -64,7 +64,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '2.0.1'
+__version__ = '2.1.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -718,26 +718,30 @@ class Process(object):
                  admin=False,
                  password=None,
                  log_output=True,
+                 print_output=False,
                  append_env=None,
                  **kwargs):
         """Run the specified command. Starts threads to capture stdout and
         stderr.
 
-        :arg cmd:        Command to run - passed through shlex.split, then
-                         passed to subprocess.Popen
+        :arg cmd:          Command to run - passed through shlex.split, then
+                           passed to subprocess.Popen
 
-        :arg admin:      Run the command with administrative privileges
+        :arg admin:        Run the command with administrative privileges
 
-        :arg password:   Administrator password - can be None if admin is
-                         False.
+        :arg password:     Administrator password - can be None if admin is
+                           False.
 
-        :arg log_output: If True, the command and all of its stdout/stderr are
-                         logged.
+        :arg log_output:   If True, the command and all of its stdout/stderr
+                           are logged.
 
-        :arg append_env: Dictionary of additional environment to be set when
-                         the command is run.
+        :arg print_output: If True, the command and all of its stdout/stderr
+                           are logged.
 
-        :arg kwargs:     Passed to subprocess.Popen
+        :arg append_env:   Dictionary of additional environment to be set when
+                           the command is run.
+
+        :arg kwargs:       Passed to subprocess.Popen
         """
 
         self.cmd     = cmd
@@ -753,10 +757,12 @@ class Process(object):
         # threads for consuming stdout/stderr
         self.stdout_thread = threading.Thread(
             target=Process.forward_stream,
-            args=(self.popen.stdout, self.stdoutq, cmd, 'stdout', log_output))
+            args=(self.popen.stdout, self.stdoutq, cmd,
+                  'stdout', log_output, print_output))
         self.stderr_thread = threading.Thread(
             target=Process.forward_stream,
-            args=(self.popen.stderr, self.stderrq, cmd, 'stderr', log_output))
+            args=(self.popen.stderr, self.stderrq, cmd,
+                  'stderr', log_output, print_output))
 
         self.stdout_thread.daemon = True
         self.stderr_thread.daemon = True
@@ -869,15 +875,21 @@ class Process(object):
 
 
     @staticmethod
-    def forward_stream(stream, queue, cmd, streamname, log_output):
+    def forward_stream(stream,
+                       queue,
+                       cmd,
+                       streamname,
+                       log_output,
+                       print_output):
         """Reads lines from stream and pushes them onto queue until popen
         is finished. Logs every line.
 
-        :arg stream:     stream to forward
-        :arg queue:      queue.Queue to push lines onto
-        :arg cmd:        string - the command that is running
-        :arg streamname: string - 'stdout' or 'stderr'
-        :arg log_output: If True, log all stdout/stderr.
+        :arg stream:       stream to forward
+        :arg queue:        queue.Queue to push lines onto
+        :arg cmd:          string - the command that is running
+        :arg streamname:   string - 'stdout' or 'stderr'
+        :arg log_output:   If True, log all stdout/stderr.
+        :arg print_output: If True, print all stdout/stderr.
         """
 
         while True:
@@ -887,6 +899,8 @@ class Process(object):
             queue.put(line)
             if log_output:
                 log.debug(' [%s]: %s', streamname, line.rstrip())
+            if print_output:
+                print(' [{}]: {}'.format(streamname, line.rstrip()))
 
 
     @staticmethod
@@ -981,6 +995,11 @@ class Version(object):
         # as internal releases may have more.
         components = []
 
+        # ignore a leading "v", e.g. v1.2.3
+        verstr = verstr.lower()
+        if verstr.startswith('v'):
+            verstr = verstr[1:]
+
         for comp in verstr.split('.'):
             try:              components.append(int(comp))
             except Exception: break
@@ -1019,15 +1038,15 @@ class Context(object):
         :arg args:    argparse.Namespace containing command-line arguments
         :arg destdir: Installation directory. If not provided, read from
                       args.dest, or read from the user,
-        :arg action:  Passed to get_admin_password as a prompt.a
+        :arg action:  Passed to get_admin_password as a prompt.
         """
 
         self.args  = args
         self.shell = op.basename(os.environ.get('SHELL', 'sh')).lower()
 
         # These attributes are updated on-demand via
-        # the property accessors defined below, or all
-        # all updated via the finalise-settings method.
+        # the property accessors defined below, or are
+        # all updated via the finalise_settings method.
         self.__platform       = None
         self.__manifest       = None
         self.__devmanifest    = None
@@ -1245,6 +1264,38 @@ class Context(object):
         return self.__devmanifest
 
 
+    def run(self, process_func, *args):
+        """Run a command via a static Process method.  Handles sudo/
+        administrator authentication, and ensures that the shell
+        environment in which the command is executed is sanitised.
+
+        Can be used with Process.check_call, Process.check_output, and
+        Process.monitor_progress. For example:
+
+            ctx = Context(...)
+            ctx.run(Process.check_call, 'my_command')
+            ctx.run(Process.monitor_progress, 'my_command', 100)
+        """
+
+        process_func = ft.partial(process_func, *args)
+
+        # Clear any environment variables that refer to
+        # existing FSL or conda installations, and ensure
+        # that some specific FSL environment variables
+        # are set while the command is running.  See
+        # clean_environ and install_environ for more
+        # details, and see Process.sudo_popen regarding
+        # append_env.
+        env        = clean_environ()
+        append_env = install_environ(self.destdir,
+                                     self.args.username,
+                                     self.args.password)
+        return process_func(admin=self.need_admin,
+                            password=self.admin_password,
+                            env=env,
+                            append_env=append_env)
+
+
 def list_available_versions(manifest):
     """Lists available FSL versions. """
     printmsg('Available FSL versions:', EMPHASIS)
@@ -1450,15 +1501,13 @@ def install_miniconda(ctx):
 
     # Install
     printmsg('Installing miniconda at {}...'.format(ctx.destdir))
-    env = clean_environ()
     cmd = 'sh miniconda.sh -b -p {}'.format(ctx.destdir)
-    Process.monitor_progress(cmd, output, ctx.need_admin,
-                             ctx.admin_password, env=env)
+    ctx.run(Process.monitor_progress, cmd, output)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
     cmd = 'find {} -type f -exec touch {{}} +'.format(ctx.destdir)
-    Process.check_call(cmd, ctx.need_admin, ctx.admin_password)
+    ctx.run(Process.check_call, cmd)
 
     # Create .condarc config file
     condarc = tw.dedent("""
@@ -1522,8 +1571,7 @@ def install_miniconda(ctx):
     with open('.condarc', 'wt') as f:
         f.write(condarc)
 
-    Process.check_call('cp -f .condarc {}'.format(ctx.destdir),
-                       ctx.need_admin, ctx.admin_password)
+    ctx.run(Process.check_call, 'cp -f .condarc {}'.format(ctx.destdir))
 
 
 def install_fsl(ctx):
@@ -1566,18 +1614,7 @@ def install_fsl(ctx):
     commands.append(conda + ' env update -n base -f ' + ctx.environment_file)
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
-
-    # Clear any environment variables that refer
-    # to existing FSL or conda installations.
-    # See Process.sudo_popen regarding append_env
-    env        = clean_environ()
-    append_env = install_environ(ctx.destdir,
-                                 ctx.args.username,
-                                 ctx.args.password)
-
-    Process.monitor_progress(commands, output, ctx.need_admin,
-                             ctx.admin_password, append_env=append_env,
-                             env=env)
+    ctx.run(Process.monitor_progress, commands, output)
 
 
 def finalise_installation(ctx):
@@ -1589,13 +1626,13 @@ def finalise_installation(ctx):
     with open('fslversion', 'wt') as f:
         f.write(ctx.build['version'])
 
-    call   = ft.partial(Process.check_call,
-                        admin=ctx.need_admin,
-                        password=ctx.admin_password)
     etcdir = op.join(ctx.destdir, 'etc')
+    cmds   = [
+        'cp fslversion {}'.format(etcdir),
+        'cp {} {}'        .format(ctx.environment_file, etcdir)]
 
-    call('cp fslversion {}'.format(etcdir))
-    call('cp {} {}'        .format(ctx.environment_file, etcdir))
+    for cmd in cmds:
+        ctx.run(Process.check_call, cmd)
 
 
 def post_install_cleanup(ctx):
@@ -1603,8 +1640,7 @@ def post_install_cleanup(ctx):
 
     conda = op.join(ctx.destdir, 'bin', 'conda')
     cmd   = conda + ' clean -y --all'
-
-    Process.check_call(cmd, ctx.need_admin, ctx.admin_password)
+    ctx.run(Process.check_call, cmd)
 
 
 def patch_file(filename, searchline, numlines, content):
@@ -1809,15 +1845,54 @@ def overwrite_destdir(ctx):
             break
 
     printmsg('Deleting directory {}'.format(ctx.destdir), IMPORTANT)
-    Process.check_call('mv {} {}'.format(ctx.destdir, ctx.old_destdir),
-                       ctx.need_admin, ctx.admin_password)
+    ctx.run(Process.check_call,
+            'mv {} {}'.format(ctx.destdir, ctx.old_destdir))
 
 
-def parse_args(argv=None):
-    """Parse command-line arguments, returns an argparse.Namespace object. """
+def parse_args(argv=None, include=None):
+    """Parse command-line arguments, returns an argparse.Namespace object.
+
+    :arg argv:    Command-line arguments.
+
+    :arg include: List of arguments to parse. May be used by other scripts
+                  which re-use some of the routines defined in this script.
+                  The resulting argparse.Namespace object will contain values
+                  of None for all arguments that are not included.
+    """
+
+    username = os.environ.get('FSLCONDA_USERNAME', None)
+    password = os.environ.get('FSLCONDA_PASSWORD', None)
+
+    options = {
+        # regular options
+        'version'      : ('-v', {'action'  : 'version',
+                                 'version' : __version__}),
+        'dest'         : ('-d', {'metavar' : 'DESTDIR'}),
+        'overwrite'    : ('-o', {'action'  : 'store_true'}),
+        'listversions' : ('-l', {'action'  : 'store_true'}),
+        'no_env'       : ('-n', {'action'  : 'store_true'}),
+        'no_shell'     : ('-s', {'action'  : 'store_true'}),
+        'no_matlab'    : ('-m', {'action'  : 'store_true'}),
+        'fslversion'   : ('-V', {'default' : 'latest'}),
+
+        # hidden options
+        'username'        : (None, {'default' : username}),
+        'password'        : (None, {'default' : password}),
+        'no_checksum'     : (None, {'action'  : 'store_true'}),
+        'skip_ssl_verify' : (None, {'action'  : 'store_true'}),
+        'workdir'         : (None, {}),
+        'homedir'         : (None, {'default' : op.expanduser('~')}),
+        'devrelease'      : (None, {'action'  : 'store_true'}),
+        'devlatest'       : (None, {'action'  : 'store_true'}),
+        'manifest'        : (None, {}),
+        'no_self_update'  : (None, {'action'  : 'store_true'}),
+        'exclude_package' : (None, {'action'  : 'append'}),
+    }
+
+    if include is None:
+        include = list(options.keys())
 
     helps = {
-
         'version'      : 'Print installer version number and exit',
         'listversions' : 'List available FSL versions and exit',
         'dest'         : 'Install FSL into this folder (default: '
@@ -1868,9 +1943,9 @@ def parse_args(argv=None):
         # rather than in a temporary directory
         'workdir'         : argparse.SUPPRESS,
 
-        # Treat this directory as user's home directory,
-        # for the purposes of shell configuration. Must
-        # already exist.
+        # Treat this directory as user's home
+        # directory, for the purposes of shell
+        # configuration. Must already exist.
         'homedir'         : argparse.SUPPRESS,
 
         # Configure conda to skip SSL verification.
@@ -1883,49 +1958,23 @@ def parse_args(argv=None):
         'exclude_package' : argparse.SUPPRESS,
     }
 
+    # parse args
     parser = argparse.ArgumentParser()
-
-    # regular options
-    parser.add_argument('-v', '--version', action='version',
-                        version=__version__, help=helps['version'])
-    parser.add_argument('-d', '--dest', metavar='DESTDIR',
-                        help=helps['dest'])
-    parser.add_argument('-o', '--overwrite', action='store_true',
-                        help=helps['overwrite'])
-    parser.add_argument('-l', '--listversions', action='store_true',
-                        help=helps['listversions'])
-    parser.add_argument('-n', '--no_env', action='store_true',
-                        help=helps['no_env'])
-    parser.add_argument('-s', '--no_shell', action='store_true',
-                        help=helps['no_shell'])
-    parser.add_argument('-m', '--no_matlab', action='store_true',
-                        help=helps['no_matlab'])
-    parser.add_argument('-V', '--fslversion', default='latest',
-                        help=helps['version'])
-
-    # hidden options
-    parser.add_argument('--username', help=helps['username'])
-    parser.add_argument('--password', help=helps['password'])
-    parser.add_argument('--no_checksum', action='store_true',
-                        help=helps['no_checksum'])
-    parser.add_argument('--skip_ssl_verify', action='store_true',
-                        help=helps['skip_ssl_verify'])
-    parser.add_argument('--workdir', help=helps['workdir'])
-    parser.add_argument('--homedir', help=helps['homedir'],
-                        default=op.expanduser('~'))
-    parser.add_argument('--devrelease', help=helps['devrelease'],
-                        action='store_true')
-    parser.add_argument('--devlatest', help=helps['devlatest'],
-                        action='store_true')
-    parser.add_argument('--manifest', default=FSL_RELEASE_MANIFEST,
-                        help=helps['manifest'])
-    parser.add_argument('--no_self_update', action='store_true',
-                        help=helps['no_self_update'])
-    parser.add_argument('--exclude_package', action='append',
-                        help=helps['exclude_package'])
+    for option in include:
+        shortflag, kwargs = options[option]
+        flags             = ['--{}'.format(option)]
+        if shortflag is not None:
+            flags.insert(0, shortflag)
+        parser.add_argument(*flags, help=helps[option], **kwargs)
 
     args = parser.parse_args(argv)
 
+    # add placeholder values for excluded args
+    for option in options.keys():
+        if option not in include:
+            setattr(args, option, None)
+
+    # alternate home dir (for debugging)
     if args.homedir is not None:
         args.homedir = op.abspath(args.homedir)
         if not op.isdir(args.homedir):
@@ -1933,19 +1982,24 @@ def parse_args(argv=None):
                      ERROR, EMPHASIS)
             sys.exit(1)
 
-    if args.username is None:
-        args.username = os.environ.get('FSLCONDA_USERNAME', None)
-    if args.password is None:
-        args.password = os.environ.get('FSLCONDA_PASSWORD', None)
-
+    # don't modify shell profile
     if args.no_env:
         args.no_shell  = True
         args.no_matlab = True
 
+    # use workdir rather than a tempdir
     if args.workdir is not None:
         args.workdir = op.abspath(args.workdir)
         if not op.exists(args.workdir):
             os.mkdir(args.workdir)
+
+    # manifest takes priority over devrelease/devlatest
+    if args.manifest is not None:
+        args.devrelease = False
+        args.devlatest  = False
+
+    if args.manifest is None:
+        args.manifest = FSL_RELEASE_MANIFEST
 
     if args.devlatest:
         args.devrelease = True
@@ -2006,8 +2060,7 @@ def handle_error(ctx):
         if op.exists(ctx.destdir):
             printmsg('Removing failed installation directory '
                      '{}'.format(ctx.destdir), WARNING)
-            Process.check_call('rm -r ' + ctx.destdir,
-                               ctx.need_admin, ctx.admin_password)
+            ctx.run(Process.check_call, 'rm -r ' + ctx.destdir)
 
         # overwrite_destdir moves the existing
         # destdir to a temp location, so we can
@@ -2015,8 +2068,8 @@ def handle_error(ctx):
         if not op.exists(ctx.destdir) and (ctx.old_destdir is not None):
             printmsg('Restoring contents of {}'.format(ctx.destdir),
                      WARNING)
-            Process.check_call('mv {} {}'.format(ctx.old_destdir, ctx.destdir),
-                               ctx.need_admin, ctx.admin_password)
+            ctx.run(Process.check_call,
+                    'mv {} {}'.format(ctx.old_destdir, ctx.destdir))
 
         printmsg('\nFSL installation failed!', ERROR, EMPHASIS)
         printmsg('The log file may contain some more information to help '

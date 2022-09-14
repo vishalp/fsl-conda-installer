@@ -281,6 +281,7 @@ def test_download_install_miniconda():
             ctx.platform             = 'linux'
             ctx.manifest             = gen_manifest('linux', srv.port, sha256)
             ctx.environment_channels = []
+            ctx.run                  = lambda f, *a: f(*a)
 
             inst.download_miniconda(ctx)
             inst.install_miniconda(ctx)

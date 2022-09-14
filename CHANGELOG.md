@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 2.1.0
+
+ - More internal changes and enhancements to improve usability in other
+   scripts.
+
+
 # 2.0.1
 
  - Internal changes to improve usability in other scripts.
