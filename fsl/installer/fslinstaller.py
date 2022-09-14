@@ -1038,7 +1038,7 @@ class Context(object):
         :arg args:    argparse.Namespace containing command-line arguments
         :arg destdir: Installation directory. If not provided, read from
                       args.dest, or read from the user,
-        :arg action:  Passed to get_admin_password as a prompt.a
+        :arg action:  Passed to get_admin_password as a prompt.
         """
 
         self.args  = args
@@ -1832,11 +1832,50 @@ def overwrite_destdir(ctx):
                        ctx.need_admin, ctx.admin_password)
 
 
-def parse_args(argv=None):
-    """Parse command-line arguments, returns an argparse.Namespace object. """
+def parse_args(argv=None, include=None):
+    """Parse command-line arguments, returns an argparse.Namespace object.
+
+    :arg argv:    Command-line arguments.
+
+    :arg include: List of arguments to parse. May be used by other scripts
+                  which re-use some of the routines defined in this script.
+                  The resulting argparse.Namespace object will contain values
+                  of None for all arguments that are not included.
+    """
+
+    username = os.environ.get('FSLCONDA_USERNAME', None)
+    password = os.environ.get('FSLCONDA_PASSWORD', None)
+
+    options = {
+        # regular options
+        'version'      : ('-v', {'action'  : 'version',
+                                 'version' : __version__}),
+        'dest'         : ('-d', {'metavar' : 'DESTDIR'}),
+        'overwrite'    : ('-o', {'action'  : 'store_true'}),
+        'listversions' : ('-l', {'action'  : 'store_true'}),
+        'no_env'       : ('-n', {'action'  : 'store_true'}),
+        'no_shell'     : ('-s', {'action'  : 'store_true'}),
+        'no_matlab'    : ('-m', {'action'  : 'store_true'}),
+        'fslversion'   : ('-V', {'default' : 'latest'}),
+
+        # hidden options
+        'username'        : (None, {'default' : username}),
+        'password'        : (None, {'default' : password}),
+        'no_checksum'     : (None, {'action'  : 'store_true'}),
+        'skip_ssl_verify' : (None, {'action'  : 'store_true'}),
+        'workdir'         : (None, {}),
+        'homedir'         : (None, {'default' : op.expanduser('~')}),
+        'devrelease'      : (None, {'action'  : 'store_true'}),
+        'devlatest'       : (None, {'action'  : 'store_true'}),
+        'manifest'        : (None, {}),
+        'no_self_update'  : (None, {'action'  : 'store_true'}),
+        'exclude_package' : (None, {'action'  : 'append'}),
+    }
+
+    if include is None:
+        include = list(options.keys())
 
     helps = {
-
         'version'      : 'Print installer version number and exit',
         'listversions' : 'List available FSL versions and exit',
         'dest'         : 'Install FSL into this folder (default: '
@@ -1887,9 +1926,9 @@ def parse_args(argv=None):
         # rather than in a temporary directory
         'workdir'         : argparse.SUPPRESS,
 
-        # Treat this directory as user's home directory,
-        # for the purposes of shell configuration. Must
-        # already exist.
+        # Treat this directory as user's home
+        # directory, for the purposes of shell
+        # configuration. Must already exist.
         'homedir'         : argparse.SUPPRESS,
 
         # Configure conda to skip SSL verification.
@@ -1902,49 +1941,23 @@ def parse_args(argv=None):
         'exclude_package' : argparse.SUPPRESS,
     }
 
+    # parse args
     parser = argparse.ArgumentParser()
-
-    # regular options
-    parser.add_argument('-v', '--version', action='version',
-                        version=__version__, help=helps['version'])
-    parser.add_argument('-d', '--dest', metavar='DESTDIR',
-                        help=helps['dest'])
-    parser.add_argument('-o', '--overwrite', action='store_true',
-                        help=helps['overwrite'])
-    parser.add_argument('-l', '--listversions', action='store_true',
-                        help=helps['listversions'])
-    parser.add_argument('-n', '--no_env', action='store_true',
-                        help=helps['no_env'])
-    parser.add_argument('-s', '--no_shell', action='store_true',
-                        help=helps['no_shell'])
-    parser.add_argument('-m', '--no_matlab', action='store_true',
-                        help=helps['no_matlab'])
-    parser.add_argument('-V', '--fslversion', default='latest',
-                        help=helps['version'])
-
-    # hidden options
-    parser.add_argument('--username', help=helps['username'])
-    parser.add_argument('--password', help=helps['password'])
-    parser.add_argument('--no_checksum', action='store_true',
-                        help=helps['no_checksum'])
-    parser.add_argument('--skip_ssl_verify', action='store_true',
-                        help=helps['skip_ssl_verify'])
-    parser.add_argument('--workdir', help=helps['workdir'])
-    parser.add_argument('--homedir', help=helps['homedir'],
-                        default=op.expanduser('~'))
-    parser.add_argument('--devrelease', help=helps['devrelease'],
-                        action='store_true')
-    parser.add_argument('--devlatest', help=helps['devlatest'],
-                        action='store_true')
-    parser.add_argument('--manifest', default=FSL_RELEASE_MANIFEST,
-                        help=helps['manifest'])
-    parser.add_argument('--no_self_update', action='store_true',
-                        help=helps['no_self_update'])
-    parser.add_argument('--exclude_package', action='append',
-                        help=helps['exclude_package'])
+    for option in include:
+        shortflag, kwargs = options[option]
+        flags             = ['--{}'.format(option)]
+        if shortflag is not None:
+            flags.insert(0, shortflag)
+        parser.add_argument(*flags, help=helps[option], **kwargs)
 
     args = parser.parse_args(argv)
 
+    # add placeholder values for excluded args
+    for option in options.keys():
+        if option not in include:
+            setattr(args, option, None)
+
+    # alternate home dir (for debugging)
     if args.homedir is not None:
         args.homedir = op.abspath(args.homedir)
         if not op.isdir(args.homedir):
@@ -1952,19 +1965,24 @@ def parse_args(argv=None):
                      ERROR, EMPHASIS)
             sys.exit(1)
 
-    if args.username is None:
-        args.username = os.environ.get('FSLCONDA_USERNAME', None)
-    if args.password is None:
-        args.password = os.environ.get('FSLCONDA_PASSWORD', None)
-
+    # don't modify shell profile
     if args.no_env:
         args.no_shell  = True
         args.no_matlab = True
 
+    # use workdir rather than a tempdir
     if args.workdir is not None:
         args.workdir = op.abspath(args.workdir)
         if not op.exists(args.workdir):
             os.mkdir(args.workdir)
+
+    # manifest takes priority over devrelease/devlatest
+    if args.manifest is not None:
+        args.devrelease = False
+        args.devlatest  = False
+
+    if args.manifest is None:
+        args.manifest = FSL_RELEASE_MANIFEST
 
     if args.devlatest:
         args.devrelease = True
