@@ -1264,6 +1264,38 @@ class Context(object):
         return self.__devmanifest
 
 
+    def run(self, process_func, *args):
+        """Run a command via a static Process method.  Handles sudo/
+        administrator authentication, and ensures that the shell
+        environment in which the command is executed is sanitised.
+
+        Can be used with Process.check_call, Process.check_output, and
+        Process.monitor_progress. For example:
+
+            ctx = Context(...)
+            ctx.run(Process.check_call, 'my_command')
+            ctx.run(Process.monitor_progress, 'my_command', 100)
+        """
+
+        process_func = ft.partial(process_func, *args)
+
+        # Clear any environment variables that refer to
+        # existing FSL or conda installations, and ensure
+        # that some specific FSL environment variables
+        # are set while the command is running.  See
+        # clean_environ and install_environ for more
+        # details, and see Process.sudo_popen regarding
+        # append_env.
+        env        = clean_environ()
+        append_env = install_environ(self.destdir,
+                                     self.args.username,
+                                     self.args.password)
+        return process_func(admin=self.need_admin,
+                            password=self.admin_password,
+                            env=env,
+                            append_env=append_env)
+
+
 def list_available_versions(manifest):
     """Lists available FSL versions. """
     printmsg('Available FSL versions:', EMPHASIS)
@@ -1469,15 +1501,13 @@ def install_miniconda(ctx):
 
     # Install
     printmsg('Installing miniconda at {}...'.format(ctx.destdir))
-    env = clean_environ()
     cmd = 'sh miniconda.sh -b -p {}'.format(ctx.destdir)
-    Process.monitor_progress(cmd, output, ctx.need_admin,
-                             ctx.admin_password, env=env)
+    ctx.run(Process.monitor_progress, cmd, output)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
     cmd = 'find {} -type f -exec touch {{}} +'.format(ctx.destdir)
-    Process.check_call(cmd, ctx.need_admin, ctx.admin_password)
+    ctx.run(Process.check_call, cmd)
 
     # Create .condarc config file
     condarc = tw.dedent("""
@@ -1541,8 +1571,7 @@ def install_miniconda(ctx):
     with open('.condarc', 'wt') as f:
         f.write(condarc)
 
-    Process.check_call('cp -f .condarc {}'.format(ctx.destdir),
-                       ctx.need_admin, ctx.admin_password)
+    ctx.run(Process.check_call, 'cp -f .condarc {}'.format(ctx.destdir))
 
 
 def install_fsl(ctx):
@@ -1585,18 +1614,7 @@ def install_fsl(ctx):
     commands.append(conda + ' env update -n base -f ' + ctx.environment_file)
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
-
-    # Clear any environment variables that refer
-    # to existing FSL or conda installations.
-    # See Process.sudo_popen regarding append_env
-    env        = clean_environ()
-    append_env = install_environ(ctx.destdir,
-                                 ctx.args.username,
-                                 ctx.args.password)
-
-    Process.monitor_progress(commands, output, ctx.need_admin,
-                             ctx.admin_password, append_env=append_env,
-                             env=env)
+    ctx.run(Process.monitor_progress, commands, output)
 
 
 def finalise_installation(ctx):
@@ -1608,13 +1626,13 @@ def finalise_installation(ctx):
     with open('fslversion', 'wt') as f:
         f.write(ctx.build['version'])
 
-    call   = ft.partial(Process.check_call,
-                        admin=ctx.need_admin,
-                        password=ctx.admin_password)
     etcdir = op.join(ctx.destdir, 'etc')
+    cmds   = [
+        'cp fslversion {}'.format(etcdir),
+        'cp {} {}'        .format(ctx.environment_file, etcdir)]
 
-    call('cp fslversion {}'.format(etcdir))
-    call('cp {} {}'        .format(ctx.environment_file, etcdir))
+    for cmd in cmds:
+        ctx.run(Process.check_call, cmd)
 
 
 def post_install_cleanup(ctx):
@@ -1622,8 +1640,7 @@ def post_install_cleanup(ctx):
 
     conda = op.join(ctx.destdir, 'bin', 'conda')
     cmd   = conda + ' clean -y --all'
-
-    Process.check_call(cmd, ctx.need_admin, ctx.admin_password)
+    ctx.run(Process.check_call, cmd)
 
 
 def patch_file(filename, searchline, numlines, content):
@@ -1828,8 +1845,8 @@ def overwrite_destdir(ctx):
             break
 
     printmsg('Deleting directory {}'.format(ctx.destdir), IMPORTANT)
-    Process.check_call('mv {} {}'.format(ctx.destdir, ctx.old_destdir),
-                       ctx.need_admin, ctx.admin_password)
+    ctx.run(Process.check_call,
+            'mv {} {}'.format(ctx.destdir, ctx.old_destdir))
 
 
 def parse_args(argv=None, include=None):
@@ -2043,8 +2060,7 @@ def handle_error(ctx):
         if op.exists(ctx.destdir):
             printmsg('Removing failed installation directory '
                      '{}'.format(ctx.destdir), WARNING)
-            Process.check_call('rm -r ' + ctx.destdir,
-                               ctx.need_admin, ctx.admin_password)
+            ctx.run(Process.check_call, 'rm -r ' + ctx.destdir)
 
         # overwrite_destdir moves the existing
         # destdir to a temp location, so we can
@@ -2052,8 +2068,8 @@ def handle_error(ctx):
         if not op.exists(ctx.destdir) and (ctx.old_destdir is not None):
             printmsg('Restoring contents of {}'.format(ctx.destdir),
                      WARNING)
-            Process.check_call('mv {} {}'.format(ctx.old_destdir, ctx.destdir),
-                               ctx.need_admin, ctx.admin_password)
+            ctx.run(Process.check_call,
+                    'mv {} {}'.format(ctx.old_destdir, ctx.destdir))
 
         printmsg('\nFSL installation failed!', ERROR, EMPHASIS)
         printmsg('The log file may contain some more information to help '
