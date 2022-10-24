@@ -1,5 +1,8 @@
 # FSL installer script release history
 
+# 2.1.1
+
+ - Added hooks to insert FSL license boilerplate into source files.
 
 # 2.1.0
 
