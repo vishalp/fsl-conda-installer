@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 #
+# SHBASECOPYRIGHT
+#
 # FSL installer script.
 #
 """This is the FSL installation script, which can be used to install FSL.
