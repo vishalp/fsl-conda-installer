@@ -1,5 +1,12 @@
 # FSL installer script release history
 
+
+# 3.0.0
+
+ - Reverted to a single-step installation process - instead of installing
+   base packages separately, the full installation is now performed with
+   `conda env update -f <env>.yml`.
+
 # 2.1.1
 
  - Added hooks to insert FSL license boilerplate into source files.

@@ -66,7 +66,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '2.1.1'
+__version__ = '3.0.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -182,6 +182,10 @@ def identify_platform():
 
       - "linux-64" (Linux, x86_64)
       - "macos-64" (macOS, x86_64)
+      - "macos-M1" (macOS, M1)
+
+    Note that these identifiers are for FSL releases, and are not the
+    same as the platform identifiers used by conda.
     """
 
     platforms = {
@@ -1066,12 +1070,10 @@ class Context(object):
         self.old_destdir = None
 
         # The download_fsl_environment function stores
-        # the path to the FSL conda environment file,
-        # list of conda channels, and versions of a
-        # small set of "base" packages here.
+        # the path to the FSL conda environment file
+        # and list of conda channels
         self.environment_file     = None
         self.environment_channels = None
-        self.fsl_base_packages    = None
 
         # The config_logging function stores the path
         # to the fslinstaller log file here.
@@ -1363,8 +1365,7 @@ def download_fsl_environment(ctx):
 
     build        = ctx.build
     url          = build['environment']
-    checksum     = build.get('sha256',        None)
-    basepkgnames = build.get('base_packages', [])
+    checksum     = build.get('sha256', None)
 
     printmsg('Downloading FSL environment specification '
              'from {}...'.format(url))
@@ -1402,17 +1403,10 @@ def download_fsl_environment(ctx):
     # The install_miniconda function will then add the
     # channels to $FSLDIR/.condarc.
     #
-    # A collection of "base" packages are installed
-    # before any other packages. So we also extract the
-    # version numbers of these base packages from the
-    # environment file, and store them in the context.
-    # Sort base package names from longest to shortest,
-    # to avoid name conflicts (e.g. 'fsl-sub', and
-    # 'fsl-sub_plugin_sge')
-    basepkgnames = sorted(basepkgnames, key=len, reverse=True)
-    copy         = '.' + op.basename(ctx.environment_file)
-    channels     = []
-    basepkgs     = {}
+    # We also remove any packages that the user has
+    # requested to exclude from the installation.
+    copy     = '.' + op.basename(ctx.environment_file)
+    channels = []
 
     shutil.move(ctx.environment_file, copy)
     with open(copy,                 'rt') as inf, \
@@ -1435,21 +1429,6 @@ def download_fsl_environment(ctx):
                     channels.append(line.split()[-1])
                     continue
 
-            # Save base package versions, as we
-            # install them separately. Package
-            # specs in the yml file are of the
-            # form:
-            #
-            #   - <package> <version> [<build_variant>]
-            #
-            # From this we create a dict of the form:
-            #
-            #   - <package> : <version>[=<build_variant>]
-            for pkg in basepkgnames:
-                if line.strip().startswith('- {} '.format(pkg)):
-                    pkgver        = line.strip().split(' ', 2)[2]
-                    basepkgs[pkg] = pkgver.replace(' ', '=')
-
             # Include/exclude packages upon user request
             pkgname = line.strip(' -').split()[0]
             exclude = match_any(pkgname, ctx.args.exclude_package)
@@ -1460,7 +1439,6 @@ def download_fsl_environment(ctx):
                 outf.write(line)
 
     ctx.environment_channels = channels
-    ctx.fsl_base_packages    = basepkgs
 
 
 def download_miniconda(ctx):
@@ -1594,29 +1572,11 @@ def install_fsl(ctx):
 
     conda = op.join(ctx.destdir, 'bin', 'conda')
 
-    # We install FSL in two steps:
-    #
-    #   1. Install base packages. This is installed first, as
-    #      FSL packages require fsl-base to be present during
-    #      installation (in their post-link.sh scripts), and
-    #      this is not guaranteed if everything is installed
-    #      simultaneously. Also done for efficiency, so e.g.
-    #      libopenblas variants don't get swapped back and
-    #      forth.
-    #   2. Install everything else.
-    #
-    # The download_fsl_environment function extracts the
-    # appropriate base package versions to install.
-    commands = []
-    if ctx.fsl_base_packages is not None and len(ctx.fsl_base_packages) > 0:
-        basepkgs = ctx.fsl_base_packages
-        basepkgs = ['{}=={}'.format(pkg, ver) for pkg, ver in basepkgs.items()]
-        basepkgs = ' '.join(basepkgs)
-        commands.append(conda + ' install -y -n base ' + basepkgs)
-    commands.append(conda + ' env update -n base -f ' + ctx.environment_file)
-
+    # We install FSL simply by running conda env
+    # update -f env.yml.
+    cmd = conda + ' env update -n base -f ' + ctx.environment_file
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
-    ctx.run(Process.monitor_progress, commands, output)
+    ctx.run(Process.monitor_progress, cmd, output)
 
 
 def finalise_installation(ctx):
