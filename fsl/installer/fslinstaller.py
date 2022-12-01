@@ -1202,7 +1202,13 @@ class Context(object):
     @property
     def conda(self):
         """Return a path to the ``conda`` or ``mamba`` executable. """
-        return op.join(self.destdir, 'bin', 'mamba')
+        # If mamba is present, prefer it over conda
+        candidates = [
+            op.join(self.destdir, 'bin', 'mamba'),
+            op.join(self.destdir, 'bin', 'conda')]
+        for c in candidates:
+            if op.exists(c):
+                return c
 
 
     @property
