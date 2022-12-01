@@ -614,7 +614,7 @@ class Progress(object):
         return self
 
     def __exit__(self, *args, **kwargs):
-        printmsg(log=False)
+        printmsg('', log=False)
 
     def update(self, value=None, total=None):
 
@@ -701,7 +701,7 @@ class Progress(object):
             pass
 
         try:
-            result = Process.check_output('tput cols')
+            result = Process.check_output('tput cols', log_output=False)
             return int(result.strip())
         except Exception:
             return fallback
