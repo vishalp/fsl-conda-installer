@@ -1200,6 +1200,12 @@ class Context(object):
 
 
     @property
+    def conda(self):
+        """Return a path to the ``conda`` or ``mamba`` executable. """
+        return op.join(self.destdir, 'bin', 'mamba')
+
+
+    @property
     def need_admin(self):
         """Returns True if administrator privileges will be needed to install
         FSL.
@@ -1570,11 +1576,9 @@ def install_fsl(ctx):
     if output in ('', None): output = None
     else:                    output = int(output)
 
-    conda = op.join(ctx.destdir, 'bin', 'conda')
-
     # We install FSL simply by running conda env
     # update -f env.yml.
-    cmd = conda + ' env update -n base -f ' + ctx.environment_file
+    cmd = ctx.conda + ' env update -n base -f ' + ctx.environment_file
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
     ctx.run(Process.monitor_progress, cmd, output)
 
@@ -1600,8 +1604,7 @@ def finalise_installation(ctx):
 def post_install_cleanup(ctx):
     """Cleans up the FSL directory after installation. """
 
-    conda = op.join(ctx.destdir, 'bin', 'conda')
-    cmd   = conda + ' clean -y --all'
+    cmd   = ctx.conda + ' clean -y --all'
     ctx.run(Process.check_call, cmd)
 
 
