@@ -31,6 +31,7 @@ import                   argparse
 import                   contextlib
 import                   fnmatch
 import                   getpass
+import                   glob
 import                   hashlib
 import                   json
 import                   logging
@@ -43,6 +44,7 @@ import                   ssl
 import                   sys
 import                   tempfile
 import                   threading
+import                   time
 import                   traceback
 
 try:                import urllib.request as urlrequest
@@ -840,12 +842,37 @@ class Process(object):
         """Runs the given command(s), and shows a progress bar under the
         assumption that cmd will produce "total" number of lines of output.
 
-        :arg cmd:   The commmand to run as a string, or a sequence of
-                    multiple commands.
-        :arg total: Total number of lines of standard output to expect.
+        :arg cmd:      The commmand to run as a string, or a sequence of
+                       multiple commands.
+
+        :arg total:    Total number of lines of standard output to expect.
+
+        :arg timeout:  Refresh rate in seconds. Must be passed as a keyword
+                       argument.
+
+        :arg progfunc: Function which returns a number indicating how far
+                       the process has progressed.  If provided, this
+                       function is called, instead of standard output
+                       lines being monitored. The function is passed a
+                       reference to the Process object. Must be passed as a
+                       keyword argument.
         """
+
+        timeout  = kwargs.pop('timeout',  0.5)
+        progfunc = kwargs.pop('progfunc', None)
+
         if total is None: label = None
         else:             label = '%'
+
+        if progfunc is None:
+            nlines = [0]
+            def progfunc(proc):
+                try:
+                    _         = proc.stdoutq.get_nowait()
+                    nlines[0] = nlines[0] + 1
+                except queue.Empty:
+                    pass
+                return nlines[0]
 
         if isstr(cmd): cmds = [cmd]
         else:          cmds =  cmd
@@ -854,22 +881,17 @@ class Process(object):
                       fmt='{:.0f}',
                       transform=Progress.percent) as prog:
 
-            nlines = 0 if total else None
+            progcount = 0 if total else None
 
             for cmd in cmds:
 
                 proc = Process(cmd, *args, **kwargs)
-                prog.update(nlines, total)
+                prog.update(progcount, total)
 
                 while proc.returncode is None:
-                    try:
-                        line    = proc.stdoutq.get(timeout=0.5)
-                        nlines  = (nlines + 1) if total else None
-
-                    except queue.Empty:
-                        pass
-
-                    prog.update(nlines, total)
+                    time.sleep(timeout)
+                    progcount = progfunc(proc) if total else None
+                    prog.update(progcount, total)
                     proc.popen.poll()
 
                 # force progress bar to 100% when finished
@@ -1280,7 +1302,7 @@ class Context(object):
         return self.__devmanifest
 
 
-    def run(self, process_func, *args):
+    def run(self, process_func, *args, **kwargs):
         """Run a command via a static Process method.  Handles sudo/
         administrator authentication, and ensures that the shell
         environment in which the command is executed is sanitised.
@@ -1290,10 +1312,10 @@ class Context(object):
 
             ctx = Context(...)
             ctx.run(Process.check_call, 'my_command')
-            ctx.run(Process.monitor_progress, 'my_command', 100)
+            ctx.run(Process.monitor_progress, 'my_command', total=100)
         """
 
-        process_func = ft.partial(process_func, *args)
+        process_func = ft.partial(process_func, *args, **kwargs)
 
         # Clear any environment variables that refer to
         # existing FSL or conda installations, and ensure
@@ -1494,7 +1516,7 @@ def install_miniconda(ctx):
     # Install
     printmsg('Installing miniconda at {}...'.format(ctx.destdir))
     cmd = 'sh miniconda.sh -b -p {}'.format(ctx.destdir)
-    ctx.run(Process.monitor_progress, cmd, output)
+    ctx.run(Process.monitor_progress, cmd, total=output)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
@@ -1573,11 +1595,19 @@ def install_fsl(ctx):
     This function assumes that it is run within a temporary/scratch directory.
     """
 
-    # expected number of output lines for new
-    # install, used for progress reporting.
-    # If manifest does not contain expected
-    # #lines, we fall back to a spinner.
+    # We calculate installation progress by
+    # counting the number of conda package
+    # files that are saved to the $FSLDIR/pkgs/
+    # directory.  The 'output' field in the
+    # manifest gives us the total number of
+    # package files to expect.
     output = ctx.build.get('output', {}).get('install', None)
+    pkgdir = op.join(ctx.destdir, 'pkgs')
+
+    def progress(_):
+        pkgs = os.listdir(pkgdir)
+        pkgs = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
+        return len(pkgs)
 
     if output in ('', None): output = None
     else:                    output = int(output)
@@ -1586,7 +1616,8 @@ def install_fsl(ctx):
     # update -f env.yml.
     cmd = ctx.conda + ' env update -n base -f ' + ctx.environment_file
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
-    ctx.run(Process.monitor_progress, cmd, output)
+    ctx.run(Process.monitor_progress, cmd,
+            timeout=1, total=output, progfunc=progress)
 
 
 def finalise_installation(ctx):
