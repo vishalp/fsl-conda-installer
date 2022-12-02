@@ -37,15 +37,12 @@ mkdir -p $prefix/etc/
 prefix=$(cd $prefix && pwd)
 
 # called like
-#  - conda install -y -n base fslbase==1234.0
 #  - conda env update -n base -f <envfile>
 #  - conda clean -y --all
 echo "#!/usr/bin/env bash"  >> $3/bin/conda
 echo 'if   [ "$1" = "clean" ]; then '      >> $3/bin/conda
 echo "    touch $prefix/cleaned"           >> $3/bin/conda
-echo 'elif [ "$1" = "install" ]; then '    >> $3/bin/conda
-echo '    echo "$5"' "> $prefix/installed" >> $3/bin/conda
-echo "else"                                >> $3/bin/conda
+echo 'elif [ "$1" = "env" ]; then '        >> $3/bin/conda
 echo "    cp "'$6'" $prefix/"              >> $3/bin/conda
 echo "fi"                                  >> $3/bin/conda
 chmod a+x $prefix/bin/conda
@@ -165,10 +162,6 @@ def check_install(homedir, destdir, version, envver=None):
         with open(op.join(destdir, 'env-{}.yml'.format(envver)), 'rt') as f:
             exp = mock_env_yml_template.format(version=envver)
             assert f.read().strip() == exp
-
-        # added by our mock conda install call
-        with open(op.join(destdir, 'installed'), 'rt') as f:
-            assert f.read().strip() == 'fsl-base==1234.0'
 
         # added by our mock conda clean call
         assert op.exists(op.join(destdir, 'cleaned'))

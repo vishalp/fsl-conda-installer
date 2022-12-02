@@ -31,6 +31,7 @@ import                   argparse
 import                   contextlib
 import                   fnmatch
 import                   getpass
+import                   glob
 import                   hashlib
 import                   json
 import                   logging
@@ -43,6 +44,7 @@ import                   ssl
 import                   sys
 import                   tempfile
 import                   threading
+import                   time
 import                   traceback
 
 try:                import urllib.request as urlrequest
@@ -66,7 +68,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '2.1.1'
+__version__ = '3.0.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -182,6 +184,10 @@ def identify_platform():
 
       - "linux-64" (Linux, x86_64)
       - "macos-64" (macOS, x86_64)
+      - "macos-M1" (macOS, M1)
+
+    Note that these identifiers are for FSL releases, and are not the
+    same as the platform identifiers used by conda.
     """
 
     platforms = {
@@ -610,7 +616,7 @@ class Progress(object):
         return self
 
     def __exit__(self, *args, **kwargs):
-        printmsg(log=False)
+        printmsg('', log=False)
 
     def update(self, value=None, total=None):
 
@@ -697,7 +703,7 @@ class Progress(object):
             pass
 
         try:
-            result = Process.check_output('tput cols')
+            result = Process.check_output('tput cols', log_output=False)
             return int(result.strip())
         except Exception:
             return fallback
@@ -836,12 +842,37 @@ class Process(object):
         """Runs the given command(s), and shows a progress bar under the
         assumption that cmd will produce "total" number of lines of output.
 
-        :arg cmd:   The commmand to run as a string, or a sequence of
-                    multiple commands.
-        :arg total: Total number of lines of standard output to expect.
+        :arg cmd:      The commmand to run as a string, or a sequence of
+                       multiple commands.
+
+        :arg total:    Total number of lines of standard output to expect.
+
+        :arg timeout:  Refresh rate in seconds. Must be passed as a keyword
+                       argument.
+
+        :arg progfunc: Function which returns a number indicating how far
+                       the process has progressed.  If provided, this
+                       function is called, instead of standard output
+                       lines being monitored. The function is passed a
+                       reference to the Process object. Must be passed as a
+                       keyword argument.
         """
+
+        timeout  = kwargs.pop('timeout',  0.5)
+        progfunc = kwargs.pop('progfunc', None)
+
         if total is None: label = None
         else:             label = '%'
+
+        if progfunc is None:
+            nlines = [0]
+            def progfunc(proc):
+                try:
+                    _         = proc.stdoutq.get_nowait()
+                    nlines[0] = nlines[0] + 1
+                except queue.Empty:
+                    pass
+                return nlines[0]
 
         if isstr(cmd): cmds = [cmd]
         else:          cmds =  cmd
@@ -850,22 +881,17 @@ class Process(object):
                       fmt='{:.0f}',
                       transform=Progress.percent) as prog:
 
-            nlines = 0 if total else None
+            progcount = 0 if total else None
 
             for cmd in cmds:
 
                 proc = Process(cmd, *args, **kwargs)
-                prog.update(nlines, total)
+                prog.update(progcount, total)
 
                 while proc.returncode is None:
-                    try:
-                        line    = proc.stdoutq.get(timeout=0.5)
-                        nlines  = (nlines + 1) if total else None
-
-                    except queue.Empty:
-                        pass
-
-                    prog.update(nlines, total)
+                    time.sleep(timeout)
+                    progcount = progfunc(proc) if total else None
+                    prog.update(progcount, total)
                     proc.popen.poll()
 
                 # force progress bar to 100% when finished
@@ -1066,12 +1092,10 @@ class Context(object):
         self.old_destdir = None
 
         # The download_fsl_environment function stores
-        # the path to the FSL conda environment file,
-        # list of conda channels, and versions of a
-        # small set of "base" packages here.
+        # the path to the FSL conda environment file
+        # and list of conda channels
         self.environment_file     = None
         self.environment_channels = None
-        self.fsl_base_packages    = None
 
         # The config_logging function stores the path
         # to the fslinstaller log file here.
@@ -1198,6 +1222,18 @@ class Context(object):
 
 
     @property
+    def conda(self):
+        """Return a path to the ``conda`` or ``mamba`` executable. """
+        # If mamba is present, prefer it over conda
+        candidates = [
+            op.join(self.destdir, 'bin', 'mamba'),
+            op.join(self.destdir, 'bin', 'conda')]
+        for c in candidates:
+            if op.exists(c):
+                return c
+
+
+    @property
     def need_admin(self):
         """Returns True if administrator privileges will be needed to install
         FSL.
@@ -1266,7 +1302,7 @@ class Context(object):
         return self.__devmanifest
 
 
-    def run(self, process_func, *args):
+    def run(self, process_func, *args, **kwargs):
         """Run a command via a static Process method.  Handles sudo/
         administrator authentication, and ensures that the shell
         environment in which the command is executed is sanitised.
@@ -1276,10 +1312,10 @@ class Context(object):
 
             ctx = Context(...)
             ctx.run(Process.check_call, 'my_command')
-            ctx.run(Process.monitor_progress, 'my_command', 100)
+            ctx.run(Process.monitor_progress, 'my_command', total=100)
         """
 
-        process_func = ft.partial(process_func, *args)
+        process_func = ft.partial(process_func, *args, **kwargs)
 
         # Clear any environment variables that refer to
         # existing FSL or conda installations, and ensure
@@ -1363,8 +1399,7 @@ def download_fsl_environment(ctx):
 
     build        = ctx.build
     url          = build['environment']
-    checksum     = build.get('sha256',        None)
-    basepkgnames = build.get('base_packages', [])
+    checksum     = build.get('sha256', None)
 
     printmsg('Downloading FSL environment specification '
              'from {}...'.format(url))
@@ -1402,17 +1437,10 @@ def download_fsl_environment(ctx):
     # The install_miniconda function will then add the
     # channels to $FSLDIR/.condarc.
     #
-    # A collection of "base" packages are installed
-    # before any other packages. So we also extract the
-    # version numbers of these base packages from the
-    # environment file, and store them in the context.
-    # Sort base package names from longest to shortest,
-    # to avoid name conflicts (e.g. 'fsl-sub', and
-    # 'fsl-sub_plugin_sge')
-    basepkgnames = sorted(basepkgnames, key=len, reverse=True)
-    copy         = '.' + op.basename(ctx.environment_file)
-    channels     = []
-    basepkgs     = {}
+    # We also remove any packages that the user has
+    # requested to exclude from the installation.
+    copy     = '.' + op.basename(ctx.environment_file)
+    channels = []
 
     shutil.move(ctx.environment_file, copy)
     with open(copy,                 'rt') as inf, \
@@ -1435,21 +1463,6 @@ def download_fsl_environment(ctx):
                     channels.append(line.split()[-1])
                     continue
 
-            # Save base package versions, as we
-            # install them separately. Package
-            # specs in the yml file are of the
-            # form:
-            #
-            #   - <package> <version> [<build_variant>]
-            #
-            # From this we create a dict of the form:
-            #
-            #   - <package> : <version>[=<build_variant>]
-            for pkg in basepkgnames:
-                if line.strip().startswith('- {} '.format(pkg)):
-                    pkgver        = line.strip().split(' ', 2)[2]
-                    basepkgs[pkg] = pkgver.replace(' ', '=')
-
             # Include/exclude packages upon user request
             pkgname = line.strip(' -').split()[0]
             exclude = match_any(pkgname, ctx.args.exclude_package)
@@ -1460,7 +1473,6 @@ def download_fsl_environment(ctx):
                 outf.write(line)
 
     ctx.environment_channels = channels
-    ctx.fsl_base_packages    = basepkgs
 
 
 def download_miniconda(ctx):
@@ -1504,7 +1516,7 @@ def install_miniconda(ctx):
     # Install
     printmsg('Installing miniconda at {}...'.format(ctx.destdir))
     cmd = 'sh miniconda.sh -b -p {}'.format(ctx.destdir)
-    ctx.run(Process.monitor_progress, cmd, output)
+    ctx.run(Process.monitor_progress, cmd, total=output)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
@@ -1583,40 +1595,29 @@ def install_fsl(ctx):
     This function assumes that it is run within a temporary/scratch directory.
     """
 
-    # expected number of output lines for new
-    # install, used for progress reporting.
-    # If manifest does not contain expected
-    # #lines, we fall back to a spinner.
+    # We calculate installation progress by
+    # counting the number of conda package
+    # files that are saved to the $FSLDIR/pkgs/
+    # directory.  The 'output' field in the
+    # manifest gives us the total number of
+    # package files to expect.
     output = ctx.build.get('output', {}).get('install', None)
+    pkgdir = op.join(ctx.destdir, 'pkgs')
+
+    def progress(_):
+        pkgs = os.listdir(pkgdir)
+        pkgs = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
+        return len(pkgs)
 
     if output in ('', None): output = None
     else:                    output = int(output)
 
-    conda = op.join(ctx.destdir, 'bin', 'conda')
-
-    # We install FSL in two steps:
-    #
-    #   1. Install base packages. This is installed first, as
-    #      FSL packages require fsl-base to be present during
-    #      installation (in their post-link.sh scripts), and
-    #      this is not guaranteed if everything is installed
-    #      simultaneously. Also done for efficiency, so e.g.
-    #      libopenblas variants don't get swapped back and
-    #      forth.
-    #   2. Install everything else.
-    #
-    # The download_fsl_environment function extracts the
-    # appropriate base package versions to install.
-    commands = []
-    if ctx.fsl_base_packages is not None and len(ctx.fsl_base_packages) > 0:
-        basepkgs = ctx.fsl_base_packages
-        basepkgs = ['{}=={}'.format(pkg, ver) for pkg, ver in basepkgs.items()]
-        basepkgs = ' '.join(basepkgs)
-        commands.append(conda + ' install -y -n base ' + basepkgs)
-    commands.append(conda + ' env update -n base -f ' + ctx.environment_file)
-
+    # We install FSL simply by running conda env
+    # update -f env.yml.
+    cmd = ctx.conda + ' env update -n base -f ' + ctx.environment_file
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
-    ctx.run(Process.monitor_progress, commands, output)
+    ctx.run(Process.monitor_progress, cmd,
+            timeout=1, total=output, progfunc=progress)
 
 
 def finalise_installation(ctx):
@@ -1640,8 +1641,7 @@ def finalise_installation(ctx):
 def post_install_cleanup(ctx):
     """Cleans up the FSL directory after installation. """
 
-    conda = op.join(ctx.destdir, 'bin', 'conda')
-    cmd   = conda + ' clean -y --all'
+    cmd   = ctx.conda + ' clean -y --all'
     ctx.run(Process.check_call, cmd)
 
 

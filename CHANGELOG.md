@@ -1,5 +1,17 @@
 # FSL installer script release history
 
+
+# 3.0.0
+
+ - The installer script will now use `mamba` instead of `conda`, if present,
+   for all conda commands.
+ - Reverted to a single-step installation process - instead of installing
+   base packages separately, the full installation is now performed with
+   `conda env update -f <env>.yml`.
+ - Use the number of package files saved to `$FSLDIR/pkgs/`to monitor
+   and report progress of the main FSL installation, instead of counting
+   the number of lines printed to standard output.
+
 # 2.1.1
 
  - Added hooks to insert FSL license boilerplate into source files.
