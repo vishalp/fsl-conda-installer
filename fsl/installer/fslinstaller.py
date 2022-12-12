@@ -68,7 +68,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.0.0'
+__version__ = '3.0.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -466,11 +466,11 @@ def download_manifest(url, workdir=None):
 
         try:
             download_file(url, 'manifest.json')
-        except Exception:
+        except Exception as e:
             log.debug('Error downloading FSL release manifest from %s',
                       url, exc_info=True)
             raise Exception('Unable to download FSL release manifest '
-                            'from {}!'.format(url))
+                            'from {} [{}]!'.format(url, str(e)))
 
         with open('manifest.json') as f:
             lines = f.readlines()
@@ -2094,16 +2094,19 @@ def main(argv=None):
                  'asked for your administrator password if required.',
                  WARNING, EMPHASIS)
 
-    args        = parse_args(argv)
-    ctx         = Context(args)
-    ctx.logfile = config_logging(logdir=ctx.args.workdir)
+    args    = parse_args(argv)
+    logfile = config_logging(logdir=args.workdir)
 
     log.debug(' '.join(sys.argv))
+    printmsg('Installation log file: {}\n'.format(logfile), INFO)
+
+    ctx         = Context(args)
+    ctx.logfile = logfile
 
     if not args.no_self_update:
         self_update(ctx.manifest, args.workdir, not args.no_checksum)
 
-    printmsg('Installation log file: {}\n'.format(ctx.logfile), INFO)
+
 
     if args.listversions:
         list_available_versions(ctx.manifest)
