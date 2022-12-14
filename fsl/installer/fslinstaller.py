@@ -1523,6 +1523,29 @@ def install_miniconda(ctx):
     cmd = 'find {} -type f -exec touch {{}} +'.format(ctx.destdir)
     ctx.run(Process.check_call, cmd)
 
+    # Generate $FSLDIR/.condarc which contains
+    # some default/fixed conda settings
+    condarc = generate_condarc(ctx.environment_channels,
+                               ctx.args.skip_ssl_verify)
+    with open('.condarc', 'wt') as f:
+        f.write(condarc)
+
+    ctx.run(Process.check_call, 'cp -f .condarc {}'.format(ctx.destdir))
+
+
+def generate_condarc(channels, skip_ssl_verify=False):
+    """Called by install_miniconda. Generates content for a .condarc file to
+    be saved in $FSLDIR/.condarc. This file contains some default values, and
+    also enforces some settings so that they cannot be overridden by the
+    user. For example. the list of conda channels is configured so that it
+    cannot be overridden by a user's ~/.condarc file.
+
+    See the following web pages for more details:
+     - https://docs.conda.io/projects/conda/en/latest/user-guide/configuration/use-condarc.html
+     - https://www.anaconda.com/blog/conda-configuration-engine-power-users
+     - https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-channels.html
+    """
+
     # Create .condarc config file
     condarc = tw.dedent("""
     # Try and make package downloads more robust
@@ -1562,7 +1585,7 @@ def install_miniconda(ctx):
     channel_priority: strict #!final
     """)
 
-    if ctx.args.skip_ssl_verify:
+    if skip_ssl_verify:
         printmsg('Configuring conda to skip SSL verification '
                  '- this is not recommended!', WARNING)
         condarc += tw.dedent("""
@@ -1573,8 +1596,7 @@ def install_miniconda(ctx):
         ssl_verify: false
         """)
 
-    # Set up the channel list
-    channels = list(ctx.environment_channels)
+    channels = list(channels)
     if len(channels) > 0:
         channels[0]  += ' #!top'
         channels[-1] += ' #!bottom'
@@ -1582,10 +1604,7 @@ def install_miniconda(ctx):
     for channel in channels:
         condarc += ' - {}\n'.format(channel)
 
-    with open('.condarc', 'wt') as f:
-        f.write(condarc)
-
-    ctx.run(Process.check_call, 'cp -f .condarc {}'.format(ctx.destdir))
+    return condarc
 
 
 def install_fsl(ctx):

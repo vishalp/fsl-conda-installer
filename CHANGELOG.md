@@ -1,6 +1,11 @@
 # FSL installer script release history
 
 
+# 3.0.1 (Friday 13th December 2022)
+
+ - Minor internal adjustments.
+
+
 # 3.0.0
 
  - The installer script will now use `mamba` instead of `conda`, if present,
