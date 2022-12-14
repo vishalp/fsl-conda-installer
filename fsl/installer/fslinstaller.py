@@ -1525,15 +1525,15 @@ def install_miniconda(ctx):
 
     # Generate $FSLDIR/.condarc which contains
     # some default/fixed conda settings
-    condarc = generate_condarc(ctx.args.skip_ssl_verify,
-                               ctx.environment_channels)
+    condarc = generate_condarc(ctx.environment_channels,
+                               ctx.args.skip_ssl_verify)
     with open('.condarc', 'wt') as f:
         f.write(condarc)
 
     ctx.run(Process.check_call, 'cp -f .condarc {}'.format(ctx.destdir))
 
 
-def generate_condarc(skip_ssl_verify, channels):
+def generate_condarc(channels, skip_ssl_verify=False):
     """Called by install_miniconda. Generates content for a .condarc file to
     be saved in $FSLDIR/.condarc. This file contains some default values, and
     also enforces some settings so that they cannot be overridden by the
