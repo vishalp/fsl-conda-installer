@@ -1483,18 +1483,12 @@ def download_miniconda(ctx):
     """
 
     if ctx.args.miniconda is None:
-
         metadata = ctx.manifest['miniconda'][ctx.platform]
         url      = metadata['url']
         checksum = metadata['sha256']
-        output   = metadata.get('output', None)
     else:
         url      = ctx.args.miniconda
-        output   = None
         checksum = None
-
-    if output is not None:
-        output = int(output.strip())
 
     # Download
     printmsg('Downloading miniconda from {}...'.format(url))
@@ -1512,8 +1506,6 @@ def install_miniconda(ctx):
     """
 
     metadata = ctx.manifest['miniconda'][ctx.platform]
-    url      = metadata['url']
-    checksum = metadata['sha256']
     output   = metadata.get('output', '').strip()
 
     if output == '': output = None
