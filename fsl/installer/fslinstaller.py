@@ -68,7 +68,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.1.0'
+__version__ = '3.2.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1482,19 +1482,25 @@ def download_miniconda(ctx):
     This function assumes that it is run within a temporary/scratch directory.
     """
 
-    metadata = ctx.manifest['miniconda'][ctx.platform]
-    url      = metadata['url']
-    checksum = metadata['sha256']
-    output   = metadata.get('output', '').strip()
+    if ctx.args.miniconda is None:
 
-    if output == '': output = None
-    else:            output = int(output)
+        metadata = ctx.manifest['miniconda'][ctx.platform]
+        url      = metadata['url']
+        checksum = metadata['sha256']
+        output   = metadata.get('output', None)
+    else:
+        url      = ctx.args.miniconda
+        output   = None
+        checksum = None
+
+    if output is not None:
+        output = int(output.strip())
 
     # Download
     printmsg('Downloading miniconda from {}...'.format(url))
     with Progress('MB', transform=Progress.bytes_to_mb) as prog:
         download_file(url, 'miniconda.sh', prog.update)
-    if not ctx.args.no_checksum:
+    if (not ctx.args.no_checksum) and (checksum is not None):
         sha256('miniconda.sh', checksum)
 
 
@@ -1961,6 +1967,7 @@ def parse_args(argv=None, include=None):
         'devrelease'      : (None, {'action'  : 'store_true'}),
         'devlatest'       : (None, {'action'  : 'store_true'}),
         'manifest'        : (None, {}),
+        'miniconda'       : (None, {}),
         'no_self_update'  : (None, {'action'  : 'store_true'}),
         'exclude_package' : (None, {'action'  : 'append'}),
     }
@@ -2006,8 +2013,14 @@ def parse_args(argv=None, include=None):
         'devrelease'      : argparse.SUPPRESS,
         'devlatest'       : argparse.SUPPRESS,
 
-        # Path to alternative FSL release manifest.
+        # Path/URL to alternative FSL release
+        # manifest.
         'manifest'        : argparse.SUPPRESS,
+
+        # Install miniconda from this path/URL,
+        # instead of the one specified in the
+        # FSL release manifest
+        'miniconda'       : argparse.SUPPRESS,
 
         # Print debugging messages
         'debug'           : argparse.SUPPRESS,
@@ -2086,6 +2099,10 @@ def parse_args(argv=None, include=None):
     # accept local path for manifest and environment
     if args.manifest is not None and op.exists(args.manifest):
         args.manifest = op.abspath(args.manifest)
+
+    # accept local path for miniconda installer
+    if args.miniconda is not None and op.exists(args.miniconda):
+        args.miniconda = op.abspath(args.miniconda)
 
     return args
 
