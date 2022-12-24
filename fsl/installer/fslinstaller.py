@@ -68,7 +68,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.0.1'
+__version__ = '3.1.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -354,7 +354,7 @@ def clean_environ():
     """
     env = os.environ.copy()
     for v in list(env.keys()):
-        if any(('FSL' in v, 'CONDA' in v)):
+        if any(('FSL' in v, 'CONDA' in v, 'PYTHON' in v)):
             env.pop(v)
     return env
 
@@ -1614,6 +1614,69 @@ def generate_condarc(channels, skip_ssl_verify=False):
     return condarc
 
 
+def get_install_fsl_progress_reporting_method(ctx):
+    """Figure out which reporting mechansim to use for reporting progress
+    whilst FSL is being installed. The mechanism that is used has changed
+    a few times.
+
+    Returns a tuple containing values to pass to the Progress.monitor_progress
+    function, either of which may be None if progress cannot be reported:
+
+      - an integer value to pass as the total
+      - a function to pass as the progfunc.
+    """
+
+    # We calculate installation progress in
+    # one of a few ways, as we have changed
+    # the mechanism a few times.  The
+    # 'output/install' field in the manifest
+    # gives us information about how to
+    # report installation progress.
+    fslver     = ctx.build['version']
+    progparams = ctx.build.get('output', {}).get('install', None)
+    pkgdir     = op.join(ctx.destdir, 'pkgs')
+
+    # The first method (version 1) involves
+    # progress reporting by monitoring number of
+    # lines of standard output produced by
+    # "conda env install". This is set to None,
+    # as it is the default behaviour of the
+    # Progress.monitor_progress function.
+    progress_v1 = None
+
+    # The second method involves progress
+    # reporting by monitoring the number of
+    # package files created in $FSLDIR/pkgs/
+    def progress_v2(_):
+        pkgs = os.listdir(pkgdir)
+        pkgs = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
+        return len(pkgs)
+
+    progresses      = {}
+    progresses['1'] = None
+    progresses['2'] = progress_v2
+
+    progval  = None
+    progfunc = None
+
+    # The output field may be either a
+    # string, in which case we assume
+    # version 2, or a dictionary containing
+    # the progress reporting version, and
+    # an integer value.
+    if isstr(progparams):
+        progval  = int(progparams)
+        progfunc = progresses['2']
+
+    # output field is a dict - versioned
+    # progress reporting
+    elif isinstance(progparams, dict):
+        progval  = int(progparams['value'])
+        progfunc = progresses[progparams['version']]
+
+    return progval, progfunc
+
+
 def install_fsl(ctx):
     """Install FSL into ctx.destdir (which is assumed to be a miniconda
     installation.
@@ -1621,29 +1684,14 @@ def install_fsl(ctx):
     This function assumes that it is run within a temporary/scratch directory.
     """
 
-    # We calculate installation progress by
-    # counting the number of conda package
-    # files that are saved to the $FSLDIR/pkgs/
-    # directory.  The 'output' field in the
-    # manifest gives us the total number of
-    # package files to expect.
-    output = ctx.build.get('output', {}).get('install', None)
-    pkgdir = op.join(ctx.destdir, 'pkgs')
-
-    def progress(_):
-        pkgs = os.listdir(pkgdir)
-        pkgs = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
-        return len(pkgs)
-
-    if output in ('', None): output = None
-    else:                    output = int(output)
+    progval, progfunc = get_install_fsl_progress_reporting_method(ctx)
 
     # We install FSL simply by running conda env
     # update -f env.yml.
     cmd = ctx.conda + ' env update -n base -f ' + ctx.environment_file
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
     ctx.run(Process.monitor_progress, cmd,
-            timeout=1, total=output, progfunc=progress)
+            timeout=1, total=progval, progfunc=progfunc)
 
 
 def finalise_installation(ctx):
