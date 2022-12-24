@@ -278,6 +278,7 @@ def test_download_install_miniconda():
             ctx.admin_password       = None
             ctx.args.no_checksum     = False
             ctx.args.skip_ssl_verify = False
+            ctx.args.miniconda       = None
             ctx.platform             = 'linux'
             ctx.manifest             = gen_manifest('linux', srv.port, sha256)
             ctx.environment_channels = []

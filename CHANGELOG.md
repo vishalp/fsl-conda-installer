@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.2.0 (Sunday 25th December 2022)
+
+ - New hidden `--miniconda` option, allowing an alternate miniconda installer
+   to be used.
+
+
 # 3.1.0 (Saturday 24th December 2022)
 
  - Allow different progress reporting implementations
