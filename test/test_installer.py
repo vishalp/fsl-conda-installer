@@ -33,6 +33,7 @@ prefix=$3
 
 mkdir -p $prefix/bin/
 mkdir -p $prefix/etc/
+mkdir -p $prefix/pkgs/
 
 prefix=$(cd $prefix && pwd)
 
@@ -69,7 +70,11 @@ mock_manifest = """
                 "platform"      : "{platform}",
                 "environment"   : "{url}/env-6.2.0.yml",
                 "sha256"        : "{env620_sha256}",
-                "base_packages" : ["fsl-base", "libopenblas"]
+                "base_packages" : ["fsl-base", "libopenblas"],
+                "output"        : {{
+                    "install"   : {{ "version" : "2", "value" : "100" }}
+                }}
+
             }}
         ],
         "6.1.0"  : [
@@ -77,7 +82,10 @@ mock_manifest = """
                 "platform"      : "{platform}",
                 "environment"   : "{url}/env-6.1.0.yml",
                 "sha256"        : "{env610_sha256}",
-                "base_packages" : ["fsl-base", "libopenblas"]
+                "base_packages" : ["fsl-base", "libopenblas"],
+                "output"        : {{
+                    "install"   : "100"
+                }}
             }}
         ]
     }}
