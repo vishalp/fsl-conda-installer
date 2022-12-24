@@ -1,6 +1,13 @@
 # FSL installer script release history
 
 
+# 3.1.0 (Saturday 24th December 2022)
+
+ - Allow different progress reporting implementations
+ - Clear all `$PYTHON*` environment variables before installing miniconda
+   and FSL.
+
+
 # 3.0.1 (Friday 13th December 2022)
 
  - Minor internal adjustments.
