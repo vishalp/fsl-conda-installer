@@ -11,7 +11,7 @@ This repository is the home of `fslinstaller.py`, the installer script for
 
 The `fslinstaller.py` script in this repository is the successor to the
 `fslinstaller.py` script from the fsl/installer> repository.  _This_ version
-is for **conda-based** FSL release, from FSL version 6.1.0 onwards.
+is for **conda-based** FSL release, from FSL version 6.0.6 onwards.
 
 
 `fslinstaller.py`  is a Python script which can run with any version of

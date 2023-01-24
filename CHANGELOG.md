@@ -1,6 +1,14 @@
 # FSL installer script release history
 
 
+# 3.2.1 (Tuesday 24th January 2023)
+
+ - Unrecognised command-line arguments are ignored - this is to allow for
+   forward-compatibility within a self-update cycle.
+ - `bash` is used rather than `sh` when calling the miniconda installer
+   script.
+
+
 # 3.2.0 (Sunday 25th December 2022)
 
  - New hidden `--miniconda` option, allowing an alternate miniconda installer
