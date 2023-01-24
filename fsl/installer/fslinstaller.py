@@ -68,7 +68,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.2.0'
+__version__ = '3.2.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -2048,7 +2048,10 @@ def parse_args(argv=None, include=None):
             flags.insert(0, shortflag)
         parser.add_argument(*flags, help=helps[option], **kwargs)
 
-    args = parser.parse_args(argv)
+    # parse_known_args so that newly added
+    # args are ignored by older versions,
+    # but will be parsed after self_update
+    args = parser.parse_known_args(argv)[0]
 
     # add placeholder values for excluded args
     for option in options.keys():
@@ -2188,8 +2191,6 @@ def main(argv=None):
 
     if not args.no_self_update:
         self_update(ctx.manifest, args.workdir, not args.no_checksum)
-
-
 
     if args.listversions:
         list_available_versions(ctx.manifest)
