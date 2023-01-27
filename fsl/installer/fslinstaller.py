@@ -31,7 +31,6 @@ import                   argparse
 import                   contextlib
 import                   fnmatch
 import                   getpass
-import                   glob
 import                   hashlib
 import                   json
 import                   logging
@@ -1366,6 +1365,36 @@ class Context(object):
                             append_env=append_env)
 
 
+def check_rosetta_status(ctx):
+    """Called from the main routine, before installation is attempted.  If
+    running on a M1 macos machine, and a x86 version of FSL has been selected
+    for installation, checks whether rosetta emulation is enabled. If so,
+    does nothing further. Otherwise, prints a message and exits.
+    """
+
+    if not all((identify_platform() == 'macos-M1',
+                ctx.platform        == 'macos-64')):
+        return
+
+    # Using the strategy discussed at
+    # https://forum.latenightsw.com/t/possible-for-a-script-\
+    #   to-test-whether-rosetta-2-is-installed/3207/6
+    #
+    # The pkgutil command should return 0 if
+    # rosetta is installed, non-0 otherwise.
+    try:
+        Process.check_output('pkgutil --files com.apple.pkg.RosettaUpdateAuto')
+    except RuntimeError:
+        printmsg('Rosetta emulation does not appear to be enabled!\n', ERROR)
+        printmsg('Enable rosetta emulation, and then run this installer '
+                 'again. You can enable rosetta emulation by running this '
+                 'command:\n', INFO)
+        printmsg('  /usr/sbin/softwareupdate --install-rosetta '
+                 '--agree-to-license\n', IMPORTANT)
+        printmsg('Aborting installation', ERROR)
+        sys.exit(1)
+
+
 def list_available_versions(manifest):
     """Lists available FSL versions. """
     printmsg('Available FSL versions:', EMPHASIS)
@@ -2233,6 +2262,8 @@ def main(argv=None):
     except Exception as e:
         printmsg('An error has occurred: {}'.format(e), ERROR)
         sys.exit(1)
+
+    check_rosetta_status(ctx)
 
     with tempdir(args.workdir):
 
