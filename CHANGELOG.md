@@ -1,6 +1,11 @@
 # FSL installer script release history
 
 
+# 3.3.0 (Friday 27th January 2023)
+
+ - Update the installer to install macOS-M1 FSL builds if available.
+
+
 # 3.2.1 (Tuesday 24th January 2023)
 
  - Unrecognised command-line arguments are ignored - this is to allow for
