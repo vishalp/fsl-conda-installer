@@ -68,7 +68,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.2.1'
+__version__ = '3.3.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -193,10 +193,7 @@ def identify_platform():
     platforms = {
         ('linux',  'x86_64') : 'linux-64',
         ('darwin', 'x86_64') : 'macos-64',
-
-        # M1 builds (and possbily ARM for Linux)
-        # will be added in the future
-        ('darwin', 'arm64')  : 'macos-64',
+        ('darwin', 'arm64')  : 'macos-M1',
     }
 
     system = platform.system().lower()
@@ -693,7 +690,7 @@ class Progress(object):
         # 3.3, so we try it but fall back to
         # COLUMNS, or tput as a last resort.
         try:
-            return os.get_terminal_size()[0]
+            return shutil.get_terminal_size()[0]
         except Exception:
             pass
 
@@ -1075,14 +1072,15 @@ class Context(object):
         # These attributes are updated on-demand via
         # the property accessors defined below, or are
         # all updated via the finalise_settings method.
-        self.__platform       = None
-        self.__manifest       = None
-        self.__devmanifest    = None
-        self.__build          = None
-        self.__destdir        = destdir
-        self.__need_admin     = None
-        self.__admin_password = None
-        self.__action         = action
+        self.__platform         = None
+        self.__manifest         = None
+        self.__devmanifest      = None
+        self.__candidate_builds = None
+        self.__build            = None
+        self.__destdir          = destdir
+        self.__need_admin       = None
+        self.__admin_password   = None
+        self.__action           = action
 
         # If the destination directory already exists,
         # and the user chooses to overwrite it, it is
@@ -1106,6 +1104,7 @@ class Context(object):
         """Finalise values for all information and settings in the Context.
         """
         self.manifest
+        self.candidate_builds
         self.platform
         self.build
         self.destdir
@@ -1115,10 +1114,57 @@ class Context(object):
 
     @property
     def platform(self):
-        """The platform we are running on, e.g. "linux-64", "macos-64". """
+        """The platform we are running on, e.g. "linux-64", "macos-64",
+        "macos-M1". This identifier is used to determine which FSL build to
+        install.
+
+        Note that this function may report a different platform identifier than
+        the actual platform - specifically, if running on a M1 mac, and there
+        is no M1 FSL build for the requested FSL version, this function will
+        report "macos-64". This is because some older FSL releases do not have
+        M1 builds available.
+        """
         if self.__platform is None:
-            self.__platform = identify_platform()
+            plat = identify_platform()
+
+            # if M1, check that we have a suitable
+            # FSL build, falling back to x86 if not.
+            if plat == 'macos-M1':
+                candidates = self.candidate_builds
+                if not any(c.platform == 'macos-M1' for c in candidates):
+                    plat = 'macos-64'
+
+            self.__platform = plat
+
         return self.__platform
+
+
+    @property
+    def candidate_builds(self):
+        """Query the manifest and return a list of available builds for the
+        requested FSL release, for all platforms.
+        """
+        if self.__candidate_builds is not None:
+            return self.__candidate_builds
+
+        # defaults to "latest" if
+        # not specified by the user
+        fslversion = self.args.fslversion
+        if fslversion is None:
+            fslversion = 'latest'
+
+        if fslversion not in self.manifest['versions']:
+            available = ', '.join(self.manifest['versions'].keys())
+            raise Exception(
+                'FSL version "{}" is not available - available '
+                'versions: {}'.format(fslversion, available))
+
+        if fslversion == 'latest':
+            fslversion = self.manifest['versions']['latest']
+
+        self.__candidate_builds = list(self.manifest['versions'][fslversion])
+
+        return self.__candidate_builds
 
 
     @property
@@ -1138,34 +1184,19 @@ class Context(object):
         if self.__build is not None:
             return self.__build
 
-        # defaults to "latest" if
-        # not specified by the user
-        fslversion = self.args.fslversion
-        if fslversion is None:
-            fslversion = 'latest'
-
-        if fslversion not in self.manifest['versions']:
-            available = ', '.join(self.manifest['versions'].keys())
-            raise Exception(
-                'FSL version "{}" is not available - available '
-                'versions: {}'.format(fslversion, available))
-
-        if fslversion == 'latest':
-            fslversion = self.manifest['versions']['latest']
-
         # Find refs to a suitable build for this
         # platform. We assume that there is only
         # one default build for each platform.
         # in the list of builds for a given FSL
         # version.
-        build = None
+        candidates = self.candidate_builds
+        build      = None
 
-        for candidate in self.manifest['versions'][fslversion]:
+        for candidate in candidates:
             if candidate['platform'] == self.platform:
                 build = candidate
                 break
-
-        if build is None:
+        else:
             raise Exception(
                 'Cannot find a version of FSL matching '
                 'platform {}'.format(self.platform))
@@ -1261,6 +1292,7 @@ class Context(object):
     @property
     def manifest(self):
         """Returns the FSL installer manifest as a dictionary. """
+
         if self.__manifest is None:
             if self.devmanifest is not None:
                 self.args.manifest = self.devmanifest
