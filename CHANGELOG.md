@@ -4,6 +4,8 @@
 # 3.3.0 (Friday 27th January 2023)
 
  - Update the installer to install macOS-M1 FSL builds if available.
+ - Exit with a warning if an Intel FSL build is to be installed on a
+   M1 machine, and Rosetta emulation is not enabled.
 
 
 # 3.2.1 (Tuesday 24th January 2023)
