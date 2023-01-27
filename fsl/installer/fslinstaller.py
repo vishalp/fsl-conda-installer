@@ -1131,7 +1131,7 @@ class Context(object):
             # FSL build, falling back to x86 if not.
             if plat == 'macos-M1':
                 candidates = self.candidate_builds
-                if not any(c.platform == 'macos-M1' for c in candidates):
+                if not any(c['platform'] == 'macos-M1' for c in candidates):
                     plat = 'macos-64'
 
             self.__platform = plat
