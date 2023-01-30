@@ -21,10 +21,9 @@ from . import (server,
                mock_input,
                strip_ansi_escape_sequences)
 
-# manifest.json
-# miniconda.sh
-# environment file
 
+# mock miniconda installer which creates
+# a mock $FSLDIR/bin/conda command
 mock_miniconda_sh = """
 #!/usr/bin/env bash
 

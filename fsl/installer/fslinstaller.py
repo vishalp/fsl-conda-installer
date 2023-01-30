@@ -31,7 +31,6 @@ import                   argparse
 import                   contextlib
 import                   fnmatch
 import                   getpass
-import                   glob
 import                   hashlib
 import                   json
 import                   logging
@@ -68,7 +67,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.2.1'
+__version__ = '3.3.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -193,10 +192,7 @@ def identify_platform():
     platforms = {
         ('linux',  'x86_64') : 'linux-64',
         ('darwin', 'x86_64') : 'macos-64',
-
-        # M1 builds (and possbily ARM for Linux)
-        # will be added in the future
-        ('darwin', 'arm64')  : 'macos-64',
+        ('darwin', 'arm64')  : 'macos-M1',
     }
 
     system = platform.system().lower()
@@ -275,7 +271,7 @@ def match_any(s, patterns):
 
 
 @contextlib.contextmanager
-def tempdir(override_dir=None):
+def tempdir(override_dir=None, change_into=True):
     """Returns a context manager which creates, changes into, and returns a
     temporary directory, and then deletes it on exit.
 
@@ -289,11 +285,13 @@ def tempdir(override_dir=None):
     prevdir = os.getcwd()
 
     try:
-        os.chdir(tmpdir)
+        if change_into:
+            os.chdir(tmpdir)
         yield tmpdir
 
     finally:
-        os.chdir(prevdir)
+        if change_into:
+            os.chdir(prevdir)
         if override_dir is None:
             shutil.rmtree(tmpdir)
 
@@ -693,7 +691,7 @@ class Progress(object):
         # 3.3, so we try it but fall back to
         # COLUMNS, or tput as a last resort.
         try:
-            return os.get_terminal_size()[0]
+            return shutil.get_terminal_size()[0]
         except Exception:
             pass
 
@@ -1075,14 +1073,15 @@ class Context(object):
         # These attributes are updated on-demand via
         # the property accessors defined below, or are
         # all updated via the finalise_settings method.
-        self.__platform       = None
-        self.__manifest       = None
-        self.__devmanifest    = None
-        self.__build          = None
-        self.__destdir        = destdir
-        self.__need_admin     = None
-        self.__admin_password = None
-        self.__action         = action
+        self.__platform         = None
+        self.__manifest         = None
+        self.__devmanifest      = None
+        self.__candidate_builds = None
+        self.__build            = None
+        self.__destdir          = destdir
+        self.__need_admin       = None
+        self.__admin_password   = None
+        self.__action           = action
 
         # If the destination directory already exists,
         # and the user chooses to overwrite it, it is
@@ -1106,6 +1105,7 @@ class Context(object):
         """Finalise values for all information and settings in the Context.
         """
         self.manifest
+        self.candidate_builds
         self.platform
         self.build
         self.destdir
@@ -1115,10 +1115,57 @@ class Context(object):
 
     @property
     def platform(self):
-        """The platform we are running on, e.g. "linux-64", "macos-64". """
+        """The platform we are running on, e.g. "linux-64", "macos-64",
+        "macos-M1". This identifier is used to determine which FSL build to
+        install.
+
+        Note that this function may report a different platform identifier than
+        the actual platform - specifically, if running on a M1 mac, and there
+        is no M1 FSL build for the requested FSL version, this function will
+        report "macos-64". This is because some older FSL releases do not have
+        M1 builds available.
+        """
         if self.__platform is None:
-            self.__platform = identify_platform()
+            plat = identify_platform()
+
+            # if M1, check that we have a suitable
+            # FSL build, falling back to x86 if not.
+            if plat == 'macos-M1':
+                candidates = self.candidate_builds
+                if not any(c['platform'] == 'macos-M1' for c in candidates):
+                    plat = 'macos-64'
+
+            self.__platform = plat
+
         return self.__platform
+
+
+    @property
+    def candidate_builds(self):
+        """Query the manifest and return a list of available builds for the
+        requested FSL release, for all platforms.
+        """
+        if self.__candidate_builds is not None:
+            return self.__candidate_builds
+
+        # defaults to "latest" if
+        # not specified by the user
+        fslversion = self.args.fslversion
+        if fslversion is None:
+            fslversion = 'latest'
+
+        if fslversion not in self.manifest['versions']:
+            available = ', '.join(self.manifest['versions'].keys())
+            raise Exception(
+                'FSL version "{}" is not available - available '
+                'versions: {}'.format(fslversion, available))
+
+        if fslversion == 'latest':
+            fslversion = self.manifest['versions']['latest']
+
+        self.__candidate_builds = list(self.manifest['versions'][fslversion])
+
+        return self.__candidate_builds
 
 
     @property
@@ -1138,34 +1185,19 @@ class Context(object):
         if self.__build is not None:
             return self.__build
 
-        # defaults to "latest" if
-        # not specified by the user
-        fslversion = self.args.fslversion
-        if fslversion is None:
-            fslversion = 'latest'
-
-        if fslversion not in self.manifest['versions']:
-            available = ', '.join(self.manifest['versions'].keys())
-            raise Exception(
-                'FSL version "{}" is not available - available '
-                'versions: {}'.format(fslversion, available))
-
-        if fslversion == 'latest':
-            fslversion = self.manifest['versions']['latest']
-
         # Find refs to a suitable build for this
         # platform. We assume that there is only
         # one default build for each platform.
         # in the list of builds for a given FSL
         # version.
-        build = None
+        candidates = self.candidate_builds
+        build      = None
 
-        for candidate in self.manifest['versions'][fslversion]:
+        for candidate in candidates:
             if candidate['platform'] == self.platform:
                 build = candidate
                 break
-
-        if build is None:
+        else:
             raise Exception(
                 'Cannot find a version of FSL matching '
                 'platform {}'.format(self.platform))
@@ -1261,6 +1293,7 @@ class Context(object):
     @property
     def manifest(self):
         """Returns the FSL installer manifest as a dictionary. """
+
         if self.__manifest is None:
             if self.devmanifest is not None:
                 self.args.manifest = self.devmanifest
@@ -1332,6 +1365,43 @@ class Context(object):
                             password=self.admin_password,
                             env=env,
                             append_env=append_env)
+
+
+def check_rosetta_status(ctx):
+    """Called from the main routine, before installation is attempted.  If
+    running on a M1 macos machine, and a x86 version of FSL has been selected
+    for installation, checks whether rosetta emulation is enabled. If so,
+    does nothing further. Otherwise, prints a message and exits.
+    """
+
+    if not all((identify_platform() == 'macos-M1',
+                ctx.platform        == 'macos-64')):
+        return
+
+    # Using the strategy discussed at
+    # https://forum.latenightsw.com/t/possible-for-a-script-\
+    #   to-test-whether-rosetta-2-is-installed/3207/6
+    #
+    # The pkgutil command should return 0 if
+    # rosetta is installed, non-0 otherwise.
+    try:
+        Process.check_output('pkgutil --files com.apple.pkg.RosettaUpdateAuto')
+    except RuntimeError:
+        printmsg('Rosetta emulation does not appear to be enabled!\n', ERROR)
+        printmsg('Enable rosetta emulation, and then run this installer '
+                 'again. You can enable rosetta emulation by running this '
+                 'command:\n', INFO)
+        printmsg('  /usr/sbin/softwareupdate --install-rosetta '
+                 '--agree-to-license\n', IMPORTANT)
+        printmsg('Aborting installation', ERROR)
+        sys.exit(1)
+    # pkgutil command not found - should
+    # never happen, but print a warning
+    # just in case
+    except Exception as e:
+        printmsg('An error occurred calling the pkgutil command - this '
+                 'may not be a problem, so I\'ll attempt to proceed '
+                 'with the installation. ({}'.format(e), WARNING)
 
 
 def list_available_versions(manifest):
@@ -2201,6 +2271,8 @@ def main(argv=None):
     except Exception as e:
         printmsg('An error has occurred: {}'.format(e), ERROR)
         sys.exit(1)
+
+    check_rosetta_status(ctx)
 
     with tempdir(args.workdir):
 

@@ -25,7 +25,7 @@ def test_identify_plaform():
     tests = [
         [('linux',  'x86_64'), 'linux-64'],
         [('darwin', 'x86_64'), 'macos-64'],
-        [('darwin', 'arm64'),  'macos-64'],
+        [('darwin', 'arm64'),  'macos-M1'],
     ]
 
     for info, expected in tests:
