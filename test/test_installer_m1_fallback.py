@@ -156,6 +156,19 @@ def check_install(fsldir, platform, version):
     assert op.exists(envyml)
 
 
+@contextlib.contextmanager
+def pkgutil(retcode):
+    with inst.tempdir(change_into=False) as td:
+        exe = op.join(td, 'pkgutil')
+        with open(exe, 'wt') as f:
+            f.write('#!/usr/bin/env bash\n')
+            f.write('exit {}\n'.format(retcode))
+        os.chmod(exe, 0o755)
+        path = op.pathsep.join((td, os.environ['PATH']))
+        with mock.patch.dict(os.environ, PATH=path):
+            yield
+
+
 def test_installer_M1_install():
     with inst.tempdir():
         with installer_server() as srv:
@@ -176,3 +189,30 @@ def test_installer_M1_install():
                      inst.tempdir() as cwd:
                     inst.main(['--homedir', cwd, '--dest', 'fsl', '-V', '6.1.0'])
                     check_install('fsl', 'macos-64', '6.1.0')
+
+
+# installig an intel build on M1
+def test_installer_M1_install_rosetta():
+    with inst.tempdir():
+        with installer_server() as srv:
+            with mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                            '{}/manifest.json'.format(srv.url)), \
+                mock.patch('platform.system',  return_value='darwin'), \
+                mock.patch('platform.machine', return_value='arm64'):
+
+                # pkgutil reports that rosetta is
+                # enabled - installation should proceed
+                with inst.tempdir() as cwd, pkgutil(0):
+                    inst.main(['--homedir', cwd, '--dest', 'fsl',
+                               '-V', '6.1.0'])
+                    check_install('fsl', 'macos-64', '6.1.0')
+
+                # pkgutil reports that rosetta is *not*
+                # enabled - installation should be
+                # aborted
+                with inst.tempdir() as cwd, pkgutil(1):
+                    with pytest.raises(SystemExit) as e:
+                        inst.main(['--homedir', cwd, '--dest', 'fsl',
+                                   '-V', '6.1.0'])
+                    assert e.value.code != 0
+                    assert not op.exists('fsl')
