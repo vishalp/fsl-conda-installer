@@ -271,7 +271,7 @@ def match_any(s, patterns):
 
 
 @contextlib.contextmanager
-def tempdir(override_dir=None):
+def tempdir(override_dir=None, change_into=True):
     """Returns a context manager which creates, changes into, and returns a
     temporary directory, and then deletes it on exit.
 
@@ -285,11 +285,13 @@ def tempdir(override_dir=None):
     prevdir = os.getcwd()
 
     try:
-        os.chdir(tmpdir)
+        if change_into:
+            os.chdir(tmpdir)
         yield tmpdir
 
     finally:
-        os.chdir(prevdir)
+        if change_into:
+            os.chdir(prevdir)
         if override_dir is None:
             shutil.rmtree(tmpdir)
 
@@ -1393,6 +1395,13 @@ def check_rosetta_status(ctx):
                  '--agree-to-license\n', IMPORTANT)
         printmsg('Aborting installation', ERROR)
         sys.exit(1)
+    # pkgutil command not found - should
+    # never happen, but print a warning
+    # just in case
+    except Exception as e:
+        printmsg('An error occurred calling the pkgutil command - this '
+                 'may not be a problem, so I\'ll attempt to proceed '
+                 'with the installation. ({}'.format(e), WARNING)
 
 
 def list_available_versions(manifest):
