@@ -1594,7 +1594,7 @@ def install_miniconda(ctx):
 
     # Generate $FSLDIR/.condarc which contains
     # some default/fixed conda settings
-    condarc = generate_condarc(cxt.destdir,
+    condarc = generate_condarc(ctx.destdir,
                                ctx.environment_channels,
                                ctx.args.skip_ssl_verify)
     with open('.condarc', 'wt') as f:
