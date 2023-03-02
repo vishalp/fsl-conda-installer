@@ -29,6 +29,7 @@ import subprocess     as sp
 import textwrap       as tw
 import                   argparse
 import                   contextlib
+import                   datetime
 import                   fnmatch
 import                   getpass
 import                   hashlib
@@ -2229,9 +2230,17 @@ def handle_error(ctx):
             ctx.run(Process.check_call,
                     'mv {} {}'.format(ctx.old_destdir, ctx.destdir))
 
-        printmsg('\nFSL installation failed!', ERROR, EMPHASIS)
-        printmsg('The log file may contain some more information to help '
-                 'you diagnose the problem: {}'.format(ctx.logfile), ERROR)
+        # copy log file to ~/ so it is
+        # easier for the user to access
+        date    = datetime.datetime.today().strftime('%Y%m%d')
+        logfile = 'fsl_installation_{}.log'.format(date)
+        logfile = op.join(op.expanduser('~'), logfile)
+        shutil.copy(ctx.logfile, logfile)
+
+        printmsg('\nFSL installation failed!\n', ERROR, EMPHASIS)
+        printmsg('Please check the log file - it may contain some '
+                 'more information to help you diagnose the problem: '
+                 '{}\n'.format(logfile), WARNING, EMPHASIS)
         sys.exit(1)
 
 
