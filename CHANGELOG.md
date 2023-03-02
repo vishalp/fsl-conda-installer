@@ -1,6 +1,15 @@
 # FSL installer script release history
 
 
+# 3.4.0 (Thursday 2nd March 2023)
+
+ - Fix the conda package cache directory (the `pkgs_dirs` setting) at
+   `$FSLDIR/pkgs`, to avoid potential conflicts with user-configured package
+   caches.
+ - The installation log file is now copied to the user home directory on
+   failure.
+
+
 # 3.3.0 (Friday 27th January 2023)
 
  - Update the installer to install macOS-M1 FSL builds if available.
