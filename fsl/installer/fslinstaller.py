@@ -2238,7 +2238,7 @@ def handle_error(ctx):
 
         # copy log file to ~/ so it is
         # easier for the user to access
-        date    = datetime.datetime.today().strftime('%Y%m%d')
+        date    = datetime.datetime.today().strftime('%Y%m%d%H%M%S')
         logfile = 'fsl_installation_{}.log'.format(date)
         logfile = op.join(op.expanduser('~'), logfile)
         shutil.copy(ctx.logfile, logfile)
