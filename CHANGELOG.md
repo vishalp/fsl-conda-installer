@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.4.1 (Wednesday 8th March 2023)
+
+ - Make sure that the temporary installation directory is deleted as the root
+   user if necessary.
+
+
 # 3.4.0 (Thursday 2nd March 2023)
 
  - Fix the conda package cache directory (the `pkgs_dirs` setting) at
