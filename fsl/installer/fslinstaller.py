@@ -68,7 +68,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.4.0'
+__version__ = '3.4.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -254,7 +254,7 @@ def get_admin_password(action='install FSL'):
 
 
 def isstr(s):
-    """Returns True if s is a string, False otherwise, Works on python 2.7
+    """Returns True if s is a string, False otherwise. Works on python 2.7
     and >=3.3.
     """
     try:              return isinstance(s, basestring)
@@ -272,9 +272,9 @@ def match_any(s, patterns):
 
 
 @contextlib.contextmanager
-def tempdir(override_dir=None, change_into=True):
+def tempdir(override_dir=None, change_into=True, delete=True):
     """Returns a context manager which creates, changes into, and returns a
-    temporary directory, and then deletes it on exit.
+    temporary directory, and then deletes it on exit (unless delete is False).
 
     If override_dir is not None, instead of creating and changing into a
     temporary directory, this function just changes into override_dir.
@@ -293,7 +293,7 @@ def tempdir(override_dir=None, change_into=True):
     finally:
         if change_into:
             os.chdir(prevdir)
-        if override_dir is None:
+        if delete and override_dir is None:
             shutil.rmtree(tmpdir)
 
 
@@ -1787,11 +1787,16 @@ def finalise_installation(ctx):
         ctx.run(Process.check_call, cmd)
 
 
-def post_install_cleanup(ctx):
+def post_install_cleanup(ctx, tmpdir):
     """Cleans up the FSL directory after installation. """
 
-    cmd   = ctx.conda + ' clean -y --all'
-    ctx.run(Process.check_call, cmd)
+    cmds = [ctx.conda + ' clean -y --all']
+
+    if tmpdir is not None:
+        cmds.append('rm -rf ' + tmpdir)
+
+    for cmd in cmds:
+        ctx.run(Process.check_call, cmd)
 
 
 def patch_file(filename, searchline, numlines, content):
@@ -2289,7 +2294,15 @@ def main(argv=None):
 
     check_rosetta_status(ctx)
 
-    with tempdir(args.workdir):
+    # Do everything in a temporary directory,
+    # but don't delete it, as some operations
+    # may be run as root. The tempdir is
+    # deleted within the post_install_cleanup
+    # function.
+    with tempdir(args.workdir, delete=False) as tmpdir:
+
+        if args.workdir is not None:
+            tmpdir = None
 
         # Ask the user if they want to overwrite
         # an existing installation
@@ -2304,7 +2317,7 @@ def main(argv=None):
             install_miniconda(ctx)
             install_fsl(ctx)
             finalise_installation(ctx)
-            post_install_cleanup(ctx)
+            post_install_cleanup(ctx, tmpdir)
 
     if not args.no_shell:
         configure_shell(ctx.shell, args.homedir, ctx.destdir)
