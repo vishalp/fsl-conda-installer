@@ -78,6 +78,10 @@ DEFAULT_INSTALLATION_DIRECTORY = op.join(op.expanduser('~'), 'fsl')
 """Default FSL installation directory. """
 
 
+DEFAULT_ROOT_INSTALLATION_DIRECTORY = '/usr/local/fsl/'
+"""Default FSL installation directory when the installer is run as root. """
+
+
 FSL_RELEASE_MANIFEST = 'https://fsl.fmrib.ox.ac.uk/fsldownloads/' \
                        'fslconda/releases/manifest.json'
 """URL to download the FSL installer manifest file from. The installer
@@ -1218,6 +1222,9 @@ class Context(object):
         if self.__destdir is not None:
             return self.__destdir
 
+        if os.getuid() != 0: defdestdir = DEFAULT_INSTALLATION_DIRECTORY
+        else:                defdestdir = DEFAULT_ROOT_INSTALLATION_DIRECTORY
+
         # The loop below validates the destination directory
         # both when specified at commmand line or
         # interactively.  In either case, if invalid, the
@@ -1232,13 +1239,13 @@ class Context(object):
                 printmsg('\nWhere do you want to install FSL?',
                          IMPORTANT, EMPHASIS)
                 printmsg('Press enter to install to the default location '
-                         '[{}]\n'.format(DEFAULT_INSTALLATION_DIRECTORY), INFO)
+                         '[{}]\n'.format(defdestdir), INFO)
                 response = prompt('FSL installation directory [{}]:'.format(
-                    DEFAULT_INSTALLATION_DIRECTORY), QUESTION, EMPHASIS)
+                    defdestdir), QUESTION, EMPHASIS)
                 response = response.rstrip(op.sep)
 
                 if response == '':
-                    response = DEFAULT_INSTALLATION_DIRECTORY
+                    response = defdestdir
 
             response  = op.expanduser(op.expandvars(response))
             response  = op.abspath(response)
@@ -2016,6 +2023,9 @@ def parse_args(argv=None, include=None):
                   of None for all arguments that are not included.
     """
 
+    if os.getuid() != 0: destdir = DEFAULT_INSTALLATION_DIRECTORY
+    else:                destdir = DEFAULT_ROOT_INSTALLATION_DIRECTORY
+
     username = os.environ.get('FSLCONDA_USERNAME', None)
     password = os.environ.get('FSLCONDA_PASSWORD', None)
 
@@ -2053,11 +2063,13 @@ def parse_args(argv=None, include=None):
         'version'      : 'Print installer version number and exit',
         'listversions' : 'List available FSL versions and exit',
         'dest'         : 'Install FSL into this folder (default: '
-                         '{})'.format(DEFAULT_INSTALLATION_DIRECTORY),
+                         '{})'.format(destdir),
         'overwrite'    : 'Delete existing destination directory if it exists, '
                          'without asking',
         'no_env'       : 'Do not modify your shell or MATLAB configuration '
-                         'implies --no_shell and --no_matlab)',
+                         '(implies --no_shell and --no_matlab). When running '
+                         'the installer script as the root user, the root '
+                         'shell profile is never modified.',
         'no_shell'     : 'Do not modify your shell configuration',
         'no_matlab'    : 'Do not modify your MATLAB configuration',
         'fslversion'   : 'Install this specific version of FSL',
@@ -2147,6 +2159,11 @@ def parse_args(argv=None, include=None):
             printmsg('Home directory {} does not exist!'.format(args.homedir),
                      ERROR, EMPHASIS)
             sys.exit(1)
+
+    # --no-env is automatically enabled
+    #  when installer is run as root
+    if os.getuid() == 0:
+        args.no_env = True
 
     # don't modify shell profile
     if args.no_env:
