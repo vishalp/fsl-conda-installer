@@ -241,7 +241,8 @@ def test_installer_normal_cli_usage():
                 with inst.tempdir() as cwd:
                     inst.main(['--homedir', cwd,
                                '--dest', 'fsl',
-                               '--fslversion', '6.1.0'])
+                               '--fslversion', '6.1.0',
+                               '--root_env'])
                     check_install(cwd, 'fsl', '6.1.0')
                     shutil.rmtree('fsl')
 
