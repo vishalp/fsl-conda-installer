@@ -2054,6 +2054,7 @@ def parse_args(argv=None, include=None):
         'miniconda'       : (None, {}),
         'no_self_update'  : (None, {'action'  : 'store_true'}),
         'exclude_package' : (None, {'action'  : 'append'}),
+        'root_env'        : (None, {'action'  : 'store_true'}),
     }
 
     if include is None:
