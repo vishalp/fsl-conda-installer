@@ -2131,6 +2131,11 @@ def parse_args(argv=None, include=None):
         # fnmatch-style wildcard pattern. Can
         # be used multiple times.
         'exclude_package' : argparse.SUPPRESS,
+
+        # If the installer is run as root, the
+        # --no_env flag is automatically enabled
+        # UNLESS this flag is also provided.
+        'root_env'        : argparse.SUPPRESS,
     }
 
     # parse args
@@ -2162,7 +2167,7 @@ def parse_args(argv=None, include=None):
 
     # --no-env is automatically enabled
     #  when installer is run as root
-    if os.getuid() == 0:
+    if os.getuid() == 0 and not (args.root_env):
         args.no_env = True
 
     # don't modify shell profile
