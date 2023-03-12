@@ -1,6 +1,13 @@
 # FSL installer script release history
 
 
+# 3.4.2 (Sunday 12th March 2023)
+
+ - Change the default installation directory to `/usr/local/fsl/` when the
+   `fslinstaller.py` script is run as the root user. Additionally, do not
+   modify the root user's shell profile.
+
+
 # 3.4.1 (Wednesday 8th March 2023)
 
  - Make sure that the temporary installation directory is deleted as the root
