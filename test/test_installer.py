@@ -196,7 +196,7 @@ def test_installer_normal_interactive_usage():
                                  op.abspath('fsl')]
                         dest  = dests[i]
                         with mock_input(dest):
-                            inst.main(['--homedir', cwd])
+                            inst.main(['--homedir', cwd, '--root_env'])
                         check_install(cwd, dest, '6.2.0')
                         shutil.rmtree(dest)
 
@@ -233,7 +233,7 @@ def test_installer_normal_cli_usage():
                     with inst.tempdir() as cwd:
                         dests = ['fsl', op.join('.', 'fsl'), op.abspath('fsl')]
                         dest  = dests[i]
-                        inst.main(['--homedir', cwd, '--dest', dest])
+                        inst.main(['--homedir', cwd, '--dest', dest, '--root_env'])
                         check_install(cwd, dest, '6.2.0')
                         shutil.rmtree(dest)
 
@@ -271,20 +271,20 @@ def test_installer_devrelease():
                 with inst.tempdir() as cwd:
                     dest = 'fsl'
                     with mock_input('2', dest):
-                        inst.main(['--homedir', cwd, '--devrelease'])
+                        inst.main(['--homedir', cwd, '--devrelease', '--root_env'])
                     check_install(cwd, dest, '6.1.0.20220519', '6.2.0')
                     shutil.rmtree(dest)
                 # default option is newest devrelease
                 with inst.tempdir() as cwd:
                     dest = 'fsl'
                     with mock_input('', dest):
-                        inst.main(['--homedir', cwd, '--devrelease'])
+                        inst.main(['--homedir', cwd, '--devrelease', '--root_env'])
                     check_install(cwd, dest, '6.1.0.20220520', '6.2.0')
                     shutil.rmtree(dest)
 
                 with inst.tempdir() as cwd:
                     dest = 'fsl'
                     with mock_input(dest):
-                        inst.main(['--homedir', cwd, '--devlatest'])
+                        inst.main(['--homedir', cwd, '--devlatest', '--root_env'])
                     check_install(cwd, dest, '6.1.0.20220520', '6.2.0')
                     shutil.rmtree(dest)
