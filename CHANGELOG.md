@@ -1,6 +1,15 @@
 # FSL installer script release history
 
 
+# 3.5.0 (Wednesday 22nd March 2023)
+
+
+ - Correctly determine the `root` user home directory in case the user
+   has requested that the `root` user's shell profile should be modified.
+ - New hidden `--debug` option, which enables very verbose output logging
+   from `mamba` / `conda`.
+
+
 # 3.4.2 (Sunday 12th March 2023)
 
  - Change the default installation directory to `/usr/local/fsl/` when the
