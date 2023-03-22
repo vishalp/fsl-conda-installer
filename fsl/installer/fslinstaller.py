@@ -37,6 +37,7 @@ import                   json
 import                   logging
 import                   os
 import                   platform
+import                   pwd
 import                   readline
 import                   shlex
 import                   shutil
@@ -68,7 +69,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.4.2'
+__version__ = '3.5.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1771,6 +1772,12 @@ def install_fsl(ctx):
     # We install FSL simply by running conda env
     # update -f env.yml.
     cmd = ctx.conda + ' env update -n base -f ' + ctx.environment_file
+
+    # Make conda/mamba super verbose if the
+    # hidden --debug option was specified.
+    if ctx.args.debug:
+        cmd += ' -v -v -v'
+
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
     ctx.run(Process.monitor_progress, cmd,
             timeout=1, total=progval, progfunc=progfunc)
@@ -2023,8 +2030,24 @@ def parse_args(argv=None, include=None):
                   of None for all arguments that are not included.
     """
 
-    if os.getuid() != 0: destdir = DEFAULT_INSTALLATION_DIRECTORY
-    else:                destdir = DEFAULT_ROOT_INSTALLATION_DIRECTORY
+    uid = os.getuid()
+
+    if uid != 0: destdir = DEFAULT_INSTALLATION_DIRECTORY
+    else:        destdir = DEFAULT_ROOT_INSTALLATION_DIRECTORY
+
+    # on macOS, when Python is run with sudo,
+    # op.expanduser('~') will return the
+    # calling user's home directory, and not
+    # the root home directory. This doesn't
+    # really matter, as homedir is only used
+    # for modifying the shell/matlab profile,
+    # and this is automatically disabled via
+    # the --no_env option when run as root. But
+    # in case the user wants the root shell
+    # profile modified (via the hidden
+    # --root_env option), we use getpwuid to
+    # determine the appropriate home directory.
+    homedir = pwd.getpwuid(uid).pw_dir
 
     username = os.environ.get('FSLCONDA_USERNAME', None)
     password = os.environ.get('FSLCONDA_PASSWORD', None)
@@ -2042,12 +2065,13 @@ def parse_args(argv=None, include=None):
         'fslversion'   : ('-V', {'default' : 'latest'}),
 
         # hidden options
+        'debug'           : (None, {'action'  : 'store_true'}),
         'username'        : (None, {'default' : username}),
         'password'        : (None, {'default' : password}),
         'no_checksum'     : (None, {'action'  : 'store_true'}),
         'skip_ssl_verify' : (None, {'action'  : 'store_true'}),
         'workdir'         : (None, {}),
-        'homedir'         : (None, {'default' : op.expanduser('~')}),
+        'homedir'         : (None, {'default' : homedir}),
         'devrelease'      : (None, {'action'  : 'store_true'}),
         'devlatest'       : (None, {'action'  : 'store_true'}),
         'manifest'        : (None, {}),
@@ -2074,6 +2098,10 @@ def parse_args(argv=None, include=None):
         'no_shell'     : 'Do not modify your shell configuration',
         'no_matlab'    : 'Do not modify your MATLAB configuration',
         'fslversion'   : 'Install this specific version of FSL',
+
+        # Enable verbose output when calling
+        # mamba/conda.
+        'debug'           : argparse.SUPPRESS,
 
         # Username / password for accessing
         # internal FSL conda channel, if an
