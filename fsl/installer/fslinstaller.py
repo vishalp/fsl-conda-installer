@@ -37,6 +37,7 @@ import                   json
 import                   logging
 import                   os
 import                   platform
+import                   pwd
 import                   readline
 import                   shlex
 import                   shutil
@@ -2023,8 +2024,24 @@ def parse_args(argv=None, include=None):
                   of None for all arguments that are not included.
     """
 
-    if os.getuid() != 0: destdir = DEFAULT_INSTALLATION_DIRECTORY
-    else:                destdir = DEFAULT_ROOT_INSTALLATION_DIRECTORY
+    uid = os.getuid()
+
+    if uid != 0: destdir = DEFAULT_INSTALLATION_DIRECTORY
+    else:        destdir = DEFAULT_ROOT_INSTALLATION_DIRECTORY
+
+    # on macOS, when Python is run with sudo,
+    # op.expanduser('~') will return the
+    # calling user's home directory, and not
+    # the root home directory. This doesn't
+    # really matter, as homedir is only used
+    # for modifying the shell/matlab profile,
+    # and this is automatically disabled via
+    # the --no_env option when run as root. But
+    # in case the user wants the root shell
+    # profile modified (via the hidden
+    # --root_env option), we use getpwuid to
+    # determine the appropriate home directory.
+    homedir = pwd.getpwuid(uid).pw_dir
 
     username = os.environ.get('FSLCONDA_USERNAME', None)
     password = os.environ.get('FSLCONDA_PASSWORD', None)
@@ -2047,7 +2064,7 @@ def parse_args(argv=None, include=None):
         'no_checksum'     : (None, {'action'  : 'store_true'}),
         'skip_ssl_verify' : (None, {'action'  : 'store_true'}),
         'workdir'         : (None, {}),
-        'homedir'         : (None, {'default' : op.expanduser('~')}),
+        'homedir'         : (None, {'default' : homedir}),
         'devrelease'      : (None, {'action'  : 'store_true'}),
         'devlatest'       : (None, {'action'  : 'store_true'}),
         'manifest'        : (None, {}),
