@@ -1772,6 +1772,12 @@ def install_fsl(ctx):
     # We install FSL simply by running conda env
     # update -f env.yml.
     cmd = ctx.conda + ' env update -n base -f ' + ctx.environment_file
+
+    # Make conda/mamba super verbose if the
+    # hidden --debug option was specified.
+    if ctx.args.debug:
+        cmd += ' -v -v -v'
+
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
     ctx.run(Process.monitor_progress, cmd,
             timeout=1, total=progval, progfunc=progfunc)
@@ -2059,6 +2065,7 @@ def parse_args(argv=None, include=None):
         'fslversion'   : ('-V', {'default' : 'latest'}),
 
         # hidden options
+        'debug'           : (None, {'action'  : 'store_true'}),
         'username'        : (None, {'default' : username}),
         'password'        : (None, {'default' : password}),
         'no_checksum'     : (None, {'action'  : 'store_true'}),
@@ -2091,6 +2098,10 @@ def parse_args(argv=None, include=None):
         'no_shell'     : 'Do not modify your shell configuration',
         'no_matlab'    : 'Do not modify your MATLAB configuration',
         'fslversion'   : 'Install this specific version of FSL',
+
+        # Enable verbose output when calling
+        # mamba/conda.
+        'debug'           : argparse.SUPPRESS,
 
         # Username / password for accessing
         # internal FSL conda channel, if an
