@@ -1,8 +1,12 @@
 # FSL installer script release history
 
 
-# 3.5.0 (Wednesday 22nd March 2023)
+# 3.5.1 (Monday 5th June 2023)
 
+ - Print a message on attempts to install versions of FSL older than 6.0.6.
+
+
+# 3.5.0 (Wednesday 22nd March 2023)
 
  - Correctly determine the `root` user home directory in case the user
    has requested that the `root` user's shell profile should be modified.
