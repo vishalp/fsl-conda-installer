@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.5.2 (Friday 23rd June 2023)
+
+ - New `--conda` option which causes the installer to use `conda` instead of
+   `mamba`.
+
+
 # 3.5.1 (Monday 5th June 2023)
 
  - Print a message on attempts to install versions of FSL older than 6.0.6.
