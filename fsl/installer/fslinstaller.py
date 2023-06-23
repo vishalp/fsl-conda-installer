@@ -69,7 +69,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.5.1'
+__version__ = '3.5.2'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1265,10 +1265,14 @@ class Context(object):
     @property
     def conda(self):
         """Return a path to the ``conda`` or ``mamba`` executable. """
+
+        condabin = op.join(self.destdir, 'bin', 'conda')
+        mambabin = op.join(self.destdir, 'bin', 'mamba')
+
         # If mamba is present, prefer it over conda
-        candidates = [
-            op.join(self.destdir, 'bin', 'mamba'),
-            op.join(self.destdir, 'bin', 'conda')]
+        if not self.args.conda: candidates = [mambabin, condabin]
+        else:                   candidates = [condabin, mambabin]
+
         for c in candidates:
             if op.exists(c):
                 return c
@@ -2076,6 +2080,7 @@ def parse_args(argv=None, include=None):
         'devlatest'       : (None, {'action'  : 'store_true'}),
         'manifest'        : (None, {}),
         'miniconda'       : (None, {}),
+        'conda'           : (None, {'action'  : 'store_true'}),
         'no_self_update'  : (None, {'action'  : 'store_true'}),
         'exclude_package' : (None, {'action'  : 'append'}),
         'root_env'        : (None, {'action'  : 'store_true'}),
@@ -2136,6 +2141,9 @@ def parse_args(argv=None, include=None):
         # instead of the one specified in the
         # FSL release manifest
         'miniconda'       : argparse.SUPPRESS,
+
+        # Use conda and not mamba
+        'conda'           : argparse.SUPPRESS,
 
         # Print debugging messages
         'debug'           : argparse.SUPPRESS,
