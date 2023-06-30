@@ -69,7 +69,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.5.2'
+__version__ = '3.5.3'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -2189,7 +2189,7 @@ def parse_args(argv=None, include=None):
     # but will be parsed after self_update
     args = parser.parse_known_args(argv)[0]
 
-    if args.fslversion != 'latest':
+    if getattr(args, 'fslversion', 'latest') != 'latest':
         if Version(args.fslversion) < Version('6.0.6'):
             printmsg(
                 'This script can only be used to install FSL 6.0.6 or newer. '
