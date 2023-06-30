@@ -1,5 +1,9 @@
 # FSL installer script release history
 
+# 3.5.3 (Friday 30th June 2023)
+
+ - Small fix to support programmatic usage.
+
 
 # 3.5.2 (Friday 23rd June 2023)
 
