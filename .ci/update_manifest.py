@@ -17,7 +17,8 @@ from fsl_ci        import (USERNAME,
                            sprun)
 from fsl_ci.gitlab import (gen_repository_url,
                            open_merge_request,
-                           gen_branch_name)
+                           gen_branch_name,
+                           get_default_branch)
 
 
 MANIFEST_PATH = 'fsl/conda/manifest'
@@ -84,7 +85,7 @@ def main(server=None, token=None, tag=None):
     if token  is None: token  = os.environ['FSL_CI_API_TOKEN']
     if tag    is None: tag    = os.environ['CI_COMMIT_TAG']
 
-    destination = 'master'
+    destination = get_default_branch(MANIFEST_PATH, server, token)
     branch = checkout_and_update_manifest(server, token, tag, destination)
     open_merge_request(MANIFEST_PATH,
                        branch,
