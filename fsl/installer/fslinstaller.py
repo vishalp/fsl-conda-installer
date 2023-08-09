@@ -69,7 +69,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.5.3'
+__version__ = '3.5.4'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -381,6 +381,10 @@ def install_environ(fsldir, username=None, password=None):
               'HTTP_PROXY', 'HTTPS_PROXY']:
         if v in os.environ:
             env[v] = os.environ[v]
+
+    # Tell mamba not to abort if the download is taking time
+    # https://github.com/mamba-org/mamba/issues/1941
+    env['MAMBA_NO_LOW_SPEED_LIMIT'] = '1'
 
     # FSL environments which source packages from the internal
     # FSL conda channel will refer to the channel as:
@@ -1913,6 +1917,7 @@ def configure_shell(shell, homedir, fsldir):
 
     patch_file(profile, '# FSL Setup', len(cfg.split('\n')), cfg)
 configure_shell.shell_profiles = {'sh'   : ['.profile'],
+                                  'ksh'  : ['.profile'],
                                   'bash' : ['.bash_profile', '.profile'],
                                   'dash' : ['.bash_profile', '.profile'],
                                   'zsh'  : ['.zprofile'],

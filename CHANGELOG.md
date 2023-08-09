@@ -1,5 +1,12 @@
 # FSL installer script release history
 
+
+# 3.5.4 (Wednesday 9th August 2023)
+
+ - Set the `MAMBA_NO_LOW_SPEED_LIMIT` environment variable when calling
+   `mamba`, so that it does not abort on slow downloads.
+
+
 # 3.5.3 (Friday 30th June 2023)
 
  - Small fix to support programmatic usage.
