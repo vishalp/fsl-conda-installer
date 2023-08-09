@@ -384,7 +384,7 @@ def install_environ(fsldir, username=None, password=None):
 
     # Tell mamba not to abort if the download is taking time
     # https://github.com/mamba-org/mamba/issues/1941
-    env['MAMBA_NO_LOW_SPEED_LIMIT'] = 1
+    env['MAMBA_NO_LOW_SPEED_LIMIT'] = '1'
 
     # FSL environments which source packages from the internal
     # FSL conda channel will refer to the channel as:
