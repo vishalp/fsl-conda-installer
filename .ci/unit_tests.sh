@@ -13,4 +13,4 @@ fi
 
 pip install --upgrade pip setuptools wheel
 pip install pytest coverage pytest-cov mock typing
-pytest -v --cov=fsl test
+pytest
