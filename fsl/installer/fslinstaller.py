@@ -1077,6 +1077,9 @@ class Context(object):
         :arg action:  Passed to get_admin_password as a prompt.
         """
 
+        if destdir is not None:
+            destdir = op.abspath(destdir)
+
         self.args  = args
         self.shell = op.basename(os.environ.get('SHELL', 'sh')).lower()
 
@@ -1300,7 +1303,7 @@ class Context(object):
         """
         # need_admin may be None or False,
         # so don't rely on truthiness.
-        if self.__need_admin == False:
+        if not self.need_admin:
             return None
         if self.__admin_password is None:
             self.__admin_password = get_admin_password(self.__action)
