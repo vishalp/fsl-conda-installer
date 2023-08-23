@@ -1,0 +1,54 @@
+[build-system]
+requires      = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name            = "fslinstaller"
+dynamic         = ["version"]
+description     = "Scripts to install and update FSL"
+readme          = {file = "README.md", content-type="text/markdown"}
+license         = {text = "Apache License Version 2.0"}
+requires-python = ">=3.8"
+authors         = [{name = "Paul McCarthy", email = "paul.mccarthy@ndcn.ox.ac.uk"}]
+
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 2.7",
+  "Programming Language :: Python :: 3.3",
+  "Programming Language :: Python :: 3.4",
+  "Programming Language :: Python :: 3.5",
+  "Programming Language :: Python :: 3.6",
+  "Programming Language :: Python :: 3.7",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Software Development :: Libraries :: Python Modules"
+]
+
+
+[project.urls]
+"Repository" = "https://git.fmrib.ox.ac.uk/fsl/conda/installer"
+
+
+
+[tool.setuptools.packages.find]
+include = ["fsl*"]
+
+
+[tool.setuptools.dynamic]
+version = {attr = "fsl.installer.fslinstaller.__version__"}
+
+
+[tool.coverage.run]
+include = ["fsl/*"]
+omit    = ["tests/*"]
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts   = "-v --cov=fsl --showlocals"
