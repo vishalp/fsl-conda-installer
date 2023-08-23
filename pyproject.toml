@@ -46,9 +46,9 @@ version = {attr = "fsl.installer.fslinstaller.__version__"}
 
 [tool.coverage.run]
 include = ["fsl/*"]
-omit    = ["tests/*"]
+omit    = ["test/*"]
 
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["test"]
 addopts   = "-v --cov=fsl --showlocals"
