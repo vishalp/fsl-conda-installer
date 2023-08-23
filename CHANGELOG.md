@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.5.6 (Wednesday 23rd August 2023)
+
+ - Fixed a bug which was affecting `fsl_update_release`, and which would
+   cause `None` to be returned instead of the adminsitrator password
+
+
 # 3.5.5 (Wednesday 9th August 2023)
 
  - Administrative/maintenance updates.

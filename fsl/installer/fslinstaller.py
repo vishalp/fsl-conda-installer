@@ -69,7 +69,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.5.5'
+__version__ = '3.5.6'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1077,6 +1077,9 @@ class Context(object):
         :arg action:  Passed to get_admin_password as a prompt.
         """
 
+        if destdir is not None:
+            destdir = op.abspath(destdir)
+
         self.args  = args
         self.shell = op.basename(os.environ.get('SHELL', 'sh')).lower()
 
@@ -1298,13 +1301,13 @@ class Context(object):
     def admin_password(self):
         """Returns the user's administrator password, prompting them if needed.
         """
-        if self.__admin_password is not None:
-            return self.__admin_password
         # need_admin may be None or False,
         # so don't rely on truthiness.
-        if self.__need_admin == False:
+        if not self.need_admin:
             return None
-        self.__admin_password = get_admin_password(self.__action)
+        if self.__admin_password is None:
+            self.__admin_password = get_admin_password(self.__action)
+        return self.__admin_password
 
 
     @property

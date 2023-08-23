@@ -4,7 +4,7 @@
 # time commits are pushed to any branch.
 
 # The check-version stage is run on
-# non-master branches - it checks that the
+# non-main branches - it checks that the
 # fslinstaller version has been changed.
 
 # The release stage is run every time a new
@@ -110,7 +110,7 @@ check-version:
     - fsl-ci
     - docker
   rules:
-    - if: '$CI_COMMIT_TAG == null && $CI_COMMIT_BRANCH != "master"'
+    - if: '$CI_COMMIT_TAG == null && $CI_COMMIT_BRANCH != "main"'
   script:
     - bash ./.ci/check_version.sh
 

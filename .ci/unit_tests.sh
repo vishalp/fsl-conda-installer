@@ -13,4 +13,8 @@ fi
 
 pip install --upgrade pip setuptools wheel
 pip install pytest coverage pytest-cov mock typing
-pytest -v --cov=fsl test
+
+# some tests will fail if run as root
+chmod a+rwx .
+su -s /bin/bash nobody -c "pytest -m      noroottest  --cov-report= --cov-append"
+pytest -m "not noroottest"
