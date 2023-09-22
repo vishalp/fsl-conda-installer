@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.5.7 (Friday 22nd September 2023)
+
+ - Allow an existing `ArgumentParser` to be passed to the `parse_args`
+   function.
+
+
 # 3.5.6 (Wednesday 23rd August 2023)
 
  - Fixed a bug which was affecting `fsl_update_release`, and which would
