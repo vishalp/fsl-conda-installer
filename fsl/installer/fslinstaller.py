@@ -358,7 +358,7 @@ def clean_environ():
     """
     env = os.environ.copy()
     for v in list(env.keys()):
-        if any(('FSL' in v, 'CONDA' in v, 'PYTHON' in v)):
+        if any(('FSL' in v, 'CONDA' in v, 'MAMBA' in v, 'PYTHON' in v)):
             env.pop(v)
     return env
 
@@ -2307,6 +2307,11 @@ def handle_error(ctx):
         # send traceback to log file
         tb = traceback.format_tb(sys.exc_info()[2])
         log.debug(''.join(tb))
+
+        # send env to logfile
+        log.debug('Environment variables:')
+        for k, v in os.environ.items():
+            log.debug('{}={}'.format(k, v))
 
         if op.exists(ctx.destdir):
             printmsg('Removing failed installation directory '
