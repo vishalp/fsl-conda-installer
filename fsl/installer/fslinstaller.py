@@ -69,7 +69,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.5.7'
+__version__ = '3.5.8'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1230,8 +1230,11 @@ class Context(object):
         if self.__destdir is not None:
             return self.__destdir
 
-        if os.getuid() != 0: defdestdir = DEFAULT_INSTALLATION_DIRECTORY
-        else:                defdestdir = DEFAULT_ROOT_INSTALLATION_DIRECTORY
+        fsldir = os.environ.get('FSLDIR', None)
+
+        if fsldir is not None: defdestdir = fsldir
+        elif os.getuid() != 0: defdestdir = DEFAULT_INSTALLATION_DIRECTORY
+        else:                  defdestdir = DEFAULT_ROOT_INSTALLATION_DIRECTORY
 
         # The loop below validates the destination directory
         # both when specified at commmand line or
