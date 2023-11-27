@@ -69,7 +69,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.5.7'
+__version__ = '3.5.8'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -358,7 +358,7 @@ def clean_environ():
     """
     env = os.environ.copy()
     for v in list(env.keys()):
-        if any(('FSL' in v, 'CONDA' in v, 'PYTHON' in v)):
+        if any(('FSL' in v, 'CONDA' in v, 'MAMBA' in v, 'PYTHON' in v)):
             env.pop(v)
     return env
 
@@ -1230,8 +1230,11 @@ class Context(object):
         if self.__destdir is not None:
             return self.__destdir
 
-        if os.getuid() != 0: defdestdir = DEFAULT_INSTALLATION_DIRECTORY
-        else:                defdestdir = DEFAULT_ROOT_INSTALLATION_DIRECTORY
+        fsldir = os.environ.get('FSLDIR', None)
+
+        if fsldir is not None: defdestdir = fsldir
+        elif os.getuid() != 0: defdestdir = DEFAULT_INSTALLATION_DIRECTORY
+        else:                  defdestdir = DEFAULT_ROOT_INSTALLATION_DIRECTORY
 
         # The loop below validates the destination directory
         # both when specified at commmand line or
@@ -2307,6 +2310,11 @@ def handle_error(ctx):
         # send traceback to log file
         tb = traceback.format_tb(sys.exc_info()[2])
         log.debug(''.join(tb))
+
+        # send env to logfile
+        log.debug('Environment variables:')
+        for k, v in os.environ.items():
+            log.debug('{}={}'.format(k, v))
 
         if op.exists(ctx.destdir):
             printmsg('Removing failed installation directory '

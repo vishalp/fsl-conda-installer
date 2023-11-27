@@ -247,6 +247,23 @@ def test_installer_normal_cli_usage():
                     shutil.rmtree('fsl')
 
 
+def test_installer_fsldir_already_set():
+    with inst.tempdir():
+        existing_fsldir = op.abspath(op.join('.', 'usr', 'local', 'fsl'))
+        os.makedirs(existing_fsldir)
+        with installer_server() as srv, \
+             mock.patch.dict(os.environ, FSLDIR=existing_fsldir):
+            with mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                            '{}/manifest.json'.format(srv.url)):
+
+                with inst.tempdir() as cwd:
+                    # hit enter to accept default installation
+                    # directory, then 'y' to confirm overwrite
+                    with mock_input('', 'y'):
+                        inst.main(['--homedir', cwd, '--root_env'])
+                    check_install(cwd, existing_fsldir, '6.2.0')
+
+
 def test_installer_devrelease():
     with inst.tempdir():
         with installer_server() as srv:
