@@ -1,6 +1,11 @@
 # FSL installer script release history
 
 
+# 3.5.8 (Monday 27th November 2023)
+
+ - Set the installation directory to `$FSLDIR` if it is set in the environment.
+
+
 # 3.5.7 (Friday 22nd September 2023)
 
  - Allow an existing `ArgumentParser` to be passed to the `parse_args`
