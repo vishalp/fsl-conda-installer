@@ -257,7 +257,10 @@ def test_installer_fsldir_already_set():
                             '{}/manifest.json'.format(srv.url)):
 
                 with inst.tempdir() as cwd:
-                    inst.main(['--homedir', cwd, '--root_env'])
+                    # hit enter to accept default installation
+                    # directory, then 'y' to confirm overwrite
+                    with mock_input('', 'y'):
+                        inst.main(['--homedir', cwd, '--root_env'])
                     check_install(cwd, existing_fsldir, '6.2.0')
 
 
