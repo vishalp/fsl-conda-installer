@@ -145,7 +145,10 @@ def installer_server(cwd=None):
         yield srv
 
 
-def check_install(homedir, destdir, version, envver=None):
+def check_install(homedir, destdir, version,
+                  envver=None,
+                  postinst=True,
+                  finalise=True):
     # the devrelease test patches the manifest
     # file with devrelease versions, but leaves
     # the env files untouched, and referring to
@@ -171,13 +174,16 @@ def check_install(homedir, destdir, version, envver=None):
             assert f.read().strip() == exp
 
         # added by our mock conda clean call
-        assert op.exists(op.join(destdir, 'cleaned'))
+        if postinst:
+            assert op.exists(op.join(destdir, 'cleaned'))
+
+        assert op.exists(op.join(homedir, 'Documents', 'MATLAB'))
 
         # added by the fslinstaller
-        with open(op.join(etc, 'fslversion'), 'rt') as f:
-            assert f.read().strip() == version
-        assert op.exists(op.join(etc,     'env-{}.yml'.format(envver)))
-        assert op.exists(op.join(homedir, 'Documents', 'MATLAB'))
+        if finalise:
+            with open(op.join(etc, 'fslversion'), 'rt') as f:
+                assert f.read().strip() == version
+            assert op.exists(op.join(etc, 'env-{}.yml'.format(envver)))
 
         if profile is not None:
             assert any([op.exists(op.join(homedir, p)) for p in profile])
@@ -306,3 +312,39 @@ def test_installer_devrelease():
                         inst.main(['--homedir', cwd, '--devlatest', '--root_env'])
                     check_install(cwd, dest, '6.1.0.20220520', '6.2.0')
                     shutil.rmtree(dest)
+
+
+# finalise_installation or post_install_cleanup failures
+# should not result in installation failure
+def test_installer_finalise_or_post_cleanup_failure():
+
+    # make the clean step fail
+    @inst.warn_on_error('Warning')
+    def failing_finalise_installation(*a, **kwa):
+        raise RuntimeError()
+
+    @inst.warn_on_error('Warning')
+    def failing_post_install_cleanup(*a, **kwa):
+        raise RuntimeError()
+
+    with inst.tempdir(), \
+         installer_server() as srv, \
+         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                    '{}/manifest.json'.format(srv.url)), \
+         inst.tempdir() as cwd, \
+         mock.patch('fsl.installer.fslinstaller.finalise_installation',
+                    failing_finalise_installation):
+
+        inst.main(['--homedir', cwd, '--dest', 'fsl', '--root_env'])
+        check_install(cwd, 'fsl', '6.2.0', finalise=False)
+
+    with inst.tempdir(), \
+         installer_server() as srv, \
+         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                    '{}/manifest.json'.format(srv.url)), \
+         inst.tempdir() as cwd, \
+         mock.patch('fsl.installer.fslinstaller.post_install_cleanup',
+                    failing_post_install_cleanup):
+
+        inst.main(['--homedir', cwd, '--dest', 'fsl', '--root_env'])
+        check_install(cwd, 'fsl', '6.2.0', postinst=False)
