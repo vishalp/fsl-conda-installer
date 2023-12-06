@@ -69,7 +69,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.5.8'
+__version__ = '3.5.9'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -300,6 +300,29 @@ def tempdir(override_dir=None, change_into=True, delete=True):
             os.chdir(prevdir)
         if delete and override_dir is None:
             shutil.rmtree(tmpdir)
+
+
+def warn_on_error(*msgargs, **msgkwargs):
+    """Decorator which tries to run a function, and prints a message if it
+    fails. The arguments after the function are passed to the printmsg
+    function, e.g.:
+
+    @warn_on_error('Function failed!', WARNING)
+    def function(a, b):
+        ...
+
+    function('a', 'b')
+    """
+
+    def decorator(function):
+        def wrapper(*args, **kwargs):
+            try:
+                function(*args, **kwargs)
+            except Exception as e:
+                printmsg(*msgargs, **msgkwargs)
+                log.debug('%s', e, exc_info=True)
+        return wrapper
+    return decorator
 
 
 @contextlib.contextmanager
@@ -1797,6 +1820,9 @@ def install_fsl(ctx):
             timeout=1, total=progval, progfunc=progfunc)
 
 
+@warn_on_error('WARNING: The installation succeeded, but an error occurred '
+               'while creating $FSLDIR/etc/fslversion! There may be more '
+               'information in the log file.', WARNING, EMPHASIS)
 def finalise_installation(ctx):
     """Performs some finalisation tasks. Includes:
       - Saving the installed version to $FSLDIR/etc/fslversion
@@ -1815,6 +1841,9 @@ def finalise_installation(ctx):
         ctx.run(Process.check_call, cmd)
 
 
+@warn_on_error('WARNING: The installation succeeded, but an error occurred '
+               'while removing intermediate package files! There may be more '
+               'information in the log file.', WARNING, EMPHASIS)
 def post_install_cleanup(ctx, tmpdir):
     """Cleans up the FSL directory after installation. """
 
@@ -2342,6 +2371,7 @@ def handle_error(ctx):
                  'more information to help you diagnose the problem: '
                  '{}\n'.format(logfile), WARNING, EMPHASIS)
         sys.exit(1)
+
 
 
 def main(argv=None):

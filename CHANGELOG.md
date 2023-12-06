@@ -1,6 +1,11 @@
 # FSL installer script release history
 
 
+# 3.5.9 (Wednesday 6th November 2023)
+
+ - Make post-installation failures non-fatal.
+
+
 # 3.5.8 (Monday 27th November 2023)
 
  - Set the installation directory to `$FSLDIR` if it is set in the environment.
