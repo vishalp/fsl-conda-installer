@@ -444,12 +444,23 @@ def download_file(url,
     # context to disable SSL verification.
     # Otherwise pass None causes urlopen to
     # use default behaviour. The context
-    # argument is not available in py3.3
+    # argument is not available in py3.3, so
+    # we cannot disable SSL verification if
+    # running with py3.3.
     kwargs = {}
     if (not ssl_verify) and (PYVER != (3, 3)):
         printmsg('Skipping SSL verification - this '
                  'is not recommended!', WARNING)
-        kwargs['context'] = ssl.SSLContext(ssl.PROTOCOL_TLS)
+
+        # PROTOCOL_TLS deprecated in py3.10
+        if PYVER < (3, 10):
+            sslctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        else:
+            sslctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+        sslctx.check_hostname = False
+        sslctx.verify_mode    = ssl.CERT_NONE
+        kwargs['context']     = sslctx
 
     req = None
 
