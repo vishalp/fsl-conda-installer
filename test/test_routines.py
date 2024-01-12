@@ -110,6 +110,15 @@ def test_download_file():
             assert f.read() == 'hello\n'
 
 
+def test_download_file_skip_ssl_verify():
+
+    with inst.tempdir() as cwd:
+        inst.download_file(inst.FSL_RELEASE_MANIFEST, 'manifest1.json',
+                           ssl_verify=True)
+        inst.download_file(inst.FSL_RELEASE_MANIFEST, 'manifest2.json',
+                           ssl_verify=False)
+
+
 def test_patch_file():
 
     content = tw.dedent("""

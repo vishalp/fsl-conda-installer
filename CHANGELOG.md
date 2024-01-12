@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.5.10 (Friday 12th November 2023)
+
+ - Make sure that SSL verification is disabled for all downloads, if requested
+   via the hidden `--skip_ssl_verify` option.
+
+
 # 3.5.9 (Wednesday 6th November 2023)
 
  - Make post-installation failures non-fatal.
