@@ -443,24 +443,33 @@ def download_file(url,
     # We create and use an unconfigured SSL
     # context to disable SSL verification.
     # Otherwise pass None causes urlopen to
-    # use default behaviour. The context
-    # argument is not available in py3.3, so
-    # we cannot disable SSL verification if
-    # running with py3.3.
+    # use default behaviour.
     kwargs = {}
-    if (not ssl_verify) and (PYVER != (3, 3)):
-        printmsg('Skipping SSL verification - this '
-                 'is not recommended!', WARNING)
+    if not ssl_verify:
 
-        # PROTOCOL_TLS deprecated in py3.10
-        if PYVER < (3, 10):
-            sslctx = ssl.SSLContext(ssl.PROTOCOL_TLS)
+        # - The urlopen(context) argument is not available in py3.3
+        # - py3.4 does not have PROTOCOL_TLS
+        # - PROTOCOL_TLS deprecated in py3.10
+        if   PYVER == (3, 3):                     pro = None
+        elif hasattr(ssl, 'PROTOCOL_TLS_CLIENT'): pro = ssl.PROTOCOL_TLS_CLIENT
+        elif hasattr(ssl, 'PROTOCOL_TLS'):        pro = ssl.PROTOCOL_TLS
+        elif hasattr(ssl, 'PROTOCOL_TLSv1_2'):    pro = ssl.PROTOCOL_TLSv1_2
+        elif hasattr(ssl, 'PROTOCOL_TLSv1_1'):    pro = ssl.PROTOCOL_TLSv1_1
+        elif hasattr(ssl, 'PROTOCOL_TLSv1'):      pro = ssl.PROTOCOL_TLSv1
+        else:                                     pro = None
+
+        if pro is None:
+            printmsg('SSL verification cannot be skipped - if this is '
+                     'a problem, try running the installer with a newer '
+                     'version of Python.', INFO)
         else:
-            sslctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            printmsg('Skipping SSL verification - this '
+                     'is not recommended!', WARNING)
 
-        sslctx.check_hostname = False
-        sslctx.verify_mode    = ssl.CERT_NONE
-        kwargs['context']     = sslctx
+            sslctx                = ssl.SSLContext(pro)
+            sslctx.check_hostname = False
+            sslctx.verify_mode    = ssl.CERT_NONE
+            kwargs['context']     = sslctx
 
     req = None
 
