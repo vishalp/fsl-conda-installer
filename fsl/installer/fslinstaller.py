@@ -478,10 +478,12 @@ def download_file(url,
             req.close()
 
 
-def download_manifest(url, workdir=None):
+def download_manifest(url, workdir=None, **kwargs):
     """Downloads the installer manifest file, which contains information
     about available FSL versions, and the most recent version number of the
     installer (this script).
+
+    Keyword arguments are passed through to the download_file function.
 
     The manifest file is a JSON file. Lines beginning
     with a double-forward-slash are ignored. See test/data/manifest.json
@@ -496,7 +498,7 @@ def download_manifest(url, workdir=None):
     with tempdir(workdir):
 
         try:
-            download_file(url, 'manifest.json')
+            download_file(url, 'manifest.json', **kwargs)
         except Exception as e:
             log.debug('Error downloading FSL release manifest from %s',
                       url, exc_info=True)
@@ -521,7 +523,7 @@ def download_manifest(url, workdir=None):
     return manifest
 
 
-def download_dev_releases(url, workdir=None):
+def download_dev_releases(url, workdir=None, **kwargs):
     """Downloads the FSL_DEV_RELEASES file. This file contains a list of
     available development manifest URLS. Returns a list of tuples, one
     for each development release, with each tuple containing:
@@ -533,6 +535,8 @@ def download_dev_releases(url, workdir=None):
       - Branch name (on the fsl/conda/manifest repository)
 
     The list is sorted by date, newest first.
+
+    Keyword arguments are passed through to the download_file function.
     """
 
     # parse a dev manifest file name, returning
@@ -559,7 +563,7 @@ def download_dev_releases(url, workdir=None):
     with tempdir(workdir):
 
         try:
-            download_file(url, 'devreleases.txt')
+            download_file(url, 'devreleases.txt', **kwargs)
         except Exception as e:
             log.debug('Error downloading devreleases.txt from %s',
                       url, exc_info=True)
@@ -1344,8 +1348,10 @@ class Context(object):
             if self.devmanifest is not None:
                 self.args.manifest = self.devmanifest
 
-            self.__manifest = download_manifest(self.args.manifest,
-                                                self.args.workdir)
+            self.__manifest = download_manifest(
+                self.args.manifest,
+                self.args.workdir,
+                ssl_verify=(not self.args.skip_ssl_verify))
         return self.__manifest
 
 
@@ -1368,8 +1374,10 @@ class Context(object):
         elif self.__devmanifest is not None:
             return self.__devmanifest
 
-        devreleases = download_dev_releases(FSL_DEV_RELEASES,
-                                            self.args.workdir)
+        devreleases = download_dev_releases(
+            FSL_DEV_RELEASES,
+            self.args.workdir,
+            ssl_verify=(not self.args.skip_ssl_verify))
 
         if len(devreleases) == 0:
             self.__devmanifest = 'na'
@@ -1520,7 +1528,7 @@ def download_fsl_environment(ctx):
     printmsg('Downloading FSL environment specification '
              'from {}...'.format(url))
     fname = url.split('/')[-1]
-    download_file(url, fname)
+    download_file(url, fname, ssl_verify=(not ctx.args.skip_ssl_verify))
     ctx.environment_file = op.abspath(fname)
     if (checksum is not None) and (not ctx.args.no_checksum):
         sha256(fname, checksum)
@@ -1609,7 +1617,8 @@ def download_miniconda(ctx):
     # Download
     printmsg('Downloading miniconda from {}...'.format(url))
     with Progress('MB', transform=Progress.bytes_to_mb) as prog:
-        download_file(url, 'miniconda.sh', prog.update)
+        download_file(url, 'miniconda.sh', prog.update,
+                      ssl_verify=(not ctx.args.skip_ssl_verify))
     if (not ctx.args.no_checksum) and (checksum is not None):
         sha256('miniconda.sh', checksum)
 
@@ -1987,7 +1996,7 @@ def configure_matlab(homedir, fsldir):
     patch_file(startup_m, '% FSL Setup', len(cfg.split('\n')), cfg)
 
 
-def self_update(manifest, workdir, checksum):
+def self_update(manifest, workdir, checksum, **kwargs):
     """Checks to see if a newer version of the installer (this script) is
     available and if so, downloads it to a temporary file, and runs it in
     place of this script.
@@ -2009,7 +2018,7 @@ def self_update(manifest, workdir, checksum):
     tmpf.close()
     tmpf = tmpf.name
 
-    download_file(manifest['installer']['url'], tmpf)
+    download_file(manifest['installer']['url'], tmpf, **kwargs)
 
     if checksum:
         try:
@@ -2399,7 +2408,8 @@ def main(argv=None):
     ctx.logfile = logfile
 
     if not args.no_self_update:
-        self_update(ctx.manifest, args.workdir, not args.no_checksum)
+        self_update(ctx.manifest, args.workdir, not args.no_checksum,
+                    ssl_verify=(not args.skip_ssl_verify))
 
     if args.listversions:
         list_available_versions(ctx.manifest)
