@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.5.11 (Saturday 13th January 2024)
+
+ - Add a trailing newline when appending the FSL configuration to the end of
+   the user's shell profile.
+
+
 # 3.5.10 (Friday 12th November 2023)
 
  - Make sure that SSL verification is disabled for all downloads, if requested
