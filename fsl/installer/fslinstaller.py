@@ -1910,7 +1910,7 @@ def patch_file(filename, searchline, numlines, content):
 
     # append to end
     except ValueError:
-        lines = lines + [''] + content
+        lines = lines + [''] + content + ['']
 
     with open(filename, 'wt') as f:
         f.write('\n'.join(lines))
