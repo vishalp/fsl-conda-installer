@@ -69,7 +69,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.5.11'
+__version__ = '3.6.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1783,12 +1783,11 @@ def get_install_fsl_progress_reporting_method(ctx):
     # report installation progress.
     fslver     = ctx.build['version']
     progparams = ctx.build.get('output', {}).get('install', None)
-    pkgdir     = op.join(ctx.destdir, 'pkgs')
 
     # The first method (version 1) involves
     # progress reporting by monitoring number of
     # lines of standard output produced by
-    # "conda env install". This is set to None,
+    # "conda env update". This is set to None,
     # as it is the default behaviour of the
     # Progress.monitor_progress function.
     progress_v1 = None
@@ -1796,14 +1795,36 @@ def get_install_fsl_progress_reporting_method(ctx):
     # The second method involves progress
     # reporting by monitoring the number of
     # package files created in $FSLDIR/pkgs/
+    # This basically reflects download
+    # progress - when conda downloads a
+    # package, it is saved into this directory.
     def progress_v2(_):
-        pkgs = os.listdir(pkgdir)
-        pkgs = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
+        pkgdir = op.join(ctx.destdir, 'pkgs')
+        pkgs   = os.listdir(pkgdir)
+        pkgs   = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
         return len(pkgs)
+
+    # The third method involves progress
+    # reporting by monitoring the number of
+    # files created in $FSLDIR/pkgs/,
+    # $FSLDIR/bin/ and $FSLDIR/lib/. Tracking
+    # these three directories will cause the
+    # progress to reflect both download and
+    # installation
+    def progress_v3(_):
+        pkgdir = op.join(ctx.destdir, 'pkgs')
+        bindir = op.join(ctx.destdir, 'bin')
+        libdir = op.join(ctx.destdir, 'lib')
+        pkgs   = os.listdir(pkgdir)
+        pkgs   = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
+        bins   = os.listdir(bindir)
+        libs   = os.listdir(libdir)
+        return len(pkgs) + len(bins) + len(libs)
 
     progresses      = {}
     progresses['1'] = None
     progresses['2'] = progress_v2
+    progresses['3'] = progress_v3
 
     progval  = None
     progfunc = None
@@ -1846,7 +1867,7 @@ def install_fsl(ctx):
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
     ctx.run(Process.monitor_progress, cmd,
-            timeout=1, total=progval, progfunc=progfunc)
+            timeout=2, total=progval, progfunc=progfunc)
 
 
 @warn_on_error('WARNING: The installation succeeded, but an error occurred '
