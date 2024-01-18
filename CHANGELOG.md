@@ -1,6 +1,11 @@
 # FSL installer script release history
 
 
+# 3.6.0 (Thursday 18th January 2024)
+
+ - Add a new progress reporting mechanism.
+
+
 # 3.5.11 (Saturday 13th January 2024)
 
  - Add a trailing newline when appending the FSL configuration to the end of
