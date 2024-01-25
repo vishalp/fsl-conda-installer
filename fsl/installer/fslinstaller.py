@@ -1818,7 +1818,7 @@ def get_install_fsl_progress_reporting_method(ctx):
     # The second method involves progress
     # reporting by monitoring the number of
     # package files created in $FSLDIR/pkgs/
-    # This basically reflects download
+    # This coarsely reflects download
     # progress - when conda downloads a
     # package, it is saved into this directory.
     def progress_v2(_):
@@ -1844,10 +1844,29 @@ def get_install_fsl_progress_reporting_method(ctx):
         libs   = os.listdir(libdir)
         return len(pkgs) + len(bins) + len(libs)
 
+    # The fourth method monitors download
+    # progress in a more fine-grained manner,
+    # by calculating the size of all .conda
+    # and .tar.bz2 files in $FSLDIR/pkgs/.
+    # This is combined with the number of
+    # files saved to $FSLDIR/bin/ and
+    # $FSLDIR/lib/
+    def progress_v4(_):
+        pkgdir = op.join(ctx.destdir, 'pkgs')
+        bindir = op.join(ctx.destdir, 'bin')
+        libdir = op.join(ctx.destdir, 'lib')
+        pkgs   = os.listdir(pkgdir)
+        bins   = os.listdir(bindir)
+        libs   = os.listdir(libdir)
+        pkgs   = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
+        sizes  = [op.getsize(op.join(pkgdir, p)) for p in pkgs]
+        return sum(sizes), len(bins), len(libs)
+
     progresses      = {}
     progresses['1'] = None
     progresses['2'] = progress_v2
     progresses['3'] = progress_v3
+    progresses['4'] = progress_v4
 
     progval  = None
     progfunc = None
