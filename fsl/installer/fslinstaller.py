@@ -505,9 +505,8 @@ def download_manifest(url, workdir=None, **kwargs):
 
     Keyword arguments are passed through to the download_file function.
 
-    The manifest file is a JSON file. Lines beginning
-    with a double-forward-slash are ignored. See test/data/manifest.json
-    for an example.
+    The manifest file is a JSON file. Lines beginning with a double-forward
+    slash are ignored.
 
     This function modifies the manifest structure by adding a 'version'
     attribute to all FSL build entries.
@@ -1441,6 +1440,30 @@ class Context(object):
                             append_env=append_env)
 
 
+def agree_to_license(ctx):
+    """Prompts the user to agree to the terms of the FSL license."""
+
+    license_url = ctx.manifest['installer'].get('license_url')
+
+    if license_url is None:
+        return
+
+    printmsg('You must agree to the FSL license before installing '
+             'FSL - you can view the license at ', INFO,
+             '{}\n'.format(license_url), IMPORTANT, UNDERLINE)
+
+    if ctx.args.agree_to_license:
+        return
+
+    response = prompt('Do you agree to the terms of the FSL '
+                      'license [y/N]?', QUESTION, EMPHASIS)
+
+    if response.lower() not in ('y', 'yes'):
+        printmsg('FSL cannot be installed without agreeing to the '
+                 'FSL license - aborting installation.', ERROR)
+        sys.exit(1)
+
+
 def check_rosetta_status(ctx):
     """Called from the main routine, before installation is attempted.  If
     running on a M1 macos machine, and a x86 version of FSL has been selected
@@ -2154,15 +2177,16 @@ def parse_args(argv=None, include=None, parser=None):
 
     options = {
         # regular options
-        'version'      : ('-v', {'action'  : 'version',
-                                 'version' : __version__}),
-        'dest'         : ('-d', {'metavar' : 'DESTDIR'}),
-        'overwrite'    : ('-o', {'action'  : 'store_true'}),
-        'listversions' : ('-l', {'action'  : 'store_true'}),
-        'no_env'       : ('-n', {'action'  : 'store_true'}),
-        'no_shell'     : ('-s', {'action'  : 'store_true'}),
-        'no_matlab'    : ('-m', {'action'  : 'store_true'}),
-        'fslversion'   : ('-V', {'default' : 'latest'}),
+        'version'          : ('-v', {'action'  : 'version',
+                                     'version' : __version__}),
+        'dest'             : ('-d', {'metavar' : 'DESTDIR'}),
+        'overwrite'        : ('-o', {'action'  : 'store_true'}),
+        'listversions'     : ('-l', {'action'  : 'store_true'}),
+        'no_env'           : ('-n', {'action'  : 'store_true'}),
+        'no_shell'         : ('-s', {'action'  : 'store_true'}),
+        'no_matlab'        : ('-m', {'action'  : 'store_true'}),
+        'agree_to_license' : ('-a', {'action'  : 'store_true'}),
+        'fslversion'       : ('-V', {'default' : 'latest'}),
 
         # hidden options
         'debug'           : (None, {'action'  : 'store_true'}),
@@ -2186,19 +2210,21 @@ def parse_args(argv=None, include=None, parser=None):
         include = list(options.keys())
 
     helps = {
-        'version'      : 'Print installer version number and exit',
-        'listversions' : 'List available FSL versions and exit',
-        'dest'         : 'Install FSL into this folder (default: '
-                         '{})'.format(destdir),
-        'overwrite'    : 'Delete existing destination directory if it exists, '
-                         'without asking',
-        'no_env'       : 'Do not modify your shell or MATLAB configuration '
-                         '(implies --no_shell and --no_matlab). When running '
-                         'the installer script as the root user, the root '
-                         'shell profile is never modified.',
-        'no_shell'     : 'Do not modify your shell configuration',
-        'no_matlab'    : 'Do not modify your MATLAB configuration',
-        'fslversion'   : 'Install this specific version of FSL',
+        'version'          : 'Print installer version number and exit.',
+        'listversions'     : 'List available FSL versions and exit.',
+        'dest'             : 'Install FSL into this folder (default: '
+                             '{}).'.format(destdir),
+        'overwrite'        : 'Delete existing destination directory if it '
+                             'exists, without asking.',
+        'no_env'           : 'Do not modify your shell or MATLAB configuration '
+                             '(implies --no_shell and --no_matlab). When '
+                             'running the installer script as the root user, '
+                             'the root shell profile is never modified.',
+        'no_shell'         : 'Do not modify your shell configuration.',
+        'no_matlab'        : 'Do not modify your MATLAB configuration.',
+        'agree_to_license' : 'Automatically agree to the terms of the '
+                             'FSL license.',
+        'fslversion'       : 'Install this specific version of FSL.',
 
         # Enable verbose output when calling
         # mamba/conda.
@@ -2244,7 +2270,8 @@ def parse_args(argv=None, include=None, parser=None):
         # Print debugging messages
         'debug'           : argparse.SUPPRESS,
 
-        # Disable SHA256 checksum validation of downloaded files
+        # Disable SHA256 checksum validation
+        # of downloaded files
         'no_checksum'     : argparse.SUPPRESS,
 
         # Store temp files in this directory
@@ -2455,6 +2482,8 @@ def main(argv=None):
     if args.listversions:
         list_available_versions(ctx.manifest)
         sys.exit(0)
+
+    agree_to_license(ctx)
 
     try:
         ctx.finalise_settings()
