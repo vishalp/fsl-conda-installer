@@ -346,15 +346,21 @@ def warn_on_error(*msgargs, **msgkwargs):
         ...
 
     function('a', 'b')
+
+    :arg toscreen: Defaults to True. Print the warning to the screen.
+    :arg tolog:    Defaults to True. Print the warning to the log file.
     """
+
+    toscreen = msgkwargs.pop('toscreen', True)
+    tolog    = msgkwargs.pop('tolog',    True)
 
     def decorator(function):
         def wrapper(*args, **kwargs):
             try:
                 function(*args, **kwargs)
             except Exception as e:
-                printmsg(*msgargs, **msgkwargs)
-                log.debug('%s', e, exc_info=True)
+                if toscreen: printmsg(*msgargs, **msgkwargs)
+                if tolog:    log.debug('%s', e, exc_info=True)
         return wrapper
     return decorator
 
