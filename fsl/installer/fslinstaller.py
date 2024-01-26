@@ -1860,13 +1860,13 @@ def get_install_fsl_progress_reporting_method(ctx):
         libs   = os.listdir(libdir)
         pkgs   = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
         sizes  = [op.getsize(op.join(pkgdir, p)) for p in pkgs]
-        return sum(sizes), len(bins), len(libs)
+        return sum(sizes) + len(bins) + len(libs)
 
-    progresses      = {}
-    progresses['1'] = None
-    progresses['2'] = progress_v2
-    progresses['3'] = progress_v3
-    progresses['4'] = progress_v4
+    progresses    = {}
+    progresses[1] = None
+    progresses[2] = progress_v2
+    progresses[3] = progress_v3
+    progresses[4] = progress_v4
 
     progval  = None
     progfunc = None
@@ -1878,13 +1878,28 @@ def get_install_fsl_progress_reporting_method(ctx):
     # an integer value.
     if isstr(progparams):
         progval  = int(progparams)
-        progfunc = progresses['2']
+        progfunc = progresses[2]
 
     # output field is a dict - versioned
     # progress reporting
     elif isinstance(progparams, dict):
-        progval  = int(progparams['value'])
-        progfunc = progresses[progparams['version']]
+        progver  = int(progparams['version'])
+        progfunc = progresses[progver]
+        progval  = progparams['value']
+
+        # unsupported progress reporting version
+        if progver > 4:
+            progval  = None
+            progfunc = None
+
+        # version 4: progval is a dict
+        # containing various quantities
+        if progver == 4:
+            progval = sum(progval.values())
+
+        # older versions: progval is an integer
+        elif progver:
+            progval = int(progval)
 
     return progval, progfunc
 
