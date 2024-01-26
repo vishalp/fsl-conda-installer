@@ -582,8 +582,7 @@ def download_dev_releases(url, workdir=None, **kwargs):
     for each development release, with each tuple containing:
 
       - URL to the manifest file
-      - Most recent release tag
-      - Date of the release
+      - Version identifier
       - Commit hash (on the fsl/conda/manifest repository)
       - Branch name (on the fsl/conda/manifest repository)
 
@@ -606,11 +605,21 @@ def download_dev_releases(url, workdir=None, **kwargs):
         name = urlparse.urlparse(url).path
         name = op.basename(name)
         name = name.lstrip('manifest-').rstrip('.json')
-        # Awkward - the tag may have periods in it
-        name = name.rsplit('.', 3)
-        return name
 
-    # list of (url, tag, date, commit, branch)
+        # The devrelease list may contain public
+        # releases too - sniff the commit, and if
+        # it doesn't look like a commit hash,
+        # assume that this file corresponds to a
+        # public release.
+        commit = name.rsplit('.', 2)[-2]
+
+        # public release or dev release
+        if len(commit) < 7: bits = [name, None, None]
+        else:               bits = name.rsplit('.', 2)
+
+        return bits
+
+    # list of (url, version, commit, branch)
     devreleases = []
 
     with tempdir(workdir):
@@ -630,8 +639,8 @@ def download_dev_releases(url, workdir=None, **kwargs):
         for url in urls:
             devreleases.append([url] + parse_devrelease_name(url))
 
-    # sort by date, newest first
-    return sorted(devreleases, key=lambda r: r[2], reverse=True)
+    # sort by version, newest first
+    return sorted(devreleases, key=lambda r: Version(r[1]), reverse=True)
 
 
 class Progress(object):
@@ -1540,9 +1549,15 @@ def prompt_dev_release(devreleases, latest):
 
     # show the user a list, ask them which one they want
     printmsg('Available development releases:', EMPHASIS)
-    for i, (url, tag, date, commit, branch) in enumerate(devreleases):
-        printmsg('  [{}]: {} [{} commit {}]'.format(
-            i + 1, date, branch, commit), IMPORTANT)
+    for i, (url, tag, commit, branch) in enumerate(devreleases):
+        # dev release
+        if commit is not None:
+            printmsg('  [{}]: {} [{} commit {}]'.format(
+                i + 1, tag, branch, commit), IMPORTANT)
+        # public release
+        else:
+            printmsg('  [{}]: {}'.format(i + 1, tag), IMPORTANT)
+
     while True:
         selection = prompt('Which release would you like to '
                            'install? [1]:', PROMPT)
