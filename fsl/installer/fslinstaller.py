@@ -159,15 +159,21 @@ def printmsg(*args, **kwargs):
 
         printable, ANSICODE, printable, ANSICODE, ...
 
-    :arg log: Must be specified as a keyword argument. If True (default),
-              the message is logged.
+    :arg log:  Must be specified as a keyword argument. If True (default),
+               the message is logged.
+
+    :arg fill: Must be specified as a keyword argument. If True (default),
+               the message is wrapped to the terminal width.
 
     All other keyword arguments are passed through to the print function.
     """
 
     args     = list(args)
     blockids = [i for i in range(len(args)) if (args[i] not in ANSICODES)]
-    logmsg   = kwargs.pop('log', True)
+    logmsg   = kwargs.pop('log',  True)
+    fill     = kwargs.pop('fill', True)
+
+    coded    = ''
     uncoded  = ''
 
     for i, idx in enumerate(blockids):
@@ -181,11 +187,16 @@ def printmsg(*args, **kwargs):
         msgcodes = [ANSICODES[c] for c in msgcodes]
         msgcodes = ''.join(msgcodes)
         uncoded += msg
-
-        print('{}{}{}'.format(msgcodes, msg, ANSICODES[RESET]), end='')
+        coded   += '{}{}{}'.format(msgcodes, msg, ANSICODES[RESET])
 
     if len(blockids) > 0:
-        print(**kwargs)
+
+        if fill:
+            width = get_terminal_width(70)
+            coded = tw.fill(coded, width, replace_whitespace=False)
+
+        print(coded, **kwargs)
+
         if logmsg:
             log.debug(uncoded)
 
@@ -693,7 +704,7 @@ class Progress(object):
         return self
 
     def __exit__(self, *args, **kwargs):
-        printmsg('', log=False)
+        printmsg('', log=False, fill=False)
 
     def update(self, value=None, total=None):
 
@@ -720,7 +731,7 @@ class Progress(object):
         idx  = (idx + 1) % len(symbols)
         this = symbols[idx]
 
-        printmsg(this, end='\r', log=False)
+        printmsg(this, end='\r', log=False, fill=False)
         self.__last_spin = this
 
     def count(self, value):
@@ -730,7 +741,7 @@ class Progress(object):
         if self.label is None: line = '{} ...'.format(value)
         else:                  line = '{}{} ...'.format(value, self.label)
 
-        printmsg(line, end='\r', log=False)
+        printmsg(line, end='\r', log=False, fill=False)
 
     def progress(self, value, total):
 
@@ -755,10 +766,10 @@ class Progress(object):
                                        ' ' * remaining,
                                        suffix)
 
-        printmsg(progress, end='', log=False)
-        printmsg(' ', end='', log=False)
+        printmsg(progress, end='', log=False, fill=False)
+        printmsg(' ', end='', log=False, fill=False)
         self.spin()
-        printmsg(end='\r', log=False)
+        printmsg(end='\r', log=False, fill=False)
 
 
 class Process(object):
@@ -1454,9 +1465,10 @@ def agree_to_license(ctx):
         return
 
     response = prompt('Do you agree to the terms of the FSL '
-                      'license [y/N]?', QUESTION, EMPHASIS)
+                      'license [Y/n]?', QUESTION, EMPHASIS)
+    printmsg('')
 
-    if response.lower() not in ('y', 'yes'):
+    if response.lower() not in ('', 'y', 'yes'):
         printmsg('FSL cannot be installed without agreeing to the '
                  'FSL license - aborting installation.', ERROR)
         sys.exit(1)
@@ -2143,8 +2155,7 @@ def overwrite_destdir(ctx):
     """
 
     if not ctx.args.overwrite:
-        printmsg()
-        printmsg('Destination directory [{}] already exists!'
+        printmsg('\nDestination directory [{}] already exists!\n'
                  .format(ctx.destdir), WARNING, EMPHASIS)
         response = prompt('Do you want to overwrite it [y/N]?',
                           QUESTION, EMPHASIS)
