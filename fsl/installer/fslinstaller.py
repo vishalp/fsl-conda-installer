@@ -129,6 +129,29 @@ ANSICODES = {
     RESET     : '\033[0m',          # Used internally
 }
 
+def get_terminal_width(fallback=None):
+    """Return the number of columns in the current terminal, or fallback
+    if it cannot be determined.
+    """
+    # os.get_terminal_size added in python
+    # 3.3, so we try it but fall back to
+    # COLUMNS, or tput as a last resort.
+    try:
+        return shutil.get_terminal_size()[0]
+    except Exception:
+        pass
+
+    try:
+        return int(os.environ['COLUMNS'])
+    except Exception:
+        pass
+
+    try:
+        result = Process.check_output('tput cols', log_output=False)
+        return int(result.strip())
+    except Exception:
+        return fallback
+
 
 def printmsg(*args, **kwargs):
     """Prints a sequence of strings formatted with ANSI codes. Expects
@@ -635,7 +658,7 @@ class Progress(object):
 
         :arg width:     Maximum width, if a progress bar is displayed. Default
                         is to automatically infer the terminal width (see
-                        Progress.get_terminal_width).
+                        get_terminal_width).
         """
 
         if transform is None:
@@ -715,7 +738,7 @@ class Progress(object):
 
         # arbitrary fallback of 50 columns if
         # terminal width cannot be determined
-        if self.width is None: width = Progress.get_terminal_width(50)
+        if self.width is None: width = get_terminal_width(50)
         else:                  width = self.width
 
         fvalue = self.fmt(value)
@@ -736,31 +759,6 @@ class Progress(object):
         printmsg(' ', end='', log=False)
         self.spin()
         printmsg(end='\r', log=False)
-
-
-    @staticmethod
-    def get_terminal_width(fallback=None):
-        """Return the number of columns in the current terminal, or fallback
-        if it cannot be determined.
-        """
-        # os.get_terminal_size added in python
-        # 3.3, so we try it but fall back to
-        # COLUMNS, or tput as a last resort.
-        try:
-            return shutil.get_terminal_size()[0]
-        except Exception:
-            pass
-
-        try:
-            return int(os.environ['COLUMNS'])
-        except Exception:
-            pass
-
-        try:
-            result = Process.check_output('tput cols', log_output=False)
-            return int(result.strip())
-        except Exception:
-            return fallback
 
 
 class Process(object):
