@@ -1,15 +1,13 @@
 # FSL installer script release history
 
 
-# 4.0.0 (Monday 29th January 2024)
+# 3.7.0 (Monday 29th January 2024)
 
- - The user is now prompted to accept the terms of the FSL license. This
-   can be automated by passing the `--agree_to_license` / `-a` command-line
-   option.
  - FSL installations are now registered with a remote server. Basic
    installation and system information is sent as part of the registration
    process. This can be skipped by passing the `--skip_registration` / `-r`
    command-line option.
+ - Add another progress reporting mechanism.
 
 
 # 3.6.0 (Thursday 18th January 2024)
