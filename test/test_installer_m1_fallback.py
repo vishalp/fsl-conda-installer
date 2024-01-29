@@ -52,9 +52,11 @@ chmod a+x $prefix/bin/conda
 mock_manifest = """
 {{
     "installer" : {{
-        "version" : "1.3.4",
-        "url"     : "na",
-        "sha256"  : "na"
+        "version"          : "1.3.4",
+        "url"              : "na",
+        "sha256"           : "na",
+        "registration_url" : "http://registrationurl",
+        "license_url"      : "http://licenseurl"
     }},
     "miniconda" : {{
         "macos-64" : {{
@@ -203,8 +205,7 @@ def test_installer_M1_install_rosetta():
                 # pkgutil reports that rosetta is
                 # enabled - installation should proceed
                 with inst.tempdir() as cwd, pkgutil(0):
-                    inst.main(['--homedir', cwd, '--dest', 'fsl',
-                               '-V', '6.1.0'])
+                    inst.main(['--homedir', cwd, '--dest', 'fsl', '-V', '6.1.0'])
                     check_install('fsl', 'macos-64', '6.1.0')
 
                 # pkgutil reports that rosetta is *not*
@@ -212,7 +213,6 @@ def test_installer_M1_install_rosetta():
                 # aborted
                 with inst.tempdir() as cwd, pkgutil(1):
                     with pytest.raises(SystemExit) as e:
-                        inst.main(['--homedir', cwd, '--dest', 'fsl',
-                                   '-V', '6.1.0'])
+                        inst.main(['--homedir', cwd, '--dest', 'fsl', '-V', '6.1.0'])
                     assert e.value.code != 0
                     assert not op.exists('fsl')

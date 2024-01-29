@@ -32,6 +32,7 @@ import                   contextlib
 import                   datetime
 import                   fnmatch
 import                   getpass
+import                   glob
 import                   hashlib
 import                   json
 import                   logging
@@ -48,8 +49,12 @@ import                   threading
 import                   time
 import                   traceback
 
-try:                import urllib.request as urlrequest
-except ImportError: import urllib         as urlrequest
+try:
+    import urllib.request as urlrequest
+except ImportError:
+    import urllib
+    import urllib2 as urlrequest
+    urlrequest.pathname2url = urllib.pathname2url
 
 
 try:                import urllib.parse as urlparse
@@ -69,7 +74,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.6.0'
+__version__ = '3.7.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -129,6 +134,29 @@ ANSICODES = {
     RESET     : '\033[0m',          # Used internally
 }
 
+def get_terminal_width(fallback=None):
+    """Return the number of columns in the current terminal, or fallback
+    if it cannot be determined.
+    """
+    # os.get_terminal_size added in python
+    # 3.3, so we try it but fall back to
+    # COLUMNS, or tput as a last resort.
+    try:
+        return shutil.get_terminal_size()[0]
+    except Exception:
+        pass
+
+    try:
+        return int(os.environ['COLUMNS'])
+    except Exception:
+        pass
+
+    try:
+        result = Process.check_output('tput cols', log_output=False)
+        return int(result.strip())
+    except Exception:
+        return fallback
+
 
 def printmsg(*args, **kwargs):
     """Prints a sequence of strings formatted with ANSI codes. Expects
@@ -136,15 +164,21 @@ def printmsg(*args, **kwargs):
 
         printable, ANSICODE, printable, ANSICODE, ...
 
-    :arg log: Must be specified as a keyword argument. If True (default),
-              the message is logged.
+    :arg log:  Must be specified as a keyword argument. If True (default),
+               the message is logged.
+
+    :arg fill: Must be specified as a keyword argument. If True (default),
+               the message is wrapped to the terminal width.
 
     All other keyword arguments are passed through to the print function.
     """
 
     args     = list(args)
     blockids = [i for i in range(len(args)) if (args[i] not in ANSICODES)]
-    logmsg   = kwargs.pop('log', True)
+    logmsg   = kwargs.pop('log',  True)
+    fill     = kwargs.pop('fill', True)
+
+    coded    = ''
     uncoded  = ''
 
     for i, idx in enumerate(blockids):
@@ -158,11 +192,16 @@ def printmsg(*args, **kwargs):
         msgcodes = [ANSICODES[c] for c in msgcodes]
         msgcodes = ''.join(msgcodes)
         uncoded += msg
-
-        print('{}{}{}'.format(msgcodes, msg, ANSICODES[RESET]), end='')
+        coded   += '{}{}{}'.format(msgcodes, msg, ANSICODES[RESET])
 
     if len(blockids) > 0:
-        print(**kwargs)
+
+        if fill:
+            width = get_terminal_width(70)
+            coded = tw.fill(coded, width, replace_whitespace=False)
+
+        print(coded, **kwargs)
+
         if logmsg:
             log.debug(uncoded)
 
@@ -181,6 +220,24 @@ def prompt(promptmsg, *msgtypes, **kwargs):
     log.debug('%s: %s', promptmsg, response)
 
     return response
+
+
+def post_request(url, data):
+    """Send JSON data to a URL via a HTTP POST request. """
+
+    data                    = json.dumps(data).encode('utf-8')
+    headers                 = {}
+    headers['Content-Type'] = 'application/json'
+    resp                    = None
+
+    try:
+        req  = urlrequest.Request(url,
+                                  headers=headers,
+                                  data=data)
+        resp = urlrequest.urlopen(req)
+    finally:
+        if resp:
+            resp.close()
 
 
 def identify_platform():
@@ -212,6 +269,18 @@ def identify_platform():
                             system, cpu, supported))
 
     return platforms[key]
+
+
+def timestamp():
+    """Return a string containing the local time, with time zone offset.
+    """
+    now     = datetime.datetime.now()
+    offset  = (now - datetime.datetime.utcnow())
+    offset  = round(offset.total_seconds())
+    hours   = int(offset / 3600)
+    minutes = int((offset % 3600) / 60)
+    now     = now.strftime('%Y-%m-%dT%H:%M:%S')
+    return '{}{:+03d}:{:02d}'.format(now, hours, minutes)
 
 
 def check_need_admin(dirname):
@@ -312,15 +381,21 @@ def warn_on_error(*msgargs, **msgkwargs):
         ...
 
     function('a', 'b')
+
+    :arg toscreen: Defaults to True. Print the warning to the screen.
+    :arg tolog:    Defaults to True. Print the warning to the log file.
     """
+
+    toscreen = msgkwargs.pop('toscreen', True)
+    tolog    = msgkwargs.pop('tolog',    True)
 
     def decorator(function):
         def wrapper(*args, **kwargs):
             try:
                 function(*args, **kwargs)
             except Exception as e:
-                printmsg(*msgargs, **msgkwargs)
-                log.debug('%s', e, exc_info=True)
+                if toscreen: printmsg(*msgargs, **msgkwargs)
+                if tolog:    log.debug('%s', e, exc_info=True)
         return wrapper
     return decorator
 
@@ -505,9 +580,8 @@ def download_manifest(url, workdir=None, **kwargs):
 
     Keyword arguments are passed through to the download_file function.
 
-    The manifest file is a JSON file. Lines beginning
-    with a double-forward-slash are ignored. See test/data/manifest.json
-    for an example.
+    The manifest file is a JSON file. Lines beginning with a double-forward
+    slash are ignored.
 
     This function modifies the manifest structure by adding a 'version'
     attribute to all FSL build entries.
@@ -549,8 +623,7 @@ def download_dev_releases(url, workdir=None, **kwargs):
     for each development release, with each tuple containing:
 
       - URL to the manifest file
-      - Most recent release tag
-      - Date of the release
+      - Version identifier
       - Commit hash (on the fsl/conda/manifest repository)
       - Branch name (on the fsl/conda/manifest repository)
 
@@ -573,11 +646,21 @@ def download_dev_releases(url, workdir=None, **kwargs):
         name = urlparse.urlparse(url).path
         name = op.basename(name)
         name = name.lstrip('manifest-').rstrip('.json')
-        # Awkward - the tag may have periods in it
-        name = name.rsplit('.', 3)
-        return name
 
-    # list of (url, tag, date, commit, branch)
+        # The devrelease list may contain public
+        # releases too - sniff the commit, and if
+        # it doesn't look like a commit hash,
+        # assume that this file corresponds to a
+        # public release.
+        commit = name.rsplit('.', 2)[-2]
+
+        # public release or dev release
+        if len(commit) < 7: bits = [name, None, None]
+        else:               bits = name.rsplit('.', 2)
+
+        return bits
+
+    # list of (url, version, commit, branch)
     devreleases = []
 
     with tempdir(workdir):
@@ -597,8 +680,8 @@ def download_dev_releases(url, workdir=None, **kwargs):
         for url in urls:
             devreleases.append([url] + parse_devrelease_name(url))
 
-    # sort by date, newest first
-    return sorted(devreleases, key=lambda r: r[2], reverse=True)
+    # sort by version, newest first
+    return sorted(devreleases, key=lambda r: Version(r[1]), reverse=True)
 
 
 class Progress(object):
@@ -636,7 +719,7 @@ class Progress(object):
 
         :arg width:     Maximum width, if a progress bar is displayed. Default
                         is to automatically infer the terminal width (see
-                        Progress.get_terminal_width).
+                        get_terminal_width).
         """
 
         if transform is None:
@@ -671,7 +754,7 @@ class Progress(object):
         return self
 
     def __exit__(self, *args, **kwargs):
-        printmsg('', log=False)
+        printmsg('', log=False, fill=False)
 
     def update(self, value=None, total=None):
 
@@ -698,7 +781,7 @@ class Progress(object):
         idx  = (idx + 1) % len(symbols)
         this = symbols[idx]
 
-        printmsg(this, end='\r', log=False)
+        printmsg(this, end='\r', log=False, fill=False)
         self.__last_spin = this
 
     def count(self, value):
@@ -708,7 +791,7 @@ class Progress(object):
         if self.label is None: line = '{} ...'.format(value)
         else:                  line = '{}{} ...'.format(value, self.label)
 
-        printmsg(line, end='\r', log=False)
+        printmsg(line, end='\r', log=False, fill=False)
 
     def progress(self, value, total):
 
@@ -716,7 +799,7 @@ class Progress(object):
 
         # arbitrary fallback of 50 columns if
         # terminal width cannot be determined
-        if self.width is None: width = Progress.get_terminal_width(50)
+        if self.width is None: width = get_terminal_width(50)
         else:                  width = self.width
 
         fvalue = self.fmt(value)
@@ -733,35 +816,10 @@ class Progress(object):
                                        ' ' * remaining,
                                        suffix)
 
-        printmsg(progress, end='', log=False)
-        printmsg(' ', end='', log=False)
+        printmsg(progress, end='', log=False, fill=False)
+        printmsg(' ', end='', log=False, fill=False)
         self.spin()
-        printmsg(end='\r', log=False)
-
-
-    @staticmethod
-    def get_terminal_width(fallback=None):
-        """Return the number of columns in the current terminal, or fallback
-        if it cannot be determined.
-        """
-        # os.get_terminal_size added in python
-        # 3.3, so we try it but fall back to
-        # COLUMNS, or tput as a last resort.
-        try:
-            return shutil.get_terminal_size()[0]
-        except Exception:
-            pass
-
-        try:
-            return int(os.environ['COLUMNS'])
-        except Exception:
-            pass
-
-        try:
-            result = Process.check_output('tput cols', log_output=False)
-            return int(result.strip())
-        except Exception:
-            return fallback
+        printmsg(end='\r', log=False, fill=False)
 
 
 class Process(object):
@@ -857,15 +915,18 @@ class Process(object):
     def check_output(cmd, *args, **kwargs):
         """Behaves like subprocess.check_output. Runs the given command, then
         waits until it finishes, and return its standard output. An error
-        is raised if the process returns a non-zero exit code.
+        is raised if the process returns a non-zero exit code, unless a keyword
+        argument `check=False` is specified.
 
         :arg cmd: The command to run, as a string
         """
 
-        proc = Process(cmd, *args, **kwargs)
+        check = kwargs.pop('check', True)
+        proc  = Process(cmd, *args, **kwargs)
+
         proc.wait()
 
-        if proc.returncode != 0:
+        if check and (proc.returncode != 0):
             raise RuntimeError('This command returned an error: ' + cmd)
 
         stdout = ''
@@ -882,14 +943,21 @@ class Process(object):
     def check_call(cmd, *args, **kwargs):
         """Behaves like subprocess.check_call. Runs the given command, then
         waits until it finishes. An error is raised if the process returns a
-        non-zero exit code.
+        non-zero exit code, unless a keyword argument `check=False` is
+        specified.
 
         :arg cmd: The command to run, as a string
         """
-        proc = Process(cmd, *args, **kwargs)
+
+        check = kwargs.pop('check', True)
+        proc  = Process(cmd, *args, **kwargs)
+
         proc.wait()
-        if proc.returncode != 0:
+
+        if check and proc.returncode != 0:
             raise RuntimeError('This command returned an error: ' + cmd)
+
+        return proc.returncode
 
 
     @staticmethod
@@ -1174,6 +1242,22 @@ class Context(object):
 
 
     @property
+    def license_url(self):
+        """Return the FSL license URL from the manifest, or None if it is not
+        present.
+        """
+        return self.manifest['installer'].get('license_url')
+
+
+    @property
+    def registration_url(self):
+        """Return the FSL registration URL from the manifest, or None if it is
+        not present.
+        """
+        return self.manifest['installer'].get('registration_url')
+
+
+    @property
     def platform(self):
         """The platform we are running on, e.g. "linux-64", "macos-64",
         "macos-M1". This identifier is used to determine which FSL build to
@@ -1441,6 +1525,19 @@ class Context(object):
                             append_env=append_env)
 
 
+def agree_to_license(ctx):
+    """Prompts the user to agree to the terms of the FSL license."""
+
+    printmsg('Installing FSL implies agreement with the terms of the FSL '
+             'license - if you do not agree with these terms, you can '
+             'cancel the installation by pressing CTRL+C.', IMPORTANT)
+
+    if ctx.license_url is not None:
+        printmsg('You can view the license at ', INFO,
+                 ctx.license_url, IMPORTANT, UNDERLINE)
+    printmsg('')
+
+
 def check_rosetta_status(ctx):
     """Called from the main routine, before installation is attempted.  If
     running on a M1 macos machine, and a x86 version of FSL has been selected
@@ -1507,9 +1604,15 @@ def prompt_dev_release(devreleases, latest):
 
     # show the user a list, ask them which one they want
     printmsg('Available development releases:', EMPHASIS)
-    for i, (url, tag, date, commit, branch) in enumerate(devreleases):
-        printmsg('  [{}]: {} [{} commit {}]'.format(
-            i + 1, date, branch, commit), IMPORTANT)
+    for i, (url, tag, commit, branch) in enumerate(devreleases):
+        # dev release
+        if commit is not None:
+            printmsg('  [{}]: {} [{} commit {}]'.format(
+                i + 1, tag, branch, commit), IMPORTANT)
+        # public release
+        else:
+            printmsg('  [{}]: {}'.format(i + 1, tag), IMPORTANT)
+
     while True:
         selection = prompt('Which release would you like to '
                            'install? [1]:', PROMPT)
@@ -1795,7 +1898,7 @@ def get_install_fsl_progress_reporting_method(ctx):
     # The second method involves progress
     # reporting by monitoring the number of
     # package files created in $FSLDIR/pkgs/
-    # This basically reflects download
+    # This coarsely reflects download
     # progress - when conda downloads a
     # package, it is saved into this directory.
     def progress_v2(_):
@@ -1821,10 +1924,29 @@ def get_install_fsl_progress_reporting_method(ctx):
         libs   = os.listdir(libdir)
         return len(pkgs) + len(bins) + len(libs)
 
-    progresses      = {}
-    progresses['1'] = None
-    progresses['2'] = progress_v2
-    progresses['3'] = progress_v3
+    # The fourth method monitors download
+    # progress in a more fine-grained manner,
+    # by calculating the size of all .conda
+    # and .tar.bz2 files in $FSLDIR/pkgs/.
+    # This is combined with the number of
+    # files saved to $FSLDIR/bin/ and
+    # $FSLDIR/lib/
+    def progress_v4(_):
+        pkgdir = op.join(ctx.destdir, 'pkgs')
+        bindir = op.join(ctx.destdir, 'bin')
+        libdir = op.join(ctx.destdir, 'lib')
+        pkgs   = os.listdir(pkgdir)
+        bins   = os.listdir(bindir)
+        libs   = os.listdir(libdir)
+        pkgs   = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
+        sizes  = [op.getsize(op.join(pkgdir, p)) for p in pkgs]
+        return sum(sizes) + len(bins) + len(libs)
+
+    progresses    = {}
+    progresses[1] = None
+    progresses[2] = progress_v2
+    progresses[3] = progress_v3
+    progresses[4] = progress_v4
 
     progval  = None
     progfunc = None
@@ -1836,13 +1958,28 @@ def get_install_fsl_progress_reporting_method(ctx):
     # an integer value.
     if isstr(progparams):
         progval  = int(progparams)
-        progfunc = progresses['2']
+        progfunc = progresses[2]
 
     # output field is a dict - versioned
     # progress reporting
     elif isinstance(progparams, dict):
-        progval  = int(progparams['value'])
-        progfunc = progresses[progparams['version']]
+        progver  = int(progparams['version'])
+        progfunc = progresses[progver]
+        progval  = progparams['value']
+
+        # unsupported progress reporting version
+        if progver > 4:
+            progval  = None
+            progfunc = None
+
+        # version 4: progval is a dict
+        # containing various quantities
+        if progver == 4:
+            progval = sum(progval.values())
+
+        # older versions: progval is an integer
+        elif progver:
+            progval = int(progval)
 
     return progval, progfunc
 
@@ -1904,6 +2041,52 @@ def post_install_cleanup(ctx, tmpdir):
 
     for cmd in cmds:
         ctx.run(Process.check_call, cmd)
+
+
+@warn_on_error('WARNING: ', WARNING, EMPHASIS, toscreen=False)
+def register_installation(ctx):
+    """Gathers and sends some basic system details to the FSL registration
+    website.
+    """
+
+    regurl = ctx.registration_url
+    if regurl is None:
+        return
+
+    system = platform.system().lower()
+    uname  = Process.check_output('uname -a', check=False)
+    osinfo = ''
+
+    # macOS
+    if system == 'darwin':
+        osinfo = Process.check_output('sw_vers', check=False)
+
+    # Linux
+    else:
+        for releasefile in glob.glob(op.join('/etc/*-release')):
+            with open(releasefile, 'rt') as f:
+                osinfo = f.read().strip()
+            break
+
+        # WSL
+        if 'microsoft' in uname.lower():
+            osinfo += '\n\n' + Process.check_output('wsl.exe -v', check=False)
+
+    info = {
+        'timestamp'      : timestamp(),
+        'architecture'   : platform.machine(),
+        'os'             : system,
+        'os_info'        : osinfo,
+        'uname'          : uname,
+        'python_version' : platform.python_version(),
+        'python_info'    : sys.version,
+        'fsl_version'    : ctx.build['version'],
+        'fsl_platform'   : ctx.build['platform'],
+    }
+
+    printmsg('Registering installation with {}'.format(regurl))
+
+    post_request(regurl, data=info)
 
 
 def patch_file(filename, searchline, numlines, content):
@@ -2088,8 +2271,7 @@ def overwrite_destdir(ctx):
     """
 
     if not ctx.args.overwrite:
-        printmsg()
-        printmsg('Destination directory [{}] already exists!'
+        printmsg('\nDestination directory [{}] already exists!\n'
                  .format(ctx.destdir), WARNING, EMPHASIS)
         response = prompt('Do you want to overwrite it [y/N]?',
                           QUESTION, EMPHASIS)
@@ -2154,15 +2336,16 @@ def parse_args(argv=None, include=None, parser=None):
 
     options = {
         # regular options
-        'version'      : ('-v', {'action'  : 'version',
-                                 'version' : __version__}),
-        'dest'         : ('-d', {'metavar' : 'DESTDIR'}),
-        'overwrite'    : ('-o', {'action'  : 'store_true'}),
-        'listversions' : ('-l', {'action'  : 'store_true'}),
-        'no_env'       : ('-n', {'action'  : 'store_true'}),
-        'no_shell'     : ('-s', {'action'  : 'store_true'}),
-        'no_matlab'    : ('-m', {'action'  : 'store_true'}),
-        'fslversion'   : ('-V', {'default' : 'latest'}),
+        'version'           : ('-v', {'action'  : 'version',
+                                      'version' : __version__}),
+        'dest'              : ('-d', {'metavar' : 'DESTDIR'}),
+        'overwrite'         : ('-o', {'action'  : 'store_true'}),
+        'listversions'      : ('-l', {'action'  : 'store_true'}),
+        'no_env'            : ('-n', {'action'  : 'store_true'}),
+        'no_shell'          : ('-s', {'action'  : 'store_true'}),
+        'no_matlab'         : ('-m', {'action'  : 'store_true'}),
+        'skip_registration' : ('-r', {'action'  : 'store_true'}),
+        'fslversion'        : ('-V', {'default' : 'latest'}),
 
         # hidden options
         'debug'           : (None, {'action'  : 'store_true'}),
@@ -2186,19 +2369,21 @@ def parse_args(argv=None, include=None, parser=None):
         include = list(options.keys())
 
     helps = {
-        'version'      : 'Print installer version number and exit',
-        'listversions' : 'List available FSL versions and exit',
-        'dest'         : 'Install FSL into this folder (default: '
-                         '{})'.format(destdir),
-        'overwrite'    : 'Delete existing destination directory if it exists, '
-                         'without asking',
-        'no_env'       : 'Do not modify your shell or MATLAB configuration '
-                         '(implies --no_shell and --no_matlab). When running '
-                         'the installer script as the root user, the root '
-                         'shell profile is never modified.',
-        'no_shell'     : 'Do not modify your shell configuration',
-        'no_matlab'    : 'Do not modify your MATLAB configuration',
-        'fslversion'   : 'Install this specific version of FSL',
+        'version'           : 'Print installer version number and exit.',
+        'listversions'      : 'List available FSL versions and exit.',
+        'dest'              : 'Install FSL into this folder (default: '
+                              '{}).'.format(destdir),
+        'overwrite'         : 'Delete existing destination directory if it '
+                              'exists, without asking.',
+        'no_env'            : 'Do not modify your shell or MATLAB configuration '
+                              '(implies --no_shell and --no_matlab). When '
+                              'running the installer script as the root user, '
+                              'the root shell profile is never modified.',
+        'no_shell'          : 'Do not modify your shell configuration.',
+        'no_matlab'         : 'Do not modify your MATLAB configuration.',
+        'skip_registration' : 'Do not register this installation with the '
+                              'FSL development team.',
+        'fslversion'        : 'Install this specific version of FSL.',
 
         # Enable verbose output when calling
         # mamba/conda.
@@ -2244,7 +2429,8 @@ def parse_args(argv=None, include=None, parser=None):
         # Print debugging messages
         'debug'           : argparse.SUPPRESS,
 
-        # Disable SHA256 checksum validation of downloaded files
+        # Disable SHA256 checksum validation
+        # of downloaded files
         'no_checksum'     : argparse.SUPPRESS,
 
         # Store temp files in this directory
@@ -2456,6 +2642,17 @@ def main(argv=None):
         list_available_versions(ctx.manifest)
         sys.exit(0)
 
+    agree_to_license(ctx)
+
+    if (not args.skip_registration) and (ctx.registration_url is not None):
+        printmsg('During the installation process, please note that some '
+                 'system details will be automatically sent to the FSL '
+                 'development team. These details are extremely basic and '
+                 'cannot be used in any way to identify individual users. If '
+                 'you do not want any information to be sent, please cancel '
+                 'this installation by pressing CTRL+C, and re-run the '
+                 'installer with the --skip_registration option.\n', INFO)
+
     try:
         ctx.finalise_settings()
     except Exception as e:
@@ -2488,6 +2685,8 @@ def main(argv=None):
             install_fsl(ctx)
             finalise_installation(ctx)
             post_install_cleanup(ctx, tmpdir)
+            if not args.skip_registration:
+                register_installation(ctx)
 
     if not args.no_shell:
         configure_shell(ctx.shell, args.homedir, ctx.destdir)

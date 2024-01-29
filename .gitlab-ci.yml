@@ -103,6 +103,10 @@ test:py311:
   extends: .test-template
   image:    python:3.11
 
+test:py312:
+  extends: .test-template
+  image:    python:3.12
+
 check-version:
   stage: fsl-ci-test
   image: python:3.9

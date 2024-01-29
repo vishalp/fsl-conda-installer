@@ -46,11 +46,14 @@ def test_Process_check_call():
         os.chmod('pass', 0o755)
         os.chmod('fail', 0o755)
 
-        inst.Process.check_call(op.join(cwd, 'pass'))
+        assert inst.Process.check_call(op.join(cwd, 'pass')) == 0
         assert op.exists('passed')
 
         with pytest.raises(Exception):
             inst.Process.check_call(op.join(cwd, 'fail'))
+        assert op.exists('failed')
+
+        assert inst.Process.check_call(op.join(cwd, 'fail'), check=False) == 1
         assert op.exists('failed')
 
 
@@ -82,6 +85,9 @@ def test_Process_check_output():
             else:
                 with pytest.raises(Exception):
                     inst.Process.check_output(op.join(cwd, 'script'))
+
+                got = inst.Process.check_output(op.join(cwd, 'script'), check=False)
+                assert got.strip() == expect
 
 
 def test_Process_monitor_progress():

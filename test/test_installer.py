@@ -52,9 +52,12 @@ chmod a+x $prefix/bin/conda
 mock_manifest = """
 {{
     "installer" : {{
-        "version" : "{version}",
-        "url"     : "na",
-        "sha256"  : "na"
+        "version"          : "{version}",
+        "url"              : "na",
+        "sha256"           : "na",
+        "registration_url" : "http://registrationurl",
+        "license_url"      : "http://licenseurl"
+
     }},
     "miniconda" : {{
         "{platform}" : {{
@@ -100,14 +103,25 @@ packages:
 """.strip()
 
 
-
-def patch_manifest(src, dest, latest):
+def patch_manifest(src, dest, latest, *parts):
     with open(src, 'rt') as f:
         manifest = json.loads(f.read())
 
-    prev                           = manifest['versions']['latest']
-    manifest['versions']['latest'] = latest
-    manifest['versions'][latest]   = manifest['versions'][prev]
+    if latest is not None:
+        prev                           = manifest['versions']['latest']
+        manifest['versions']['latest'] = latest
+        manifest['versions'][latest]   = manifest['versions'][prev]
+
+    for part in parts:
+        parents = part[:-2]
+        key     = part[-2]
+        val     = part[-1]
+        destd   = manifest
+
+        for p in parents:
+            destd = destd[p]
+
+        destd[key] = val
 
     with open(dest, 'wt') as f:
         f.write(json.dumps(manifest))
@@ -202,7 +216,8 @@ def test_installer_normal_interactive_usage():
                                  op.abspath('fsl')]
                         dest  = dests[i]
                         with mock_input(dest):
-                            inst.main(['--homedir', cwd, '--root_env'])
+                            inst.main(['--homedir', cwd,
+                                       '--root_env'])
                         check_install(cwd, dest, '6.2.0')
                         shutil.rmtree(dest)
 
@@ -229,6 +244,9 @@ def test_installer_list_versions():
 
 
 def test_installer_normal_cli_usage():
+
+
+
     with inst.tempdir():
         with installer_server() as srv:
             with mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
@@ -239,7 +257,9 @@ def test_installer_normal_cli_usage():
                     with inst.tempdir() as cwd:
                         dests = ['fsl', op.join('.', 'fsl'), op.abspath('fsl')]
                         dest  = dests[i]
-                        inst.main(['--homedir', cwd, '--dest', dest, '--root_env'])
+                        inst.main(['--homedir', cwd,
+                                   '--dest', dest,
+                                   '--root_env'])
                         check_install(cwd, dest, '6.2.0')
                         shutil.rmtree(dest)
 
@@ -266,7 +286,8 @@ def test_installer_fsldir_already_set():
                     # hit enter to accept default installation
                     # directory, then 'y' to confirm overwrite
                     with mock_input('', 'y'):
-                        inst.main(['--homedir', cwd, '--root_env'])
+                        inst.main(['--homedir',
+                                   cwd, '--root_env'])
                     check_install(cwd, existing_fsldir, '6.2.0')
 
 
@@ -335,7 +356,9 @@ def test_installer_finalise_or_post_cleanup_failure():
          mock.patch('fsl.installer.fslinstaller.finalise_installation',
                     failing_finalise_installation):
 
-        inst.main(['--homedir', cwd, '--dest', 'fsl', '--root_env'])
+        inst.main(['--homedir', cwd,
+                   '--dest', 'fsl',
+                   '--root_env'])
         check_install(cwd, 'fsl', '6.2.0', finalise=False)
 
     with inst.tempdir(), \
@@ -346,5 +369,83 @@ def test_installer_finalise_or_post_cleanup_failure():
          mock.patch('fsl.installer.fslinstaller.post_install_cleanup',
                     failing_post_install_cleanup):
 
-        inst.main(['--homedir', cwd, '--dest', 'fsl', '--root_env'])
+        inst.main(['--homedir', cwd,
+                   '--dest', 'fsl',
+                   '--root_env'])
         check_install(cwd, 'fsl', '6.2.0', postinst=False)
+
+
+def test_installer_skip_registration():
+
+    # normal usage - registration info should be posted
+    with inst.tempdir() as srvdir, \
+         installer_server() as srv, \
+         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                    '{}/manifest.json'.format(srv.url)), \
+         inst.tempdir() as cwd:
+
+        manifest = '{}/manifest.json'.format(srvdir)
+        patch_manifest(manifest, manifest, None,
+                       ('installer', 'registration_url', srv.url))
+
+        inst.main(['--homedir', cwd,
+                   '--dest', 'fsl',
+                   '--root_env'])
+        check_install(cwd, 'fsl', '6.2.0')
+
+        assert len(srv.posts) == 1
+
+    # --skip_registration - registration info should *not* be posted
+    with inst.tempdir() as srvdir, \
+         installer_server() as srv, \
+         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                    '{}/manifest.json'.format(srv.url)), \
+         inst.tempdir() as cwd:
+
+        manifest = '{}/manifest.json'.format(srvdir)
+        patch_manifest(manifest, manifest, None,
+                       ('installer', 'registration_url', srv.url))
+
+        inst.main(['--homedir', cwd,
+                   '--dest', 'fsl',
+                   '--root_env',
+                   '--skip_registration'])
+        check_install(cwd, 'fsl', '6.2.0')
+        assert len(srv.posts) == 0
+
+    # bad registration url in manifest - install should still succeed
+    with inst.tempdir() as srvdir, \
+         installer_server() as srv, \
+         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                    '{}/manifest.json'.format(srv.url)), \
+         inst.tempdir() as cwd:
+        manifest = '{}/manifest.json'.format(srvdir)
+        patch_manifest(manifest, manifest, None,
+                       ('installer', 'registration_url', 'badurl'))
+
+        inst.main(['--homedir', cwd,
+                   '--dest', 'fsl',
+                   '--root_env'])
+        check_install(cwd, 'fsl', '6.2.0')
+
+        assert len(srv.posts) == 0
+
+    # no registration url in manifest - install should still succeed
+    with inst.tempdir() as srvdir, \
+         installer_server() as srv, \
+         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                    '{}/manifest.json'.format(srv.url)), \
+         inst.tempdir() as cwd:
+
+        manifest = '{}/manifest.json'.format(srvdir)
+        with open(manifest, 'rt') as f:
+            installer = json.load(f)['installer']
+        installer.pop('registration_url')
+        patch_manifest(manifest, manifest, None, ('installer', installer))
+
+        inst.main(['--homedir', cwd,
+                   '--dest', 'fsl',
+                   '--root_env'])
+        check_install(cwd, 'fsl', '6.2.0')
+
+        assert len(srv.posts) == 0

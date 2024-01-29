@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import datetime
 import os
 import os.path as op
 import shutil
@@ -16,7 +17,7 @@ except ImportError:
 
 import pytest
 
-from . import onpath, server
+from . import onpath, server, mock_input
 
 import fsl.installer.fslinstaller as inst
 
@@ -398,3 +399,94 @@ def test_self_update():
                                                check_checksum=True))
             got = sp.check_output([sys.executable, 'script.py'])
             assert got.decode('utf-8').strip() == 'old version'
+
+
+def test_timestamp():
+
+    nowval    = None
+    utcnowval = None
+    dt        = datetime.datetime
+
+    class mock_datetime(object):
+        @staticmethod
+        def now():
+            return nowval
+        @staticmethod
+        def utcnow():
+            return utcnowval
+
+    # (nowval, utcnowval, expected result)
+    tests = [
+        (dt(2020, 12, 1, 12, 0, 0),
+         dt(2020, 12, 1, 12, 0, 0),
+         '2020-12-01T12:00:00+00:00'),
+        (dt(2020, 12, 1, 14, 0, 0),
+         dt(2020, 12, 1, 12, 0, 0),
+         '2020-12-01T14:00:00+02:00'),
+        (dt(2020, 12, 1, 10, 0, 0),
+         dt(2020, 12, 1, 12, 0, 0),
+         '2020-12-01T10:00:00-02:00'),
+        (dt(2020, 12, 1, 1, 0, 0),
+         dt(2020, 12, 1, 12, 0, 0),
+         '2020-12-01T01:00:00-11:00'),
+        (dt(2020, 12, 1, 22, 0, 0),
+         dt(2020, 12, 1, 12, 0, 0),
+         '2020-12-01T22:00:00+10:00'),
+    ]
+
+    with mock.patch('datetime.datetime', mock_datetime):
+        for nv, unv, exp in tests:
+            nowval    = nv
+            utcnowval = unv
+            assert inst.timestamp() == exp
+
+
+def test_post_request():
+    with server() as srv:
+        inst.post_request(srv.url, {'key' : 'value'})
+    assert srv.posts == [{'key' : 'value'}]
+
+
+def test_register_installation():
+
+    class MockContext(object):
+        pass
+
+    ctx                  = MockContext()
+    ctx.build            = {'version' : '6.7.0', 'platform' : 'linux-64'}
+    ctx.registration_url = 'http://localhost:12348'
+
+    # should fail silently if registration url is down
+    inst.register_installation(ctx)
+
+    with server() as srv:
+        ctx.registration_url = srv.url
+        inst.register_installation(ctx)
+
+    assert len(srv.posts) == 1
+    got = srv.posts[0]
+
+    assert 'timestamp'      in got
+    assert 'architecture'   in got
+    assert 'os'             in got
+    assert 'os_info'        in got
+    assert 'uname'          in got
+    assert 'python_version' in got
+    assert 'python_info'    in got
+    assert got['fsl_version']  == '6.7.0'
+    assert got['fsl_platform'] == 'linux-64'
+
+
+def test_agree_to_license():
+    class MockContext(object):
+        pass
+
+    # test agree_to_license when there is and
+    # isn't a license_url in the manifest
+
+    ctx             = MockContext()
+    ctx.license_url = None
+    inst.agree_to_license(ctx)
+
+    ctx.license_url = 'http://abcdefg'
+    inst.agree_to_license(ctx)
