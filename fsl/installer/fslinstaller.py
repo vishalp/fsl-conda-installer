@@ -2060,15 +2060,17 @@ def register_installation(ctx):
     # macOS
     if system == 'darwin':
         osinfo = Process.check_output('sw_vers', check=False)
-    # WSL
-    elif 'microsoft' in uname.lower():
-        osinfo = Process.check_output('wsl.exe -v', check=False)
+
     # Linux
     else:
         for releasefile in glob.glob(op.join('/etc/*-release')):
             with open(releasefile, 'rt') as f:
                 osinfo = f.read().strip()
             break
+
+        # WSL
+        if 'microsoft' in uname.lower():
+            osinfo += '\n\n' + Process.check_output('wsl.exe -v', check=False)
 
     info = {
         'timestamp'      : timestamp(),
