@@ -3,6 +3,7 @@
 """Utility functions used for testing. """
 
 
+import json
 import os
 import os.path as op
 import contextlib
@@ -13,15 +14,16 @@ import sys
 import re
 
 
-
 # py3
 try:
+    import queue
     import http.server as http
     from io import StringIO
     from unittest import mock
 
 # py2
 except ImportError:
+    import Queue as queue
     from StringIO import StringIO
     import SimpleHTTPServer as http
     http.HTTPServer = http.BaseHTTPServer.HTTPServer
@@ -52,20 +54,55 @@ def indir(dir):
 
 
 class HTTPServer(mp.Process):
-    """Simple HTTP server which serves files from a specified directory.
+    """Simple HTTP server which serves files from a specified directory, and
+    can accept JSON data via POST requests.
 
     Intended to be used via the :func:`server` context manager function.
     """
+
+
+    class Handler(http.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            self.posts = kwargs.pop('posts', queue.Queue())
+            http.SimpleHTTPRequestHandler.__init__(self, *args, **kwargs)
+
+        @classmethod
+        def ctr(cls, posts):
+            return ft.partial(cls, posts=posts)
+
+        def do_POST(self):
+
+            nbytes = int(self.headers['Content-Length'])
+            data   = json.loads(self.rfile.read(nbytes))
+
+            self.posts.put(data)
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(b'OK')
+
     def __init__(self, rootdir):
+
         mp.Process.__init__(self)
         self.daemon = True
         self.rootdir = rootdir
-        handler = http.SimpleHTTPRequestHandler
+        self.__postq = mp.Queue()
+        self.__posts = []
+        handler = HTTPServer.Handler.ctr(self.__postq)
         self.server = http.HTTPServer(('', 0), handler)
         self.shutdown = mp.Event()
 
     def stop(self):
         self.shutdown.set()
+
+    @property
+    def posts(self):
+        while True:
+            try:
+                self.__posts.append(self.__postq.get_nowait())
+            except queue.Empty:
+                break
+        return list(self.__posts)
 
     @property
     def port(self):
