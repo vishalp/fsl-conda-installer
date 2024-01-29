@@ -178,11 +178,15 @@ def mock_input(*responses):
     is a callable, in which case it is called, and then the next non-callable
     response returned. This gives us a hacky way to manipulate things while
     stuck in an input REPL loop.
+
+    An error is raised if input is not called the expected number of times
     """
 
     resp = iter(responses)
+    count = [0]
 
     def _input(*a, **kwa):
+        count[0] += 1
         n = next(resp)
         while callable(n):
             n()
@@ -194,6 +198,9 @@ def mock_input(*responses):
 
     with mock.patch(target, _input):
         yield
+
+    if count[0] != len(responses):
+        raise AssertionError('Expected number of inputs not provided')
 
 
 def strip_ansi_escape_sequences(text):

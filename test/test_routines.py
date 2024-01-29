@@ -17,7 +17,7 @@ except ImportError:
 
 import pytest
 
-from . import onpath, server
+from . import onpath, server, mock_input
 
 import fsl.installer.fslinstaller as inst
 
@@ -445,3 +445,62 @@ def test_post_request():
     with server() as srv:
         inst.post_request(srv.url, {'key' : 'value'})
     assert srv.posts == [{'key' : 'value'}]
+
+
+
+def test_register_installation():
+
+    class MockContext(object):
+        pass
+
+    ctx          = MockContext()
+    ctx.build    = {'version' : '6.7.0', 'platform' : 'linux-64'}
+    ctx.manifest = {'installer' : {'registration_url' : 'http://localhost:12348'}}
+
+    # should fail silently if registration url is down
+    inst.register_installation(ctx)
+
+    with server() as srv:
+        ctx.manifest = {'installer' : {'registration_url' : srv.url}}
+        inst.register_installation(ctx)
+
+    got = srv.posts[0]
+
+    assert 'timestamp'      in got
+    assert 'architecture'   in got
+    assert 'os'             in got
+    assert 'os_info'        in got
+    assert 'uname'          in got
+    assert 'python_version' in got
+    assert 'python_info'    in got
+    assert got['fsl_version']  == '6.7.0'
+    assert got['fsl_platform'] == 'linux-64'
+
+
+def test_agree_to_license():
+    class MockContext(object):
+        pass
+
+    ctx          = MockContext()
+    ctx.manifest = {'installer' : {}}
+
+    # do nothing if there is no license url in the manifest
+    inst.agree_to_license(ctx)
+
+    # installer called with  --agree_to_license
+    ctx.manifest['installer'] = {'license_url' : 'http://abcdefg'}
+    ctx.args                  = MockContext()
+    ctx.args.agree_to_license = True
+
+    inst.agree_to_license(ctx)
+
+    # normal behaviour
+    ctx.args.agree_to_license = False
+    with pytest.raises(SystemExit):
+        with mock_input('n'):
+            inst.agree_to_license(ctx)
+
+    with mock_input('y'):   inst.agree_to_license(ctx)
+    with mock_input('Y'):   inst.agree_to_license(ctx)
+    with mock_input(''):    inst.agree_to_license(ctx)
+    with mock_input('yes'): inst.agree_to_license(ctx)
