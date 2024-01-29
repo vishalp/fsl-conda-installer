@@ -217,6 +217,25 @@ def prompt(promptmsg, *msgtypes, **kwargs):
     return response
 
 
+def post_request(url, data):
+    """Send JSON data to a URL via a HTTP POST request. """
+
+    data                    = json.dumps(data).encode('utf-8')
+    headers                 = {}
+    headers['Content-Type'] = 'application/json'
+    resp                    = None
+
+    try:
+        req  = urlrequest.Request(url,
+                                  headers=headers,
+                                  data=data,
+                                  method='POST')
+        resp = urlrequest.urlopen(req)
+    finally:
+        if resp:
+            resp.close()
+
+
 def identify_platform():
     """Figures out what platform we are running on. Returns a platform
     identifier string - one of:
@@ -246,6 +265,18 @@ def identify_platform():
                             system, cpu, supported))
 
     return platforms[key]
+
+
+def timestamp():
+    """Return a string containing the local time, with time zone offset.
+    """
+    now     = datetime.datetime.now()
+    offset  = (now - datetime.datetime.utcnow())
+    offset  = round(offset.total_seconds())
+    hours   = int(offset / 3600)
+    minutes = int((offset % 3600) / 60)
+    now     = now.strftime('%Y-%m-%dT%H:%M:%S')
+    return '{}{:+03d}:{:02d}'.format(now, hours, minutes)
 
 
 def check_need_admin(dirname):
@@ -880,15 +911,18 @@ class Process(object):
     def check_output(cmd, *args, **kwargs):
         """Behaves like subprocess.check_output. Runs the given command, then
         waits until it finishes, and return its standard output. An error
-        is raised if the process returns a non-zero exit code.
+        is raised if the process returns a non-zero exit code, unless a keyword
+        argument `check=False` is specified.
 
         :arg cmd: The command to run, as a string
         """
 
-        proc = Process(cmd, *args, **kwargs)
+        check = kwargs.pop('check', True)
+        proc  = Process(cmd, *args, **kwargs)
+
         proc.wait()
 
-        if proc.returncode != 0:
+        if check and (proc.returncode != 0):
             raise RuntimeError('This command returned an error: ' + cmd)
 
         stdout = ''
@@ -905,13 +939,18 @@ class Process(object):
     def check_call(cmd, *args, **kwargs):
         """Behaves like subprocess.check_call. Runs the given command, then
         waits until it finishes. An error is raised if the process returns a
-        non-zero exit code.
+        non-zero exit code, unless a keyword argument `check=False` is
+        specified.
 
         :arg cmd: The command to run, as a string
         """
-        proc = Process(cmd, *args, **kwargs)
+
+        check = kwargs.pop('check', True)
+        proc  = Process(cmd, *args, **kwargs)
+
         proc.wait()
-        if proc.returncode != 0:
+
+        if check and proc.returncode != 0:
             raise RuntimeError('This command returned an error: ' + cmd)
 
 
