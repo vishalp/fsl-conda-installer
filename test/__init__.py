@@ -11,6 +11,7 @@ import threading
 import multiprocessing as mp
 import functools as ft
 import sys
+import time
 import re
 
 
@@ -73,7 +74,7 @@ class HTTPServer(mp.Process):
         def do_POST(self):
 
             nbytes = int(self.headers['Content-Length'])
-            data   = json.loads(self.rfile.read(nbytes))
+            data   = json.loads(self.rfile.read(nbytes).decode())
 
             self.posts.put(data)
             self.send_response(200)
@@ -89,7 +90,7 @@ class HTTPServer(mp.Process):
         self.__postq = mp.Queue()
         self.__posts = []
         handler = HTTPServer.Handler.ctr(self.__postq)
-        self.server = http.HTTPServer(('', 0), handler)
+        self.server = http.HTTPServer(('0.0.0.0', 0), handler)
         self.shutdown = mp.Event()
 
     def stop(self):
@@ -121,6 +122,12 @@ def server(rootdir=None):
     ``rootdir`` (defaults to the current working directory), then shut it down
     afterwards.
     """
+    # pause for a bit to allow OS to free
+    # resources (in case we are calling
+    # server() multiple times in quick
+    # succession)
+    time.sleep(3)
+
     if rootdir is None:
         rootdir = os.getcwd()
     srv = HTTPServer(rootdir)
