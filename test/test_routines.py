@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import datetime
 import os
 import os.path as op
 import shutil
@@ -398,3 +399,49 @@ def test_self_update():
                                                check_checksum=True))
             got = sp.check_output([sys.executable, 'script.py'])
             assert got.decode('utf-8').strip() == 'old version'
+
+
+def test_timestamp():
+
+    nowval    = None
+    utcnowval = None
+    dt        = datetime.datetime
+
+    class mock_datetime(object):
+        @staticmethod
+        def now():
+            return nowval
+        @staticmethod
+        def utcnow():
+            return utcnowval
+
+    # (nowval, utcnowval, expected result)
+    tests = [
+        (dt(2020, 12, 1, 12, 0, 0),
+         dt(2020, 12, 1, 12, 0, 0),
+         '2020-12-01T12:00:00+00:00'),
+        (dt(2020, 12, 1, 14, 0, 0),
+         dt(2020, 12, 1, 12, 0, 0),
+         '2020-12-01T14:00:00+02:00'),
+        (dt(2020, 12, 1, 10, 0, 0),
+         dt(2020, 12, 1, 12, 0, 0),
+         '2020-12-01T10:00:00-02:00'),
+        (dt(2020, 12, 1, 1, 0, 0),
+         dt(2020, 12, 1, 12, 0, 0),
+         '2020-12-01T01:00:00-11:00'),
+        (dt(2020, 12, 1, 22, 0, 0),
+         dt(2020, 12, 1, 12, 0, 0),
+         '2020-12-01T22:00:00+10:00'),
+    ]
+
+    with mock.patch('datetime.datetime', mock_datetime):
+        for nv, unv, exp in tests:
+            nowval    = nv
+            utcnowval = unv
+            assert inst.timestamp() == exp
+
+
+def test_post_request():
+    with server() as srv:
+        inst.post_request(srv.url, {'key' : 'value'})
+    assert srv.posts == [{'key' : 'value'}]
