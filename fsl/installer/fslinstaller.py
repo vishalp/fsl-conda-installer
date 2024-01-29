@@ -32,6 +32,7 @@ import                   contextlib
 import                   datetime
 import                   fnmatch
 import                   getpass
+import                   glob
 import                   hashlib
 import                   json
 import                   logging
@@ -2051,6 +2052,48 @@ def post_install_cleanup(ctx, tmpdir):
         ctx.run(Process.check_call, cmd)
 
 
+@warn_on_error('WARNING: ', WARNING, EMPHASIS, toscreen=False)
+def register_installation(ctx):
+    """Gathers and sends some basic system details to the FSL registration
+    website.
+    """
+
+    regurl = ctx.registration_url
+    if regurl is None:
+        return
+
+    system = platform.system().lower()
+    uname  = Process.check_output('uname -a', check=False)
+    osinfo = ''
+
+    # macOS
+    if system == 'darwin':
+        osinfo = Process.check_output('sw_vers', check=False)
+    # WSL
+    elif 'microsoft' in uname.lower():
+        osinfo = Process.check_output('wsl.exe -v', check=False)
+    # Linux
+    else:
+        for releasefile in glob.glob(op.join('/etc/*-release')):
+            with open(releasefile, 'rt') as f:
+                osinfo = f.read().strip()
+            break
+
+    info = {
+        'timestamp'      : timestamp(),
+        'architecture'   : platform.machine(),
+        'os'             : system,
+        'os_info'        : osinfo,
+        'uname'          : uname,
+        'python_version' : platform.python_version(),
+        'python_info'    : sys.version,
+        'fsl_version'    : ctx.build['version'],
+        'fsl_platform'   : ctx.build['platform'],
+    }
+
+    post_request(regurl, data=info)
+
+
 def patch_file(filename, searchline, numlines, content):
     """Used by configure_shell and configure_matlab. Adds to, modifies,
     or creates the specified file.
@@ -2298,16 +2341,17 @@ def parse_args(argv=None, include=None, parser=None):
 
     options = {
         # regular options
-        'version'          : ('-v', {'action'  : 'version',
-                                     'version' : __version__}),
-        'dest'             : ('-d', {'metavar' : 'DESTDIR'}),
-        'overwrite'        : ('-o', {'action'  : 'store_true'}),
-        'listversions'     : ('-l', {'action'  : 'store_true'}),
-        'no_env'           : ('-n', {'action'  : 'store_true'}),
-        'no_shell'         : ('-s', {'action'  : 'store_true'}),
-        'no_matlab'        : ('-m', {'action'  : 'store_true'}),
-        'agree_to_license' : ('-a', {'action'  : 'store_true'}),
-        'fslversion'       : ('-V', {'default' : 'latest'}),
+        'version'           : ('-v', {'action'  : 'version',
+                                      'version' : __version__}),
+        'dest'              : ('-d', {'metavar' : 'DESTDIR'}),
+        'overwrite'         : ('-o', {'action'  : 'store_true'}),
+        'listversions'      : ('-l', {'action'  : 'store_true'}),
+        'no_env'            : ('-n', {'action'  : 'store_true'}),
+        'no_shell'          : ('-s', {'action'  : 'store_true'}),
+        'no_matlab'         : ('-m', {'action'  : 'store_true'}),
+        'agree_to_license'  : ('-a', {'action'  : 'store_true'}),
+        'skip_registration' : ('-r', {'action'  : 'store_true'}),
+        'fslversion'        : ('-V', {'default' : 'latest'}),
 
         # hidden options
         'debug'           : (None, {'action'  : 'store_true'}),
@@ -2331,21 +2375,23 @@ def parse_args(argv=None, include=None, parser=None):
         include = list(options.keys())
 
     helps = {
-        'version'          : 'Print installer version number and exit.',
-        'listversions'     : 'List available FSL versions and exit.',
-        'dest'             : 'Install FSL into this folder (default: '
-                             '{}).'.format(destdir),
-        'overwrite'        : 'Delete existing destination directory if it '
-                             'exists, without asking.',
-        'no_env'           : 'Do not modify your shell or MATLAB configuration '
-                             '(implies --no_shell and --no_matlab). When '
-                             'running the installer script as the root user, '
-                             'the root shell profile is never modified.',
-        'no_shell'         : 'Do not modify your shell configuration.',
-        'no_matlab'        : 'Do not modify your MATLAB configuration.',
-        'agree_to_license' : 'Automatically agree to the terms of the '
-                             'FSL license.',
-        'fslversion'       : 'Install this specific version of FSL.',
+        'version'           : 'Print installer version number and exit.',
+        'listversions'      : 'List available FSL versions and exit.',
+        'dest'              : 'Install FSL into this folder (default: '
+                              '{}).'.format(destdir),
+        'overwrite'         : 'Delete existing destination directory if it '
+                              'exists, without asking.',
+        'no_env'            : 'Do not modify your shell or MATLAB configuration '
+                              '(implies --no_shell and --no_matlab). When '
+                              'running the installer script as the root user, '
+                              'the root shell profile is never modified.',
+        'no_shell'          : 'Do not modify your shell configuration.',
+        'no_matlab'         : 'Do not modify your MATLAB configuration.',
+        'agree_to_license'  : 'Automatically agree to the terms of the '
+                              'FSL license.',
+        'skip_registration' : 'Do not register this installation with the '
+                              'FSL development team.',
+        'fslversion'        : 'Install this specific version of FSL.',
 
         # Enable verbose output when calling
         # mamba/conda.
@@ -2606,6 +2652,15 @@ def main(argv=None):
 
     agree_to_license(ctx)
 
+    if (not args.skip_registration) and (ctx.registration_url is not None):
+        printmsg('During the installation process, please note that some '
+                 'system details will be automatically sent to the FSL '
+                 'development team. These details are extremely basic and '
+                 'cannot be used in any way to identify individual users. If '
+                 'you do not want any information to be sent, please cancel '
+                 'this installation by pressing CTRL+C, and re-run the '
+                 'installer with the --skip_registration option.\n', INFO)
+
     try:
         ctx.finalise_settings()
     except Exception as e:
@@ -2638,6 +2693,8 @@ def main(argv=None):
             install_fsl(ctx)
             finalise_installation(ctx)
             post_install_cleanup(ctx, tmpdir)
+            if not args.skip_registration:
+                register_installation(ctx)
 
     if not args.no_shell:
         configure_shell(ctx.shell, args.homedir, ctx.destdir)
