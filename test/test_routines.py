@@ -447,23 +447,23 @@ def test_post_request():
     assert srv.posts == [{'key' : 'value'}]
 
 
-
 def test_register_installation():
 
     class MockContext(object):
         pass
 
-    ctx          = MockContext()
-    ctx.build    = {'version' : '6.7.0', 'platform' : 'linux-64'}
-    ctx.manifest = {'installer' : {'registration_url' : 'http://localhost:12348'}}
+    ctx                  = MockContext()
+    ctx.build            = {'version' : '6.7.0', 'platform' : 'linux-64'}
+    ctx.registration_url = 'http://localhost:12348'
 
     # should fail silently if registration url is down
     inst.register_installation(ctx)
 
     with server() as srv:
-        ctx.manifest = {'installer' : {'registration_url' : srv.url}}
+        ctx.registration_url = srv.url
         inst.register_installation(ctx)
 
+    assert len(srv.posts) == 1
     got = srv.posts[0]
 
     assert 'timestamp'      in got
@@ -481,14 +481,14 @@ def test_agree_to_license():
     class MockContext(object):
         pass
 
-    ctx          = MockContext()
-    ctx.manifest = {'installer' : {}}
+    ctx             = MockContext()
+    ctx.license_url = None
 
     # do nothing if there is no license url in the manifest
     inst.agree_to_license(ctx)
 
     # installer called with  --agree_to_license
-    ctx.manifest['installer'] = {'license_url' : 'http://abcdefg'}
+    ctx.license_url           = 'http://abcdefg'
     ctx.args                  = MockContext()
     ctx.args.agree_to_license = True
 
