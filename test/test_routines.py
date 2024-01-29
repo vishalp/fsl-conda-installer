@@ -481,26 +481,12 @@ def test_agree_to_license():
     class MockContext(object):
         pass
 
+    # test agree_to_license when there is and
+    # isn't a license_url in the manifest
+
     ctx             = MockContext()
     ctx.license_url = None
-
-    # do nothing if there is no license url in the manifest
     inst.agree_to_license(ctx)
 
-    # installer called with  --agree_to_license
-    ctx.license_url           = 'http://abcdefg'
-    ctx.args                  = MockContext()
-    ctx.args.agree_to_license = True
-
+    ctx.license_url = 'http://abcdefg'
     inst.agree_to_license(ctx)
-
-    # normal behaviour
-    ctx.args.agree_to_license = False
-    with pytest.raises(SystemExit):
-        with mock_input('n'):
-            inst.agree_to_license(ctx)
-
-    with mock_input('y'):   inst.agree_to_license(ctx)
-    with mock_input('Y'):   inst.agree_to_license(ctx)
-    with mock_input(''):    inst.agree_to_license(ctx)
-    with mock_input('yes'): inst.agree_to_license(ctx)

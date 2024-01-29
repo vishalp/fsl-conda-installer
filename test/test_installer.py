@@ -217,8 +217,7 @@ def test_installer_normal_interactive_usage():
                         dest  = dests[i]
                         with mock_input(dest):
                             inst.main(['--homedir', cwd,
-                                       '--root_env',
-                                       '--agree_to_license'])
+                                       '--root_env'])
                         check_install(cwd, dest, '6.2.0')
                         shutil.rmtree(dest)
 
@@ -260,8 +259,7 @@ def test_installer_normal_cli_usage():
                         dest  = dests[i]
                         inst.main(['--homedir', cwd,
                                    '--dest', dest,
-                                   '--root_env',
-                                   '--agree_to_license'])
+                                   '--root_env'])
                         check_install(cwd, dest, '6.2.0')
                         shutil.rmtree(dest)
 
@@ -270,7 +268,6 @@ def test_installer_normal_cli_usage():
                     inst.main(['--homedir', cwd,
                                '--dest', 'fsl',
                                '--fslversion', '6.1.0',
-                               '--agree_to_license',
                                '--root_env'])
                     check_install(cwd, 'fsl', '6.1.0')
                     shutil.rmtree('fsl')
@@ -290,8 +287,7 @@ def test_installer_fsldir_already_set():
                     # directory, then 'y' to confirm overwrite
                     with mock_input('', 'y'):
                         inst.main(['--homedir',
-                                   cwd, '--root_env',
-                                   '--agree_to_license'])
+                                   cwd, '--root_env'])
                     check_install(cwd, existing_fsldir, '6.2.0')
 
 
@@ -320,21 +316,21 @@ def test_installer_devrelease():
                 with inst.tempdir() as cwd:
                     dest = 'fsl'
                     with mock_input('2', dest):
-                        inst.main(['--homedir', cwd, '--devrelease', '--root_env', '--agree_to_license'])
+                        inst.main(['--homedir', cwd, '--devrelease', '--root_env'])
                     check_install(cwd, dest, '6.1.0.20220519', '6.2.0')
                     shutil.rmtree(dest)
                 # default option is newest devrelease
                 with inst.tempdir() as cwd:
                     dest = 'fsl'
                     with mock_input('', dest):
-                        inst.main(['--homedir', cwd, '--devrelease', '--root_env', '--agree_to_license'])
+                        inst.main(['--homedir', cwd, '--devrelease', '--root_env'])
                     check_install(cwd, dest, '6.1.0.20220520', '6.2.0')
                     shutil.rmtree(dest)
 
                 with inst.tempdir() as cwd:
                     dest = 'fsl'
                     with mock_input(dest):
-                        inst.main(['--homedir', cwd, '--devlatest', '--root_env', '--agree_to_license'])
+                        inst.main(['--homedir', cwd, '--devlatest', '--root_env'])
                     check_install(cwd, dest, '6.1.0.20220520', '6.2.0')
                     shutil.rmtree(dest)
 
@@ -362,8 +358,7 @@ def test_installer_finalise_or_post_cleanup_failure():
 
         inst.main(['--homedir', cwd,
                    '--dest', 'fsl',
-                   '--root_env',
-                   '--agree_to_license'])
+                   '--root_env'])
         check_install(cwd, 'fsl', '6.2.0', finalise=False)
 
     with inst.tempdir(), \
@@ -376,8 +371,7 @@ def test_installer_finalise_or_post_cleanup_failure():
 
         inst.main(['--homedir', cwd,
                    '--dest', 'fsl',
-                   '--root_env',
-                   '--agree_to_license'])
+                   '--root_env'])
         check_install(cwd, 'fsl', '6.2.0', postinst=False)
 
 
@@ -396,8 +390,7 @@ def test_installer_skip_registration():
 
         inst.main(['--homedir', cwd,
                    '--dest', 'fsl',
-                   '--root_env',
-                   '--agree_to_license'])
+                   '--root_env'])
         check_install(cwd, 'fsl', '6.2.0')
 
         assert len(srv.posts) == 1
@@ -416,7 +409,6 @@ def test_installer_skip_registration():
         inst.main(['--homedir', cwd,
                    '--dest', 'fsl',
                    '--root_env',
-                   '--agree_to_license',
                    '--skip_registration'])
         check_install(cwd, 'fsl', '6.2.0')
         assert len(srv.posts) == 0
@@ -433,8 +425,7 @@ def test_installer_skip_registration():
 
         inst.main(['--homedir', cwd,
                    '--dest', 'fsl',
-                   '--root_env',
-                   '--agree_to_license'])
+                   '--root_env'])
         check_install(cwd, 'fsl', '6.2.0')
 
         assert len(srv.posts) == 0
@@ -454,51 +445,7 @@ def test_installer_skip_registration():
 
         inst.main(['--homedir', cwd,
                    '--dest', 'fsl',
-                   '--root_env',
-                   '--agree_to_license'])
+                   '--root_env'])
         check_install(cwd, 'fsl', '6.2.0')
 
         assert len(srv.posts) == 0
-
-
-def test_installer_agree_to_license():
-
-    # no prompt if license_url not in manifest
-    with inst.tempdir() as srvdir, \
-         installer_server() as srv, \
-         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                    '{}/manifest.json'.format(srv.url)), \
-         inst.tempdir() as cwd:
-        manifest = '{}/manifest.json'.format(srvdir)
-        with open(manifest, 'rt') as f:
-            installer = json.load(f)['installer']
-        installer.pop('license_url')
-        patch_manifest(manifest, manifest, None, ('installer', installer))
-        inst.main(['--homedir', cwd,
-                   '--dest', 'fsl',
-                   '--root_env'])
-        check_install(cwd, 'fsl', '6.2.0')
-
-    # no prompt with --agree_to_license
-    with inst.tempdir() as srvdir, \
-         installer_server() as srv, \
-         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                    '{}/manifest.json'.format(srv.url)), \
-         inst.tempdir() as cwd:
-        inst.main(['--homedir', cwd,
-                   '--dest', 'fsl',
-                   '--agree_to_license',
-                   '--root_env'])
-        check_install(cwd, 'fsl', '6.2.0')
-
-    # normal behaviour - prompt user to agree
-    with inst.tempdir() as srvdir, \
-         installer_server() as srv, \
-         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                    '{}/manifest.json'.format(srv.url)), \
-         inst.tempdir() as cwd:
-        with mock_input('y'):
-            inst.main(['--homedir', cwd,
-                       '--dest', 'fsl',
-                       '--root_env'])
-        check_install(cwd, 'fsl', '6.2.0')
