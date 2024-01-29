@@ -50,7 +50,7 @@ import                   time
 import                   traceback
 
 try:                import urllib.request as urlrequest
-except ImportError: import urllib         as urlrequest
+except ImportError: import urllib2        as urlrequest
 
 
 try:                import urllib.parse as urlparse
@@ -229,8 +229,7 @@ def post_request(url, data):
     try:
         req  = urlrequest.Request(url,
                                   headers=headers,
-                                  data=data,
-                                  method='POST')
+                                  data=data)
         resp = urlrequest.urlopen(req)
     finally:
         if resp:
