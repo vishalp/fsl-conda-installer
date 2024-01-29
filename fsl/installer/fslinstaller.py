@@ -1238,6 +1238,22 @@ class Context(object):
 
 
     @property
+    def license_url(self):
+        """Return the FSL license URL from the manifest, or None if it is not
+        present.
+        """
+        return self.manifest['installer'].get('license_url')
+
+
+    @property
+    def registration_url(self):
+        """Return the FSL registration URL from the manifest, or None if it is
+        not present.
+        """
+        return self.manifest['installer'].get('registration_url')
+
+
+    @property
     def platform(self):
         """The platform we are running on, e.g. "linux-64", "macos-64",
         "macos-M1". This identifier is used to determine which FSL build to
@@ -1508,7 +1524,7 @@ class Context(object):
 def agree_to_license(ctx):
     """Prompts the user to agree to the terms of the FSL license."""
 
-    license_url = ctx.manifest['installer'].get('license_url')
+    license_url = ctx.license_url
 
     if license_url is None:
         return
