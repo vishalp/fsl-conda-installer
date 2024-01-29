@@ -49,8 +49,12 @@ import                   threading
 import                   time
 import                   traceback
 
-try:                import urllib.request as urlrequest
-except ImportError: import urllib2        as urlrequest
+try:
+    import urllib.request as urlrequest
+except ImportError:
+    import urllib
+    import urllib2 as urlrequest
+    urlrequest.pathname2url = urllib.pathname2url
 
 
 try:                import urllib.parse as urlparse
@@ -2089,6 +2093,8 @@ def register_installation(ctx):
         'fsl_version'    : ctx.build['version'],
         'fsl_platform'   : ctx.build['platform'],
     }
+
+    printmsg('Registering installation with {}'.format(regurl))
 
     post_request(regurl, data=info)
 
