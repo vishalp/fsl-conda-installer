@@ -953,6 +953,8 @@ class Process(object):
         if check and proc.returncode != 0:
             raise RuntimeError('This command returned an error: ' + cmd)
 
+        return proc.returncode
+
 
     @staticmethod
     def monitor_progress(cmd, total=None, *args, **kwargs):
