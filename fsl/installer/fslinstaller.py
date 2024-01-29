@@ -1528,26 +1528,14 @@ class Context(object):
 def agree_to_license(ctx):
     """Prompts the user to agree to the terms of the FSL license."""
 
-    license_url = ctx.license_url
+    printmsg('Installing FSL implies agreement with the terms of the FSL '
+             'license - if you do not agree with these terms, you can '
+             'cancel the installation by pressing CTRL+C.', IMPORTANT)
 
-    if license_url is None:
-        return
-
-    printmsg('You must agree to the FSL license before installing '
-             'FSL - you can view the license at ', INFO,
-             '{}\n'.format(license_url), IMPORTANT, UNDERLINE)
-
-    if ctx.args.agree_to_license:
-        return
-
-    response = prompt('Do you agree to the terms of the FSL '
-                      'license [Y/n]?', QUESTION, EMPHASIS)
+    if ctx.license_url is not None:
+        printmsg('You can view the license at ', INFO,
+                 ctx.license_url, IMPORTANT, UNDERLINE)
     printmsg('')
-
-    if response.lower() not in ('', 'y', 'yes'):
-        printmsg('FSL cannot be installed without agreeing to the '
-                 'FSL license - aborting installation.', ERROR)
-        sys.exit(1)
 
 
 def check_rosetta_status(ctx):
@@ -2354,7 +2342,6 @@ def parse_args(argv=None, include=None, parser=None):
         'no_env'            : ('-n', {'action'  : 'store_true'}),
         'no_shell'          : ('-s', {'action'  : 'store_true'}),
         'no_matlab'         : ('-m', {'action'  : 'store_true'}),
-        'agree_to_license'  : ('-a', {'action'  : 'store_true'}),
         'skip_registration' : ('-r', {'action'  : 'store_true'}),
         'fslversion'        : ('-V', {'default' : 'latest'}),
 
@@ -2392,8 +2379,6 @@ def parse_args(argv=None, include=None, parser=None):
                               'the root shell profile is never modified.',
         'no_shell'          : 'Do not modify your shell configuration.',
         'no_matlab'         : 'Do not modify your MATLAB configuration.',
-        'agree_to_license'  : 'Automatically agree to the terms of the '
-                              'FSL license.',
         'skip_registration' : 'Do not register this installation with the '
                               'FSL development team.',
         'fslversion'        : 'Install this specific version of FSL.',
