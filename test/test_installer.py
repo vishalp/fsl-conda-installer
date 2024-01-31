@@ -608,7 +608,7 @@ def test_installer_progress_reporting():
                     '{}/manifest.json'.format(srv.url)), \
          inst.tempdir() as cwd:
 
-        with open(f'{srvdir}/manifest.json', 'rt') as f:
+        with open('{}/manifest.json'.format(srvdir), 'rt') as f:
             print(f.read())
 
         args = ['--homedir', cwd, '--root_env']
