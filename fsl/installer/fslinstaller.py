@@ -1422,38 +1422,31 @@ class Context(object):
         raise RuntimeError('Cannot find conda/mamba '
                            'executable in {}'.format(bindir))
 
-    @property
-    def child_env(self):
-        """Returns True if FSL is to be installed as a child environment of
-        an existing conda installation, False if FSL is to be installed into
-        a base conda installation.
-        """
-        return (self.args.child_env             and
-                self.args.miniconda is not None and
-                op.isdir(self.args.miniconda))
-
 
     @property
     def basedir(self):
         """Return the path to the base conda installation. For normal
-        installations this is equivalent to destdir / $FSLDIR, but may
-        be different if the fslinstaller was invoked with --child_env.
+        installations this is equivalent to destdir / $FSLDIR, but may be
+        different if the fslinstaller was instructed to use an existing
+        [mini]conda installation.
         """
 
-        # Either the user gave a path to an
-        # existing miniconda installation, or
-        # $FSLDIR is the base miniconda installation
-        if self.install_base: return self.destdir
-        else:                 return self.args.miniconda
+        # Either the user gave a path to an existing
+        # miniconda installation, or $FSLDIR is the
+        # base miniconda installation
+        if (self.args.miniconda is not None) and op.isdir(self.args.miniconda):
+            return self.args.miniconda
+        else:
+            return self.destdir
 
 
     @property
-    def install_base(self):
-        """Return True if a miniconda needs to be downloaded/installed,
-        False if an existing one is to be used.
+    def use_existing_base(self):
+        """Return True if we have been instructed to use an existing
+        [mini]conda installation, as opposed to downloading/installing one.
         """
-        return (self.args.miniconda is None) or \
-               (not op.isdir(self.args.miniconda))
+        return ((self.args.miniconda is not None) and
+                op.isdir(self.args.miniconda))
 
 
     @property
@@ -1768,11 +1761,11 @@ def download_miniconda(ctx):
     This function assumes that it is run within a temporary/scratch directory.
     """
 
-    # User specified a path to an existing
-    # miniconda installation - we use that
-    # rather than downloading/installing
-    # a separate one.
-    if not ctx.install_base:
+    # The user has specified a path to an
+    # existing miniconda installation - we
+    # use that rather than downloading/
+    # installing a separate one.
+    if ctx.use_existing_base:
         return
 
     # user specified a URL/path to a
@@ -1804,9 +1797,9 @@ def install_miniconda(ctx):
     This function assumes that it is run within a temporary/scratch directory.
     """
 
-    # We may have been instructed
-    # to use an existing miniconda
-    if not ctx.install_base:
+    # We have been instructed to use an
+    # existing miniconda installation
+    if ctx.use_existing_base:
         return
 
     metadata = ctx.manifest['miniconda'][ctx.platform]
@@ -1817,13 +1810,13 @@ def install_miniconda(ctx):
 
     # The download_miniconda function saved
     # the installer to <pwd>/miniconda.sh
-    printmsg('Installing miniconda at {}...'.format(ctx.destdir))
-    cmd = 'bash miniconda.sh -b -p {}'.format(ctx.destdir)
+    printmsg('Installing miniconda at {}...'.format(ctx.basedir))
+    cmd = 'bash miniconda.sh -b -p {}'.format(ctx.basedir)
     ctx.run(Process.monitor_progress, cmd, total=output)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
-    cmd = 'find {} -type f -exec touch {{}} +'.format(ctx.destdir)
+    cmd = 'find {} -type f -exec touch {{}} +'.format(ctx.basedir)
     ctx.run(Process.check_call, cmd)
 
 
@@ -1938,7 +1931,6 @@ def get_install_fsl_progress_reporting_method(ctx):
     # 'output/install' field in the manifest
     # gives us information about how to
     # report installation progress.
-    fslver     = ctx.build['version']
     progparams = ctx.build.get('output', {}).get('install', None)
 
     # The first method (version 1) involves
@@ -2012,7 +2004,7 @@ def get_install_fsl_progress_reporting_method(ctx):
         else:        return None
 
     progresses    = {}
-    progresses[1] = None
+    progresses[1] =            progress_v1
     progresses[2] = ft.partial(progress_v234, 2)
     progresses[3] = ft.partial(progress_v234, 3)
     progresses[4] = ft.partial(progress_v234, 4)
@@ -2073,8 +2065,8 @@ def install_fsl(ctx):
     # we fix the package cache directory to
     # isolate it from other conda installations
     # that may be on the system.
-    if ctx.install_base: pkgsdir = op.join(ctx.destdir, 'pkgs')
-    else:                pkgsdir = None
+    if ctx.destdir == ctx.basedir: pkgsdir = op.join(ctx.destdir, 'pkgs')
+    else:                          pkgsdir = None
 
     condarc_contents = generate_condarc(ctx.destdir,
                                         ctx.environment_channels,
@@ -2086,8 +2078,8 @@ def install_fsl(ctx):
 
     # We have been asked to install
     # FSL as a child environment
-    if ctx.child_env: cmd = 'create'
-    else:             cmd = 'update'
+    if ctx.destdir == ctx.basedir: cmd = 'update'
+    else:                          cmd = 'create'
 
     # We install FSL simply by running conda
     # env [update|create] -f env.yml.
@@ -2365,13 +2357,23 @@ def self_update(manifest, workdir, checksum, **kwargs):
 
 
 def overwrite_destdir(ctx):
-    """Called by main if the destination directory already exists. Asks the
-    user if they want to overwrite it. If they do, or if the --overwrite
-    option was specified, the directory is moved, and then deleted after
-    the installation succeeds.
+    """Called by main to handle when the destination directory already exists.
+    Asks the user if they want to overwrite it. If they do, or if the
+    --overwrite option was specified, the directory is moved, and then deleted
+    after the installation succeeds.
 
     This function assumes that it is run within a temporary/scratch directory.
     """
+
+    # there is no existing installation,
+    # so there is nothing to worry about
+    if not op.exists(ctx.destdir):
+        return
+
+    # We have been instructed us to install
+    # into an existing [mini]conda environment
+    if ctx.use_existing_base and (ctx.basedir == ctx.destdir):
+        return
 
     if not ctx.args.overwrite:
         printmsg('\nDestination directory [{}] already exists!\n'
@@ -2462,7 +2464,6 @@ def parse_args(argv=None, include=None, parser=None):
         'devlatest'       : (None, {'action'  : 'store_true'}),
         'manifest'        : (None, {}),
         'miniconda'       : (None, {}),
-        'child_env'       : (None, {'action'  : 'store_true'}),
         'conda'           : (None, {'action'  : 'store_true'}),
         'no_self_update'  : (None, {'action'  : 'store_true'}),
         'exclude_package' : (None, {'action'  : 'append'}),
@@ -2544,28 +2545,22 @@ def parse_args(argv=None, include=None, parser=None):
         #
         #   fslinstaller.py --miniconda ~/fsl/
         #
-        # Finally, if combined with the --child_env,
-        # option, FSL can be created as as child
-        # environment, using an existing base
-        # conda installation. For example, if
-        # miniconda has been installed to
-        # ~/miniconda3/, FSL can be installed to
-        # ~/fsl/ as a child environment like so:
+        # Or to use an existing [mini]conda
+        # installation, and create FSL as a
+        # child environment, just set the
+        # destination directory to a
+        # different path, e.g.:
         #
-        #   fslinstaller.py --miniconda ~/miniconda3/ --child_env -d ~/fsl/
+        #   fslinstaller.py --miniconda ~/miniconda3/ -d ~/fsl/
         'miniconda'       : argparse.SUPPRESS,
 
         # Install FSL as a child conda environment.
         # The base conda environment must already
         # be installed, and must be passed via
         # the --miniconda option.
-        'child_env'       : argparse.SUPPRESS,
 
         # Use conda and not mamba
         'conda'           : argparse.SUPPRESS,
-
-        # Print debugging messages
-        'debug'           : argparse.SUPPRESS,
 
         # Disable SHA256 checksum validation
         # of downloaded files
@@ -2669,16 +2664,6 @@ def parse_args(argv=None, include=None, parser=None):
     if args.miniconda is not None and op.exists(args.miniconda):
         args.miniconda = op.abspath(args.miniconda)
 
-    # To install FSL as a child conda environment,
-    # the path to an existing [mini/ana]conda installation
-    # must be given via the --miniconda option
-    if args.child_env and \
-       ((args.miniconda is None) or not op.isdir(args.miniconda)):
-        printmsg('An existing base conda installation must be specified '
-                 'via the --miniconda option in order to install FSL as a '
-                 'child environment!', ERROR, EMPHASIS)
-        sys.exit(1)
-
     return args
 
 
@@ -2758,7 +2743,6 @@ def handle_error(ctx):
         sys.exit(1)
 
 
-
 def main(argv=None):
     """Installer entry point. Downloads and installs miniconda and FSL, and
     configures the user's environment.
@@ -2822,8 +2806,7 @@ def main(argv=None):
 
         # Ask the user if they want to overwrite
         # an existing installation
-        if op.exists(ctx.destdir):
-            overwrite_destdir(ctx)
+        overwrite_destdir(ctx)
 
         download_fsl_environment(ctx)
 
