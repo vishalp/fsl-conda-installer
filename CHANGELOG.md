@@ -2,13 +2,13 @@
 
 # 3.8.0 (Wednesday 31st January 2024)
 
- - The installer can now be told to use an existing conda/mamba installation
-   instead of downloading/installing its own, via the `--miniconda` option,
-   e.g. `fslinstaller.py --miniconda=/Users/xyz/miniconda3/`
- - The installer can now be told to install FSL into a child conda environment,
-   rather than installing FSL into a base environment, via the `--child_env`
-   option. This can only be used in conjunction with the new `--miniconda`
-   feature allowing an existing conda/mamba installation to be used.
+ - The installer can now be told to use an existing base conda/mamba
+   installation instead of downloading/installing its own, via the
+   `--miniconda` option, e.g. `fslinstaller.py
+   --miniconda=/Users/xyz/miniconda3/`. If the same location is given as the
+   destination directory (e.g. `fslinstaller.py --miniconda=~/fsl/
+   --dest=~/fsl/`), FSL is installed into the base conda environment, otherwise
+   FSL is created as a separate child environment.
 
 
 # 3.7.0 (Monday 29th January 2024)
