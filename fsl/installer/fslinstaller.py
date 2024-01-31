@@ -1406,8 +1406,9 @@ class Context(object):
     @property
     def conda(self):
         """Return a path to the ``conda`` or ``mamba`` executable. """
-        condabin = op.join(self.basedir, 'bin', 'conda')
-        mambabin = op.join(self.basedir, 'bin', 'mamba')
+        bindir   = op.join(self.basedir, 'bin')
+        condabin = op.join(bindir, 'conda')
+        mambabin = op.join(bindir, 'mamba')
 
         # If mamba is present, prefer it over conda, unless
         # the user requestd otherwise via the --conda flag
@@ -1417,6 +1418,9 @@ class Context(object):
         for c in candidates:
             if op.exists(c):
                 return c
+
+        raise RuntimeError('Cannot find conda/mamba '
+                           'executable in {}'.format(bindir))
 
     @property
     def child_env(self):
@@ -1439,8 +1443,8 @@ class Context(object):
         # Either the user gave a path to an
         # existing miniconda installation, or
         # $FSLDIR is the base miniconda installation
-        if self.child_env: return self.args.miniconda
-        else:              return self.destdir
+        if self.install_base: return self.destdir
+        else:                 return self.args.miniconda
 
 
     @property
@@ -1448,7 +1452,8 @@ class Context(object):
         """Return True if a miniconda needs to be downloaded/installed,
         False if an existing one is to be used.
         """
-        return self.destdir == self.basedir
+        return (self.args.miniconda is None) or \
+               (not op.isdir(self.args.miniconda))
 
 
     @property
@@ -1561,13 +1566,14 @@ class Context(object):
 def agree_to_license(ctx):
     """Prompts the user to agree to the terms of the FSL license."""
 
-    printmsg('Installing FSL implies agreement with the terms of the FSL '
-             'license - if you do not agree with these terms, you can '
-             'cancel the installation by pressing CTRL+C.', IMPORTANT)
+    msg = ['Installing FSL implies agreement with the terms of the FSL '
+           'license - if you do not agree with these terms, you can '
+           'cancel the installation by pressing CTRL+C.', IMPORTANT]
 
     if ctx.license_url is not None:
-        printmsg('You can view the license at ', IMPORTANT,
-                 ctx.license_url, IMPORTANT, UNDERLINE)
+        msg = msg + ['You can view the license at ', IMPORTANT,
+                     ctx.license_url, IMPORTANT, UNDERLINE]
+    printmsg(*msg)
     printmsg('')
 
 
