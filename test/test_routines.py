@@ -284,11 +284,13 @@ def test_download_install_miniconda():
             ctx                      = MockObject()
             ctx.args                 = MockObject()
             ctx.destdir              = destdir
+            ctx.basedir              = destdir
             ctx.need_admin           = False
             ctx.admin_password       = None
             ctx.args.no_checksum     = False
             ctx.args.skip_ssl_verify = False
             ctx.args.miniconda       = None
+            ctx.install_base         = True
             ctx.platform             = 'linux'
             ctx.manifest             = gen_manifest('linux', srv.port, sha256)
             ctx.environment_channels = []
@@ -299,8 +301,6 @@ def test_download_install_miniconda():
 
             assert op.exists(destdir)
             assert op.exists(op.join(destdir, 'installed'))
-            assert op.exists(op.join(destdir, '.condarc'))
-
             shutil.rmtree(destdir)
 
             ctx.manifest = gen_manifest('linux', srv.port, 'bad')
@@ -449,16 +449,32 @@ def test_post_request():
 
 def test_register_installation():
 
-    class MockContext(object):
+    class MockObject(object):
         pass
 
-    ctx                  = MockContext()
-    ctx.build            = {'version' : '6.7.0', 'platform' : 'linux-64'}
-    ctx.registration_url = 'http://localhost:12348'
+    ctx                        = MockObject()
+    ctx.args                   = MockObject()
+    ctx.args.skip_registration = False
+    ctx.build                  = {'version' : '6.7.0', 'platform' : 'linux-64'}
+    ctx.registration_url       = 'http://localhost:12348'
 
-    # should fail silently if registration url is down
+    # should fail silently if
+    # registration url is down
     inst.register_installation(ctx)
 
+
+    # user asked to skip_regisistration
+    # expect zero HTTP posts sent to the
+    # registration url
+    ctx.args.skip_registration = True
+    with server() as srv:
+        ctx.registration_url = srv.url
+        inst.register_installation(ctx)
+    assert len(srv.posts) == 0
+
+    # normal usage - expect one HTTP post
+    # sent to the registration url
+    ctx.args.skip_registration = False
     with server() as srv:
         ctx.registration_url = srv.url
         inst.register_installation(ctx)

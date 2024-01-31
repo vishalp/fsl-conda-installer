@@ -3,7 +3,9 @@
 import os
 import os.path  as op
 import contextlib
+import shlex
 import shutil
+import subprocess as sp
 import json
 
 import fsl.installer.fslinstaller as inst
@@ -37,14 +39,20 @@ mkdir -p $prefix/pkgs/
 prefix=$(cd $prefix && pwd)
 
 # called like
-#  - conda env update -n base -f <envfile>
+#  - conda env update -p <fsldir> -f <envfile>
+#  - conda env create -p <fsldir> -f <envfile>
 #  - conda clean -y --all
-echo "#!/usr/bin/env bash"  >> $3/bin/conda
-echo 'if   [ "$1" = "clean" ]; then '      >> $3/bin/conda
-echo "    touch $prefix/cleaned"           >> $3/bin/conda
-echo 'elif [ "$1" = "env" ]; then '        >> $3/bin/conda
-echo "    cp "'$6'" $prefix/"              >> $3/bin/conda
-echo "fi"                                  >> $3/bin/conda
+echo "#!/usr/bin/env bash"  >> $prefix/bin/conda
+echo 'if   [ "$1" = "clean" ]; then '         >> $3/bin/conda
+echo "    touch $prefix/cleaned"              >> $3/bin/conda
+echo 'elif [ "$1" = "env" ]; then '           >> $3/bin/conda
+echo '    envprefix=$4'                       >> $3/bin/conda
+echo '    mkdir -p $envprefix/bin/'           >> $3/bin/conda
+echo '    mkdir -p $envprefix/etc/'           >> $3/bin/conda
+echo '    mkdir -p $envprefix/pkgs/'          >> $3/bin/conda
+echo '    cp "$6" $envprefix/'                >> $3/bin/conda
+echo '    echo "$2" > $envprefix/env_command' >> $3/bin/conda
+echo "fi"                                     >> $3/bin/conda
 chmod a+x $prefix/bin/conda
 """.strip()
 
@@ -145,6 +153,8 @@ def installer_server(cwd=None):
         env610_sha256 = inst.sha256('env-6.1.0.yml')
         env620_sha256 = inst.sha256('env-6.2.0.yml')
 
+        os.chmod('miniconda.sh', 0o755)
+
         manifest = mock_manifest.format(
             version=inst.__version__,
             platform=inst.identify_platform(),
@@ -162,7 +172,9 @@ def installer_server(cwd=None):
 def check_install(homedir, destdir, version,
                   envver=None,
                   postinst=True,
-                  finalise=True):
+                  finalise=True,
+                  basedir=None,
+                  env_command='update'):
     # the devrelease test patches the manifest
     # file with devrelease versions, but leaves
     # the env files untouched, and referring to
@@ -173,10 +185,14 @@ def check_install(homedir, destdir, version,
     # "envver" argument gives the version that
     # the yml file should refer to.
 
+    if basedir is None:
+        basedir = destdir
+
     if envver is None:
         envver = version
 
     destdir = op.abspath(destdir)
+    basedir = op.abspath(basedir)
     etc     = op.join(destdir, 'etc')
     shell   = os.environ.get('SHELL', 'sh')
     profile = inst.configure_shell.shell_profiles.get(shell, None)
@@ -189,7 +205,13 @@ def check_install(homedir, destdir, version,
 
         # added by our mock conda clean call
         if postinst:
-            assert op.exists(op.join(destdir, 'cleaned'))
+            assert op.exists(op.join(basedir, 'cleaned'))
+
+        # added by our mock conda env [update|create] call
+        if env_command is not None:
+            ecfile = op.join(destdir, 'env_command')
+            assert op.exists(ecfile)
+            assert open(ecfile, 'rt').read().strip() == env_command
 
         assert op.exists(op.join(homedir, 'Documents', 'MATLAB'))
 
@@ -198,6 +220,7 @@ def check_install(homedir, destdir, version,
             with open(op.join(etc, 'fslversion'), 'rt') as f:
                 assert f.read().strip() == version
             assert op.exists(op.join(etc, 'env-{}.yml'.format(envver)))
+            assert op.exists('.condarc')
 
         if profile is not None:
             assert any([op.exists(op.join(homedir, p)) for p in profile])
@@ -449,3 +472,54 @@ def test_installer_skip_registration():
         check_install(cwd, 'fsl', '6.2.0')
 
         assert len(srv.posts) == 0
+
+
+def test_installer_existing_miniconda():
+    with inst.tempdir() as srvdir, \
+         installer_server() as srv, \
+         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                    '{}/manifest.json'.format(srv.url)), \
+         inst.tempdir() as cwd:
+
+        manifest = '{}/manifest.json'.format(srvdir)
+        patch_manifest(manifest, manifest, None,
+                       ('installer', 'registration_url', srv.url))
+
+        sp.check_call(shlex.split('{}/miniconda.sh -b -p ./miniconda3'.format(srvdir)))
+
+        inst.main(['--homedir',   cwd,
+                   '--dest',      'fsl',
+                   '--miniconda', './miniconda3',
+                   '--root_env'])
+
+        check_install(cwd, 'fsl', '6.2.0',
+                      basedir='./miniconda3')
+
+        assert len(srv.posts) == 1
+
+
+def test_installer_child_env():
+
+    with inst.tempdir() as srvdir, \
+         installer_server() as srv, \
+         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                    '{}/manifest.json'.format(srv.url)), \
+         inst.tempdir() as cwd:
+
+        manifest = '{}/manifest.json'.format(srvdir)
+        patch_manifest(manifest, manifest, None,
+                       ('installer', 'registration_url', srv.url))
+
+        sp.check_call(shlex.split('{}/miniconda.sh -b -p ./miniconda3'.format(srvdir)))
+
+        inst.main(['--homedir',   cwd,
+                   '--dest',      'fsl',
+                   '--miniconda', './miniconda3',
+                   '--child_env',
+                   '--root_env'])
+
+        check_install(cwd, 'fsl', '6.2.0',
+                      env_command='create',
+                      basedir='./miniconda3')
+
+        assert len(srv.posts) == 1
