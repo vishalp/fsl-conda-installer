@@ -1406,17 +1406,41 @@ class Context(object):
     @property
     def conda(self):
         """Return a path to the ``conda`` or ``mamba`` executable. """
+        condabin = op.join(self.basedir, 'bin', 'conda')
+        mambabin = op.join(self.basedir, 'bin', 'mamba')
 
-        condabin = op.join(self.destdir, 'bin', 'conda')
-        mambabin = op.join(self.destdir, 'bin', 'mamba')
-
-        # If mamba is present, prefer it over conda
+        # If mamba is present, prefer it over conda, unless
+        # the user requestd otherwise via the --conda flag
         if not self.args.conda: candidates = [mambabin, condabin]
         else:                   candidates = [condabin, mambabin]
 
         for c in candidates:
             if op.exists(c):
                 return c
+
+    @property
+    def child_env(self):
+        """Returns True if FSL is to be installed as a child environment of
+        an existing conda installation, False if FSL is to be installed into
+        a base conda installation.
+        """
+        return (self.args.child_env             and
+                self.args.miniconda is not None and
+                op.isdir(self.args.miniconda))
+
+
+    @property
+    def basedir(self):
+        """Return the path to the base conda installation. For normal
+        installations this is equivalent to destdir / $FSLDIR, but may
+        be different if the fslinstaller was invoked with --child_env.
+        """
+
+        # Either the user gave a path to an
+        # existing miniconda installation, or
+        # $FSLDIR is the base miniconda installation
+        if self.child_env: return self.args.miniconda
+        else:              return self.destdir
 
 
     @property
@@ -1533,7 +1557,7 @@ def agree_to_license(ctx):
              'cancel the installation by pressing CTRL+C.', IMPORTANT)
 
     if ctx.license_url is not None:
-        printmsg('You can view the license at ', INFO,
+        printmsg('You can view the license at ', IMPORTANT,
                  ctx.license_url, IMPORTANT, UNDERLINE)
     printmsg('')
 
@@ -1759,7 +1783,8 @@ def install_miniconda(ctx):
     if output == '': output = None
     else:            output = int(output)
 
-    # Install
+    # The download_miniconda function saved
+    # the installer to <pwd>/miniconda.sh
     printmsg('Installing miniconda at {}...'.format(ctx.destdir))
     cmd = 'bash miniconda.sh -b -p {}'.format(ctx.destdir)
     ctx.run(Process.monitor_progress, cmd, total=output)
@@ -2048,6 +2073,9 @@ def register_installation(ctx):
     """Gathers and sends some basic system details to the FSL registration
     website.
     """
+
+    if ctx.args.skip_registration:
+        return
 
     regurl = ctx.registration_url
     if regurl is None:
@@ -2359,6 +2387,7 @@ def parse_args(argv=None, include=None, parser=None):
         'devlatest'       : (None, {'action'  : 'store_true'}),
         'manifest'        : (None, {}),
         'miniconda'       : (None, {}),
+        'child_env'       : (None, {'action'  : 'store_true'}),
         'conda'           : (None, {'action'  : 'store_true'}),
         'no_self_update'  : (None, {'action'  : 'store_true'}),
         'exclude_package' : (None, {'action'  : 'append'}),
@@ -2420,8 +2449,42 @@ def parse_args(argv=None, include=None, parser=None):
 
         # Install miniconda from this path/URL,
         # instead of the one specified in the
-        # FSL release manifest
+        # FSL release manifest.
+        #
+        # For example - to download/install a
+        # conda base environment and install FSL
+        # packages into the base environment,
+        # pass a URL or path to a miniconda
+        # installer:
+        #
+        #   fslinstaller.py --miniconda https://path/to/miniconda.sh
+        #   fslinstaller.py --miniconda ~/Downloads/miniconda.sh
+        #
+        # Alternatively, pass the directory of
+        # an existing [mini]conda installation
+        # to use that - for example, if a conda
+        # base environment has already been
+        # created at ~/fsl/, to install FSL into
+        # that base environment:
+        #
+        #   fslinstaller.py --miniconda ~/fsl/
+        #
+        # Finally, if combined with the --child_env,
+        # option, FSL can be created as as child
+        # environment, using an existing base
+        # conda installation. For example, if
+        # miniconda has been installed to
+        # ~/miniconda3/, FSL can be installed to
+        # ~/fsl/ as a child environment like so:
+        #
+        #   fslinstaller.py --miniconda ~/miniconda3/ --child_env -d ~/fsl/
         'miniconda'       : argparse.SUPPRESS,
+
+        # Install FSL as a child conda environment.
+        # The base conda environment must already
+        # be installed, and must be passed via
+        # the --miniconda option.
+        'child_env'       : argparse.SUPPRESS,
 
         # Use conda and not mamba
         'conda'           : argparse.SUPPRESS,
@@ -2526,9 +2589,20 @@ def parse_args(argv=None, include=None, parser=None):
     if args.manifest is not None and op.exists(args.manifest):
         args.manifest = op.abspath(args.manifest)
 
-    # accept local path for miniconda installer
+    # accept local path for miniconda installer, or
+    # path to existing miniconda installation
     if args.miniconda is not None and op.exists(args.miniconda):
         args.miniconda = op.abspath(args.miniconda)
+
+    # To install FSL as a child conda environment,
+    # the path to an existing [mini/ana]conda installation
+    # must be given via the --miniconda option
+    if args.child_env and \
+       ((args.miniconda is None) or not op.isdir(args.miniconda)):
+        printmsg('An existing base conda installation must be specified '
+                 'via the --miniconda option in order to install FSL as a '
+                 'child environment!', ERROR, EMPHASIS)
+        sys.exit(1)
 
     return args
 
@@ -2685,8 +2759,7 @@ def main(argv=None):
             install_fsl(ctx)
             finalise_installation(ctx)
             post_install_cleanup(ctx, tmpdir)
-            if not args.skip_registration:
-                register_installation(ctx)
+            register_installation(ctx)
 
     if not args.no_shell:
         configure_shell(ctx.shell, args.homedir, ctx.destdir)
