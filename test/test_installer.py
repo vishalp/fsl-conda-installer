@@ -114,8 +114,6 @@ mock_manifest = """
                 }}
             }}
         ],
-        // remaining versions are for
-        // testing progress reporting
         "6.0.99"  : [
             {{
                 "platform"      : "{platform}",
