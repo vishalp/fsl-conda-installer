@@ -1564,7 +1564,7 @@ def agree_to_license(ctx):
            'cancel the installation by pressing CTRL+C.', IMPORTANT]
 
     if ctx.license_url is not None:
-        msg = msg + ['You can view the license at ', IMPORTANT,
+        msg = msg + [' You can view the license at ', IMPORTANT,
                      ctx.license_url, IMPORTANT, UNDERLINE]
     printmsg(*msg)
     printmsg('')
@@ -2076,8 +2076,8 @@ def install_fsl(ctx):
     with open(condarc, 'wt') as f:
         f.write(condarc_contents)
 
-    # We have been asked to install
-    # FSL as a child environment
+    # Are we updating an existing
+    # env or creating a new env?
     if ctx.destdir == ctx.basedir: cmd = 'update'
     else:                          cmd = 'create'
 
@@ -2553,11 +2553,6 @@ def parse_args(argv=None, include=None, parser=None):
         #
         #   fslinstaller.py --miniconda ~/miniconda3/ -d ~/fsl/
         'miniconda'       : argparse.SUPPRESS,
-
-        # Install FSL as a child conda environment.
-        # The base conda environment must already
-        # be installed, and must be passed via
-        # the --miniconda option.
 
         # Use conda and not mamba
         'conda'           : argparse.SUPPRESS,
