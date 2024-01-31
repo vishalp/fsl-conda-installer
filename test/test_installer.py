@@ -3,7 +3,9 @@
 import os
 import os.path  as op
 import contextlib
+import shlex
 import shutil
+import subprocess as sp
 import json
 
 import fsl.installer.fslinstaller as inst
@@ -37,14 +39,20 @@ mkdir -p $prefix/pkgs/
 prefix=$(cd $prefix && pwd)
 
 # called like
-#  - conda env update -n base -f <envfile>
+#  - conda env update -p <fsldir> -f <envfile>
+#  - conda env create -p <fsldir> -f <envfile>
 #  - conda clean -y --all
-echo "#!/usr/bin/env bash"  >> $3/bin/conda
-echo 'if   [ "$1" = "clean" ]; then '      >> $3/bin/conda
-echo "    touch $prefix/cleaned"           >> $3/bin/conda
-echo 'elif [ "$1" = "env" ]; then '        >> $3/bin/conda
-echo "    cp "'$6'" $prefix/"              >> $3/bin/conda
-echo "fi"                                  >> $3/bin/conda
+echo "#!/usr/bin/env bash"  >> $prefix/bin/conda
+echo 'if   [ "$1" = "clean" ]; then '         >> $3/bin/conda
+echo "    touch $prefix/cleaned"              >> $3/bin/conda
+echo 'elif [ "$1" = "env" ]; then '           >> $3/bin/conda
+echo '    envprefix=$4'                       >> $3/bin/conda
+echo '    mkdir -p $envprefix/bin/'           >> $3/bin/conda
+echo '    mkdir -p $envprefix/etc/'           >> $3/bin/conda
+echo '    mkdir -p $envprefix/pkgs/'          >> $3/bin/conda
+echo '    cp "$6" $envprefix/'                >> $3/bin/conda
+echo '    echo "$2" > $envprefix/env_command' >> $3/bin/conda
+echo "fi"                                     >> $3/bin/conda
 chmod a+x $prefix/bin/conda
 """.strip()
 
@@ -74,7 +82,15 @@ mock_manifest = """
                 "sha256"        : "{env620_sha256}",
                 "base_packages" : ["fsl-base", "libopenblas"],
                 "output"        : {{
-                    "install"   : {{ "version" : "2", "value" : "100" }}
+                    "install"   : {{
+                        "version" : "4",
+                        "value"   : {{
+                            "bin"  : 100,
+                            "lib"  : 100,
+                            "pkgs" : 100,
+                            "size" : 100
+                        }}
+                    }}
                 }}
 
             }}
@@ -86,6 +102,58 @@ mock_manifest = """
                 "sha256"        : "{env610_sha256}",
                 "base_packages" : ["fsl-base", "libopenblas"],
                 "output"        : {{
+                    "install"   : {{
+                        "version" : "4",
+                        "value"   : {{
+                            "bin"  : 100,
+                            "lib"  : 100,
+                            "pkgs" : 100,
+                            "size" : 100
+                        }}
+                    }}
+                }}
+            }}
+        ],
+        "6.0.99"  : [
+            {{
+                "platform"      : "{platform}",
+                "environment"   : "{url}/env-6.0.99.yml",
+                "sha256"        : "{env6099_sha256}",
+                "base_packages" : ["fsl-base", "libopenblas"],
+                "output"        : {{
+                    "install"   : {{ "version" : "3", "value" : "100" }}
+                }}
+            }}
+        ],
+        "6.0.98"  : [
+            {{
+                "platform"      : "{platform}",
+                "environment"   : "{url}/env-6.0.98.yml",
+                "sha256"        : "{env6098_sha256}",
+                "base_packages" : ["fsl-base", "libopenblas"],
+                "output"        : {{
+                    "install"   : {{ "version" : "2", "value" : "100" }}
+                }}
+            }}
+        ],
+        "6.0.97"  : [
+            {{
+                "platform"      : "{platform}",
+                "environment"   : "{url}/env-6.0.97.yml",
+                "sha256"        : "{env6097_sha256}",
+                "base_packages" : ["fsl-base", "libopenblas"],
+                "output"        : {{
+                    "install"   : {{ "version" : "1", "value" : "100" }}
+                }}
+            }}
+        ],
+        "6.0.96"  : [
+            {{
+                "platform"      : "{platform}",
+                "environment"   : "{url}/env-6.0.96.yml",
+                "sha256"        : "{env6096_sha256}",
+                "base_packages" : ["fsl-base", "libopenblas"],
+                "output"        : {{
                     "install"   : "100"
                 }}
             }}
@@ -93,7 +161,7 @@ mock_manifest = """
     }}
 }}
 """.strip()
-# Format vars: version platform url conda_sha256 env610_sha256 env620_sha256
+# Format vars: version platform url conda_sha256 env620_sha256 env610_sha256 env**
 
 
 mock_env_yml_template = """
@@ -136,22 +204,40 @@ def installer_server(cwd=None):
     with indir(cwd), server(cwd) as srv:
         with open('miniconda.sh', 'wt') as f:
             f.write(mock_miniconda_sh)
-        with open('env-6.1.0.yml', 'wt') as f:
-            f.write(mock_env_yml_template.format(version='6.1.0'))
         with open('env-6.2.0.yml', 'wt') as f:
             f.write(mock_env_yml_template.format(version='6.2.0'))
+        with open('env-6.1.0.yml', 'wt') as f:
+            f.write(mock_env_yml_template.format(version='6.1.0'))
+        with open('env-6.0.99.yml', 'wt') as f:
+            f.write(mock_env_yml_template.format(version='6.0.99'))
+        with open('env-6.0.98.yml', 'wt') as f:
+            f.write(mock_env_yml_template.format(version='6.0.98'))
+        with open('env-6.0.97.yml', 'wt') as f:
+            f.write(mock_env_yml_template.format(version='6.0.97'))
+        with open('env-6.0.96.yml', 'wt') as f:
+            f.write(mock_env_yml_template.format(version='6.0.96'))
 
-        conda_sha256  = inst.sha256('miniconda.sh')
-        env610_sha256 = inst.sha256('env-6.1.0.yml')
-        env620_sha256 = inst.sha256('env-6.2.0.yml')
+        conda_sha256   = inst.sha256('miniconda.sh')
+        env620_sha256  = inst.sha256('env-6.2.0.yml')
+        env610_sha256  = inst.sha256('env-6.1.0.yml')
+        env6099_sha256 = inst.sha256('env-6.0.99.yml')
+        env6098_sha256 = inst.sha256('env-6.0.98.yml')
+        env6097_sha256 = inst.sha256('env-6.0.97.yml')
+        env6096_sha256 = inst.sha256('env-6.0.96.yml')
+
+        os.chmod('miniconda.sh', 0o755)
 
         manifest = mock_manifest.format(
             version=inst.__version__,
             platform=inst.identify_platform(),
             url=srv.url,
             conda_sha256=conda_sha256,
+            env620_sha256=env620_sha256,
             env610_sha256=env610_sha256,
-            env620_sha256=env620_sha256)
+            env6099_sha256=env6099_sha256,
+            env6098_sha256=env6098_sha256,
+            env6097_sha256=env6097_sha256,
+            env6096_sha256=env6096_sha256)
 
         with open('manifest.json', 'wt') as f:
             f.write(manifest)
@@ -162,7 +248,9 @@ def installer_server(cwd=None):
 def check_install(homedir, destdir, version,
                   envver=None,
                   postinst=True,
-                  finalise=True):
+                  finalise=True,
+                  basedir=None,
+                  env_command='update'):
     # the devrelease test patches the manifest
     # file with devrelease versions, but leaves
     # the env files untouched, and referring to
@@ -173,10 +261,14 @@ def check_install(homedir, destdir, version,
     # "envver" argument gives the version that
     # the yml file should refer to.
 
+    if basedir is None:
+        basedir = destdir
+
     if envver is None:
         envver = version
 
     destdir = op.abspath(destdir)
+    basedir = op.abspath(basedir)
     etc     = op.join(destdir, 'etc')
     shell   = os.environ.get('SHELL', 'sh')
     profile = inst.configure_shell.shell_profiles.get(shell, None)
@@ -189,7 +281,13 @@ def check_install(homedir, destdir, version,
 
         # added by our mock conda clean call
         if postinst:
-            assert op.exists(op.join(destdir, 'cleaned'))
+            assert op.exists(op.join(basedir, 'cleaned'))
+
+        # added by our mock conda env [update|create] call
+        if env_command is not None:
+            ecfile = op.join(destdir, 'env_command')
+            assert op.exists(ecfile)
+            assert open(ecfile, 'rt').read().strip() == env_command
 
         assert op.exists(op.join(homedir, 'Documents', 'MATLAB'))
 
@@ -198,6 +296,7 @@ def check_install(homedir, destdir, version,
             with open(op.join(etc, 'fslversion'), 'rt') as f:
                 assert f.read().strip() == version
             assert op.exists(op.join(etc, 'env-{}.yml'.format(envver)))
+            assert op.exists('.condarc')
 
         if profile is not None:
             assert any([op.exists(op.join(homedir, p)) for p in profile])
@@ -449,3 +548,79 @@ def test_installer_skip_registration():
         check_install(cwd, 'fsl', '6.2.0')
 
         assert len(srv.posts) == 0
+
+
+def test_installer_existing_miniconda():
+    with inst.tempdir() as srvdir, \
+         installer_server() as srv, \
+         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                    '{}/manifest.json'.format(srv.url)), \
+         inst.tempdir() as cwd:
+
+        manifest = '{}/manifest.json'.format(srvdir)
+        patch_manifest(manifest, manifest, None,
+                       ('installer', 'registration_url', srv.url))
+
+        sp.check_call(shlex.split('{}/miniconda.sh -b -p ./fsl'.format(srvdir)))
+
+        inst.main(['--homedir',   cwd,
+                   '--dest',      './fsl',
+                   '--miniconda', './fsl',
+                   '--root_env'])
+
+        check_install(cwd, 'fsl', '6.2.0')
+
+        assert len(srv.posts) == 1
+
+
+def test_installer_child_env():
+
+    with inst.tempdir() as srvdir, \
+         installer_server() as srv, \
+         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                    '{}/manifest.json'.format(srv.url)), \
+         inst.tempdir() as cwd:
+
+        manifest = '{}/manifest.json'.format(srvdir)
+        patch_manifest(manifest, manifest, None,
+                       ('installer', 'registration_url', srv.url))
+
+        sp.check_call(shlex.split('{}/miniconda.sh -b -p ./miniconda3'.format(srvdir)))
+
+        inst.main(['--homedir',   cwd,
+                   '--dest',      './fsl',
+                   '--miniconda', './miniconda3',
+                   '--root_env'])
+
+        check_install(cwd, 'fsl', '6.2.0',
+                      env_command='create',
+                      basedir='./miniconda3')
+
+        assert len(srv.posts) == 1
+
+
+
+def test_installer_progress_reporting():
+
+    with inst.tempdir() as srvdir, \
+         installer_server() as srv, \
+         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                    '{}/manifest.json'.format(srv.url)), \
+         inst.tempdir() as cwd:
+
+        with open('{}/manifest.json'.format(srvdir), 'rt') as f:
+            print(f.read())
+
+        args = ['--homedir', cwd, '--root_env']
+
+        inst.main(args + ['--dest', './fsl610',  '-V', '6.1.0'])
+        inst.main(args + ['--dest', './fsl6099', '-V', '6.0.99'])
+        inst.main(args + ['--dest', './fsl6098', '-V', '6.0.98'])
+        inst.main(args + ['--dest', './fsl6097', '-V', '6.0.97'])
+        inst.main(args + ['--dest', './fsl6096', '-V', '6.0.96'])
+
+        check_install(cwd, 'fsl610',  '6.1.0')
+        check_install(cwd, 'fsl6099', '6.0.99')
+        check_install(cwd, 'fsl6098', '6.0.98')
+        check_install(cwd, 'fsl6097', '6.0.97')
+        check_install(cwd, 'fsl6096', '6.0.96')

@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.7.0'
+__version__ = '3.8.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1406,17 +1406,47 @@ class Context(object):
     @property
     def conda(self):
         """Return a path to the ``conda`` or ``mamba`` executable. """
+        bindir   = op.join(self.basedir, 'bin')
+        condabin = op.join(bindir, 'conda')
+        mambabin = op.join(bindir, 'mamba')
 
-        condabin = op.join(self.destdir, 'bin', 'conda')
-        mambabin = op.join(self.destdir, 'bin', 'mamba')
-
-        # If mamba is present, prefer it over conda
+        # If mamba is present, prefer it over conda, unless
+        # the user requestd otherwise via the --conda flag
         if not self.args.conda: candidates = [mambabin, condabin]
         else:                   candidates = [condabin, mambabin]
 
         for c in candidates:
             if op.exists(c):
                 return c
+
+        raise RuntimeError('Cannot find conda/mamba '
+                           'executable in {}'.format(bindir))
+
+
+    @property
+    def basedir(self):
+        """Return the path to the base conda installation. For normal
+        installations this is equivalent to destdir / $FSLDIR, but may be
+        different if the fslinstaller was instructed to use an existing
+        [mini]conda installation.
+        """
+
+        # Either the user gave a path to an existing
+        # miniconda installation, or $FSLDIR is the
+        # base miniconda installation
+        if (self.args.miniconda is not None) and op.isdir(self.args.miniconda):
+            return self.args.miniconda
+        else:
+            return self.destdir
+
+
+    @property
+    def use_existing_base(self):
+        """Return True if we have been instructed to use an existing
+        [mini]conda installation, as opposed to downloading/installing one.
+        """
+        return ((self.args.miniconda is not None) and
+                op.isdir(self.args.miniconda))
 
 
     @property
@@ -1506,6 +1536,7 @@ class Context(object):
             ctx.run(Process.monitor_progress, 'my_command', total=100)
         """
 
+        env          = kwargs.pop('env', {})
         process_func = ft.partial(process_func, *args, **kwargs)
 
         # Clear any environment variables that refer to
@@ -1515,7 +1546,7 @@ class Context(object):
         # clean_environ and install_environ for more
         # details, and see Process.sudo_popen regarding
         # append_env.
-        env        = clean_environ()
+        env.update(clean_environ())
         append_env = install_environ(self.destdir,
                                      self.args.username,
                                      self.args.password)
@@ -1528,13 +1559,14 @@ class Context(object):
 def agree_to_license(ctx):
     """Prompts the user to agree to the terms of the FSL license."""
 
-    printmsg('Installing FSL implies agreement with the terms of the FSL '
-             'license - if you do not agree with these terms, you can '
-             'cancel the installation by pressing CTRL+C.', IMPORTANT)
+    msg = ['Installing FSL implies agreement with the terms of the FSL '
+           'license - if you do not agree with these terms, you can '
+           'cancel the installation by pressing CTRL+C.', IMPORTANT]
 
     if ctx.license_url is not None:
-        printmsg('You can view the license at ', INFO,
-                 ctx.license_url, IMPORTANT, UNDERLINE)
+        msg = msg + [' You can view the license at ', IMPORTANT,
+                     ctx.license_url, IMPORTANT, UNDERLINE]
+    printmsg(*msg)
     printmsg('')
 
 
@@ -1729,13 +1761,25 @@ def download_miniconda(ctx):
     This function assumes that it is run within a temporary/scratch directory.
     """
 
-    if ctx.args.miniconda is None:
+    # The user has specified a path to an
+    # existing miniconda installation - we
+    # use that rather than downloading/
+    # installing a separate one.
+    if ctx.use_existing_base:
+        return
+
+    # user specified a URL/path to a
+    # miniconda installer
+    elif ctx.args.miniconda is not None:
+        url      = ctx.args.miniconda
+        checksum = None
+
+    # Use miniconda installer specified in
+    # FSL release manifest
+    else:
         metadata = ctx.manifest['miniconda'][ctx.platform]
         url      = metadata['url']
         checksum = metadata['sha256']
-    else:
-        url      = ctx.args.miniconda
-        checksum = None
 
     # Download
     printmsg('Downloading miniconda from {}...'.format(url))
@@ -1753,34 +1797,33 @@ def install_miniconda(ctx):
     This function assumes that it is run within a temporary/scratch directory.
     """
 
+    # We have been instructed to use an
+    # existing miniconda installation
+    if ctx.use_existing_base:
+        return
+
     metadata = ctx.manifest['miniconda'][ctx.platform]
     output   = metadata.get('output', '').strip()
 
     if output == '': output = None
     else:            output = int(output)
 
-    # Install
-    printmsg('Installing miniconda at {}...'.format(ctx.destdir))
-    cmd = 'bash miniconda.sh -b -p {}'.format(ctx.destdir)
+    # The download_miniconda function saved
+    # the installer to <pwd>/miniconda.sh
+    printmsg('Installing miniconda at {}...'.format(ctx.basedir))
+    cmd = 'bash miniconda.sh -b -p {}'.format(ctx.basedir)
     ctx.run(Process.monitor_progress, cmd, total=output)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
-    cmd = 'find {} -type f -exec touch {{}} +'.format(ctx.destdir)
+    cmd = 'find {} -type f -exec touch {{}} +'.format(ctx.basedir)
     ctx.run(Process.check_call, cmd)
 
-    # Generate $FSLDIR/.condarc which contains
-    # some default/fixed conda settings
-    condarc = generate_condarc(ctx.destdir,
-                               ctx.environment_channels,
-                               ctx.args.skip_ssl_verify)
-    with open('.condarc', 'wt') as f:
-        f.write(condarc)
 
-    ctx.run(Process.check_call, 'cp -f .condarc {}'.format(ctx.destdir))
-
-
-def generate_condarc(fsldir, channels, skip_ssl_verify=False):
+def generate_condarc(fsldir,
+                     channels,
+                     skip_ssl_verify=False,
+                     pkgsdir=None):
     """Called by install_miniconda. Generates content for a .condarc file to
     be saved in $FSLDIR/.condarc. This file contains some default values, and
     also enforces some settings so that they cannot be overridden by the
@@ -1794,7 +1837,6 @@ def generate_condarc(fsldir, channels, skip_ssl_verify=False):
     """
 
     # Create .condarc config file
-    pkgsdir = op.join(fsldir, 'pkgs')
     condarc = tw.dedent("""
     # FSL conda configuration file, auto-generated by the fslinstaller script.
     #
@@ -1838,11 +1880,16 @@ def generate_condarc(fsldir, channels, skip_ssl_verify=False):
     # priority order being modified by user ~/.condarc
     # configuration files.
     channel_priority: strict #!final
+    """)
 
-    # Fix the package cache at $FSLDIR/pkgs/
-    pkgs_dirs: #!final
-     - {} #!top #!bottom
-    """.format(pkgsdir))
+    # Fix the conda package cache
+    # if a pkgsdir was provided
+    if pkgsdir is not None:
+        condarc += tw.dedent("""
+        # Fix the package cache at $FSLDIR/pkgs/
+        pkgs_dirs: #!final
+        - {} #!top #!bottom
+        """.format(pkgsdir))
 
     if skip_ssl_verify:
         printmsg('Configuring conda to skip SSL verification '
@@ -1884,7 +1931,6 @@ def get_install_fsl_progress_reporting_method(ctx):
     # 'output/install' field in the manifest
     # gives us information about how to
     # report installation progress.
-    fslver     = ctx.build['version']
     progparams = ctx.build.get('output', {}).get('install', None)
 
     # The first method (version 1) involves
@@ -1895,18 +1941,16 @@ def get_install_fsl_progress_reporting_method(ctx):
     # Progress.monitor_progress function.
     progress_v1 = None
 
+    # The remaining methods involve counting
+    # files and sizes in $FSLDIR/pkgs/
+
     # The second method involves progress
     # reporting by monitoring the number of
     # package files created in $FSLDIR/pkgs/
     # This coarsely reflects download
     # progress - when conda downloads a
     # package, it is saved into this directory.
-    def progress_v2(_):
-        pkgdir = op.join(ctx.destdir, 'pkgs')
-        pkgs   = os.listdir(pkgdir)
-        pkgs   = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
-        return len(pkgs)
-
+    #
     # The third method involves progress
     # reporting by monitoring the number of
     # files created in $FSLDIR/pkgs/,
@@ -1914,16 +1958,7 @@ def get_install_fsl_progress_reporting_method(ctx):
     # these three directories will cause the
     # progress to reflect both download and
     # installation
-    def progress_v3(_):
-        pkgdir = op.join(ctx.destdir, 'pkgs')
-        bindir = op.join(ctx.destdir, 'bin')
-        libdir = op.join(ctx.destdir, 'lib')
-        pkgs   = os.listdir(pkgdir)
-        pkgs   = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
-        bins   = os.listdir(bindir)
-        libs   = os.listdir(libdir)
-        return len(pkgs) + len(bins) + len(libs)
-
+    #
     # The fourth method monitors download
     # progress in a more fine-grained manner,
     # by calculating the size of all .conda
@@ -1931,22 +1966,48 @@ def get_install_fsl_progress_reporting_method(ctx):
     # This is combined with the number of
     # files saved to $FSLDIR/bin/ and
     # $FSLDIR/lib/
-    def progress_v4(_):
-        pkgdir = op.join(ctx.destdir, 'pkgs')
-        bindir = op.join(ctx.destdir, 'bin')
-        libdir = op.join(ctx.destdir, 'lib')
-        pkgs   = os.listdir(pkgdir)
-        bins   = os.listdir(bindir)
-        libs   = os.listdir(libdir)
-        pkgs   = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
-        sizes  = [op.getsize(op.join(pkgdir, p)) for p in pkgs]
-        return sum(sizes) + len(bins) + len(libs)
+    pkgdir = op.join(ctx.basedir, 'pkgs')
+    pkgdir = op.join(ctx.basedir, 'pkgs')
+    bindir = op.join(ctx.destdir, 'bin')
+    libdir = op.join(ctx.destdir, 'lib')
+
+    def matchany(name, *filters):
+        return any([fnmatch.fnmatch(name, f) for f in filters])
+
+    def contents(dirname, *filters):
+        if not op.exists(dirname):
+            return []
+        contents = os.listdir(dirname)
+        contents = [f for f in contents if matchany(f, *filters)]
+        return [op.join(dirname, f) for f in contents]
+
+    start_pkgs  = contents(pkgdir, '*.conda', '*.bz2')
+    start_sizes = sum([op.getsize(p) for p in start_pkgs])
+    start_pkgs  = len(start_pkgs)
+    start_bins  = len(contents(bindir))
+    start_libs  = len(contents(libdir))
+
+    def progress_v234(v, _):
+
+        pkgs  = contents(pkgdir, '*.conda', '*.bz2')
+        bins  = contents(bindir)
+        libs  = contents(libdir)
+        sizes = [op.getsize(p) for p in pkgs]
+        pkgs  = len(pkgs)  - start_pkgs
+        bins  = len(bins)  - start_bins
+        libs  = len(libs)  - start_libs
+        sizes = sum(sizes) - start_sizes
+
+        if   v == 2: return pkgs
+        elif v == 3: return pkgs  + bins + libs
+        elif v == 4: return sizes + bins + libs
+        else:        return None
 
     progresses    = {}
-    progresses[1] = None
-    progresses[2] = progress_v2
-    progresses[3] = progress_v3
-    progresses[4] = progress_v4
+    progresses[1] =            progress_v1
+    progresses[2] = ft.partial(progress_v234, 2)
+    progresses[3] = ft.partial(progress_v234, 3)
+    progresses[4] = ft.partial(progress_v234, 4)
 
     progval  = None
     progfunc = None
@@ -1993,9 +2054,38 @@ def install_fsl(ctx):
 
     progval, progfunc = get_install_fsl_progress_reporting_method(ctx)
 
-    # We install FSL simply by running conda env
-    # update -f env.yml.
-    cmd = ctx.conda + ' env update -n base -f ' + ctx.environment_file
+    # Generate .condarc which contains some default/
+    # fixed conda settings.  We use the CONDARC env
+    # var during the installation, and then copy
+    # this file into $FSLDIR afterwards (this
+    # happens within the finalise_installation func)
+    #
+    # If this is a typical FSL installation (a
+    # self-contained base miniconda environment)
+    # we fix the package cache directory to
+    # isolate it from other conda installations
+    # that may be on the system.
+    if ctx.destdir == ctx.basedir: pkgsdir = op.join(ctx.destdir, 'pkgs')
+    else:                          pkgsdir = None
+
+    condarc_contents = generate_condarc(ctx.destdir,
+                                        ctx.environment_channels,
+                                        ctx.args.skip_ssl_verify,
+                                        pkgsdir)
+    condarc = op.join(os.getcwd(), '.condarc')
+    with open(condarc, 'wt') as f:
+        f.write(condarc_contents)
+
+    # Are we updating an existing
+    # env or creating a new env?
+    if ctx.destdir == ctx.basedir: cmd = 'update'
+    else:                          cmd = 'create'
+
+    # We install FSL simply by running conda
+    # env [update|create] -f env.yml.
+    cmd = (ctx.conda + ' env ' + cmd +
+           ' -p ' + ctx.destdir      +
+           ' -f ' + ctx.environment_file)
 
     # Make conda/mamba super verbose if the
     # hidden --debug option was specified.
@@ -2003,7 +2093,7 @@ def install_fsl(ctx):
         cmd += ' -v -v -v'
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
-    ctx.run(Process.monitor_progress, cmd,
+    ctx.run(Process.monitor_progress, cmd, env={'CONDARC' : condarc},
             timeout=2, total=progval, progfunc=progfunc)
 
 
@@ -2016,13 +2106,15 @@ def finalise_installation(ctx):
       - Saving this installer script and the environment file to
         $FSLDIR/etc/
     """
+
     with open('fslversion', 'wt') as f:
         f.write(ctx.build['version'])
 
     etcdir = op.join(ctx.destdir, 'etc')
     cmds   = [
-        'cp fslversion {}'.format(etcdir),
-        'cp {} {}'        .format(ctx.environment_file, etcdir)]
+        'cp -f .condarc {}'.format(ctx.destdir),
+        'cp fslversion {}' .format(etcdir),
+        'cp {} {}'         .format(ctx.environment_file, etcdir)]
 
     for cmd in cmds:
         ctx.run(Process.check_call, cmd)
@@ -2048,6 +2140,9 @@ def register_installation(ctx):
     """Gathers and sends some basic system details to the FSL registration
     website.
     """
+
+    if ctx.args.skip_registration:
+        return
 
     regurl = ctx.registration_url
     if regurl is None:
@@ -2262,13 +2357,23 @@ def self_update(manifest, workdir, checksum, **kwargs):
 
 
 def overwrite_destdir(ctx):
-    """Called by main if the destination directory already exists. Asks the
-    user if they want to overwrite it. If they do, or if the --overwrite
-    option was specified, the directory is moved, and then deleted after
-    the installation succeeds.
+    """Called by main to handle when the destination directory already exists.
+    Asks the user if they want to overwrite it. If they do, or if the
+    --overwrite option was specified, the directory is moved, and then deleted
+    after the installation succeeds.
 
     This function assumes that it is run within a temporary/scratch directory.
     """
+
+    # there is no existing installation,
+    # so there is nothing to worry about
+    if not op.exists(ctx.destdir):
+        return
+
+    # We have been instructed us to install
+    # into an existing [mini]conda environment
+    if ctx.use_existing_base and (ctx.basedir == ctx.destdir):
+        return
 
     if not ctx.args.overwrite:
         printmsg('\nDestination directory [{}] already exists!\n'
@@ -2420,14 +2525,37 @@ def parse_args(argv=None, include=None, parser=None):
 
         # Install miniconda from this path/URL,
         # instead of the one specified in the
-        # FSL release manifest
+        # FSL release manifest.
+        #
+        # For example - to download/install a
+        # conda base environment and install FSL
+        # packages into the base environment,
+        # pass a URL or path to a miniconda
+        # installer:
+        #
+        #   fslinstaller.py --miniconda https://path/to/miniconda.sh
+        #   fslinstaller.py --miniconda ~/Downloads/miniconda.sh
+        #
+        # Alternatively, pass the directory of
+        # an existing [mini]conda installation
+        # to use that - for example, if a conda
+        # base environment has already been
+        # created at ~/fsl/, to install FSL into
+        # that base environment:
+        #
+        #   fslinstaller.py --miniconda ~/fsl/
+        #
+        # Or to use an existing [mini]conda
+        # installation, and create FSL as a
+        # child environment, just set the
+        # destination directory to a
+        # different path, e.g.:
+        #
+        #   fslinstaller.py --miniconda ~/miniconda3/ -d ~/fsl/
         'miniconda'       : argparse.SUPPRESS,
 
         # Use conda and not mamba
         'conda'           : argparse.SUPPRESS,
-
-        # Print debugging messages
-        'debug'           : argparse.SUPPRESS,
 
         # Disable SHA256 checksum validation
         # of downloaded files
@@ -2523,12 +2651,17 @@ def parse_args(argv=None, include=None, parser=None):
         args.exclude_package = []
 
     # accept local path for manifest and environment
-    if args.manifest is not None and op.exists(args.manifest):
-        args.manifest = op.abspath(args.manifest)
+    if args.manifest is not None:
+        args.manifest = op.expanduser(args.manifest)
+        if op.exists(args.manifest):
+            args.manifest = op.abspath(args.manifest)
 
-    # accept local path for miniconda installer
-    if args.miniconda is not None and op.exists(args.miniconda):
-        args.miniconda = op.abspath(args.miniconda)
+    # accept local path for miniconda installer, or
+    # path to existing miniconda installation
+    if args.miniconda is not None:
+        args.miniconda = op.expanduser(args.miniconda)
+        if op.exists(args.miniconda):
+            args.miniconda = op.abspath(args.miniconda)
 
     return args
 
@@ -2609,7 +2742,6 @@ def handle_error(ctx):
         sys.exit(1)
 
 
-
 def main(argv=None):
     """Installer entry point. Downloads and installs miniconda and FSL, and
     configures the user's environment.
@@ -2673,8 +2805,7 @@ def main(argv=None):
 
         # Ask the user if they want to overwrite
         # an existing installation
-        if op.exists(ctx.destdir):
-            overwrite_destdir(ctx)
+        overwrite_destdir(ctx)
 
         download_fsl_environment(ctx)
 
@@ -2685,8 +2816,7 @@ def main(argv=None):
             install_fsl(ctx)
             finalise_installation(ctx)
             post_install_cleanup(ctx, tmpdir)
-            if not args.skip_registration:
-                register_installation(ctx)
+            register_installation(ctx)
 
     if not args.no_shell:
         configure_shell(ctx.shell, args.homedir, ctx.destdir)
