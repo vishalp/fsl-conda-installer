@@ -2656,13 +2656,17 @@ def parse_args(argv=None, include=None, parser=None):
         args.exclude_package = []
 
     # accept local path for manifest and environment
-    if args.manifest is not None and op.exists(args.manifest):
-        args.manifest = op.abspath(args.manifest)
+    if args.manifest is not None:
+        args.manifest = op.expanduser(args.manifest)
+        if op.exists(args.manifest):
+            args.manifest = op.abspath(args.manifest)
 
     # accept local path for miniconda installer, or
     # path to existing miniconda installation
-    if args.miniconda is not None and op.exists(args.miniconda):
-        args.miniconda = op.abspath(args.miniconda)
+    if args.miniconda is not None:
+        args.miniconda = op.expanduser(args.miniconda)
+        if op.exists(args.miniconda):
+            args.miniconda = op.abspath(args.miniconda)
 
     return args
 
