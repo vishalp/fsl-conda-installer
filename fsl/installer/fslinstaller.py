@@ -1973,22 +1973,28 @@ def get_install_fsl_progress_reporting_method(ctx):
     bindir = op.join(ctx.destdir, 'bin')
     libdir = op.join(ctx.destdir, 'lib')
 
-    start_pkgs  = os.listdir(pkgdir)
-    start_pkgs  = [p for p in start_pkgs
-                   if p.endswith('.conda') or p.endswith('.bz2')]
-    start_sizes = sum([op.getsize(op.join(pkgdir, p)) for p in start_pkgs])
+    def matchany(name, *filters):
+        return any([fnmatch.fnmatch(name, f) for f in filters])
+
+    def contents(dirname, *filters):
+        if not op.exists(dirname):
+            return []
+        contents = os.listdir(dirname)
+        contents = [f for f in contents if matchany(f, *filters)]
+        return [op.join(dirname, f) for f in contents]
+
+    start_pkgs  = contents(pkgdir, '*.conda', '*.bz2')
+    start_sizes = sum([op.getsize(p) for p in start_pkgs])
     start_pkgs  = len(start_pkgs)
-    start_bins  = len(os.listdir(bindir))
-    start_libs  = len(os.listdir(libdir))
+    start_bins  = len(contents(bindir))
+    start_libs  = len(contents(libdir))
 
     def progress_v234(v, _):
 
-        pkgs   = os.listdir(pkgdir)
-        bins   = os.listdir(bindir)
-        libs   = os.listdir(libdir)
-        pkgs   = [p for p in pkgs if p.endswith('.conda') or p.endswith('.bz2')]
-        sizes  = [op.getsize(op.join(pkgdir, p)) for p in pkgs]
-
+        pkgs  = contents(pkgdir, '*.conda', '*.bz2')
+        bins  = contents(bindir)
+        libs  = contents(libdir)
+        sizes = [op.getsize(p) for p in pkgs]
         pkgs  = len(pkgs)  - start_pkgs
         bins  = len(bins)  - start_bins
         libs  = len(libs)  - start_libs
@@ -2001,9 +2007,9 @@ def get_install_fsl_progress_reporting_method(ctx):
 
     progresses    = {}
     progresses[1] = None
-    progresses[2] = ft.partial(progress_v234, v=2)
-    progresses[3] = ft.partial(progress_v234, v=3)
-    progresses[4] = ft.partial(progress_v234, v=4)
+    progresses[2] = ft.partial(progress_v234, 2)
+    progresses[3] = ft.partial(progress_v234, 3)
+    progresses[4] = ft.partial(progress_v234, 4)
 
     progval  = None
     progfunc = None
