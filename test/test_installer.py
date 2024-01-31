@@ -485,15 +485,14 @@ def test_installer_existing_miniconda():
         patch_manifest(manifest, manifest, None,
                        ('installer', 'registration_url', srv.url))
 
-        sp.check_call(shlex.split('{}/miniconda.sh -b -p ./miniconda3'.format(srvdir)))
+        sp.check_call(shlex.split('{}/miniconda.sh -b -p ./fsl'.format(srvdir)))
 
         inst.main(['--homedir',   cwd,
-                   '--dest',      'fsl',
-                   '--miniconda', './miniconda3',
+                   '--dest',      './fsl',
+                   '--miniconda', './fsl',
                    '--root_env'])
 
-        check_install(cwd, 'fsl', '6.2.0',
-                      basedir='./miniconda3')
+        check_install(cwd, 'fsl', '6.2.0')
 
         assert len(srv.posts) == 1
 
@@ -513,9 +512,8 @@ def test_installer_child_env():
         sp.check_call(shlex.split('{}/miniconda.sh -b -p ./miniconda3'.format(srvdir)))
 
         inst.main(['--homedir',   cwd,
-                   '--dest',      'fsl',
+                   '--dest',      './fsl',
                    '--miniconda', './miniconda3',
-                   '--child_env',
                    '--root_env'])
 
         check_install(cwd, 'fsl', '6.2.0',
