@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.8.0'
+__version__ = '3.8.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -2093,7 +2093,7 @@ def install_fsl(ctx):
         cmd += ' -v -v -v'
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
-    ctx.run(Process.monitor_progress, cmd, env={'CONDARC' : condarc},
+    ctx.run(Process.monitor_progress, cmd, append_env={'CONDARC' : condarc},
             timeout=2, total=progval, progfunc=progfunc)
 
 
