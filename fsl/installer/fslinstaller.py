@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.8.1'
+__version__ = '3.8.2'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -2056,16 +2056,17 @@ def install_fsl(ctx):
     progval, progfunc = get_install_fsl_progress_reporting_method(ctx)
 
     # Generate .condarc which contains some default/
-    # fixed conda settings.  We use the CONDARC env
-    # var during the installation, and then copy
-    # this file into $FSLDIR afterwards (this
-    # happens within the finalise_installation func)
+    # fixed conda settings.  We create $FSLDIR in
+    # advance, and copy .condarc into it. Conda seems
+    # to be ok with the directory already existing,
+    # although I am concerned that this behaviour may
+    # not be guaranteed.
     #
-    # If this is a typical FSL installation (a
-    # self-contained base miniconda environment)
-    # we fix the package cache directory to
-    # isolate it from other conda installations
-    # that may be on the system.
+    # If this is a typical FSL installation (a self-
+    # contained base miniconda environment) we fix
+    # the package cache directory to isolate it from
+    # other conda installations that may be on the
+    # system.
     if ctx.destdir == ctx.basedir: pkgsdir = op.join(ctx.destdir, 'pkgs')
     else:                          pkgsdir = None
 
@@ -2073,9 +2074,13 @@ def install_fsl(ctx):
                                         ctx.environment_channels,
                                         ctx.args.skip_ssl_verify,
                                         pkgsdir)
-    condarc = op.join(os.getcwd(), '.condarc')
-    with open(condarc, 'wt') as f:
+    with open('.condarc', 'wt') as f:
         f.write(condarc_contents)
+
+    cmds = ['mkdir -p {}'.format(ctx.destdir),
+            'cp -f .condarc {}'.format(ctx.destdir)]
+    for cmd in cmds:
+        ctx.run(Process.check_call, cmd)
 
     # Are we updating an existing
     # env or creating a new env?
@@ -2094,7 +2099,7 @@ def install_fsl(ctx):
         cmd += ' -v -v -v'
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
-    ctx.run(Process.monitor_progress, cmd, append_env={'CONDARC' : condarc},
+    ctx.run(Process.monitor_progress, cmd,
             timeout=2, total=progval, progfunc=progfunc)
 
 
@@ -2113,7 +2118,6 @@ def finalise_installation(ctx):
 
     etcdir = op.join(ctx.destdir, 'etc')
     cmds   = [
-        'cp -f .condarc {}'.format(ctx.destdir),
         'cp fslversion {}' .format(etcdir),
         'cp {} {}'         .format(ctx.environment_file, etcdir)]
 
@@ -2371,7 +2375,7 @@ def overwrite_destdir(ctx):
     if not op.exists(ctx.destdir):
         return
 
-    # We have been instructed us to install
+    # We have been instructed to install
     # into an existing [mini]conda environment
     if ctx.use_existing_base and (ctx.basedir == ctx.destdir):
         return
