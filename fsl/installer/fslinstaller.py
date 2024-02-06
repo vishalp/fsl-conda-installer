@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.8.0'
+__version__ = '3.8.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1536,7 +1536,8 @@ class Context(object):
             ctx.run(Process.monitor_progress, 'my_command', total=100)
         """
 
-        env          = kwargs.pop('env', {})
+        env          = kwargs.pop('env',        {})
+        append_env   = kwargs.pop('append_env', {})
         process_func = ft.partial(process_func, *args, **kwargs)
 
         # Clear any environment variables that refer to
@@ -1547,9 +1548,9 @@ class Context(object):
         # details, and see Process.sudo_popen regarding
         # append_env.
         env.update(clean_environ())
-        append_env = install_environ(self.destdir,
-                                     self.args.username,
-                                     self.args.password)
+        append_env.update(install_environ(self.destdir,
+                                          self.args.username,
+                                          self.args.password))
         return process_func(admin=self.need_admin,
                             password=self.admin_password,
                             env=env,
@@ -2093,7 +2094,7 @@ def install_fsl(ctx):
         cmd += ' -v -v -v'
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
-    ctx.run(Process.monitor_progress, cmd, env={'CONDARC' : condarc},
+    ctx.run(Process.monitor_progress, cmd, append_env={'CONDARC' : condarc},
             timeout=2, total=progval, progfunc=progfunc)
 
 
