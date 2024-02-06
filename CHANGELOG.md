@@ -1,5 +1,12 @@
 # FSL installer script release history
 
+
+# 3.8.2 (Tuesday 6th February 2024)
+
+ - Fixed another new issue which was allowing `~/.condarc` settings to override
+   `$FSLDIR/.condarc` settings.
+
+
 # 3.8.1 (Tuesday 6th February 2024)
 
  - Fixed a new issue installing into locations requiring administrative
