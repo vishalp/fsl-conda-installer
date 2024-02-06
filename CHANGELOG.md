@@ -1,5 +1,11 @@
 # FSL installer script release history
 
+# 3.8.1 (Tuesday 6th February 2024)
+
+ - Fixed a new issue installing into locations requiring administrative
+   privileges.
+
+
 # 3.8.0 (Wednesday 31st January 2024)
 
  - The installer can now be told to use an existing base conda/mamba
