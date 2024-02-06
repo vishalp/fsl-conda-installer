@@ -45,3 +45,30 @@ def test_Context_admin_password():
 
             ctx = inst.Context(None, op.join('does_not_need_admin', 'fsl'))
             assert ctx.admin_password == None
+
+
+def test_Context_run_env():
+
+    gotargs   = [None]
+    gotkwargs = [None]
+
+    def mock_run(*args, **kwargs):
+        gotargs[  0] = args
+        gotkwargs[0] = kwargs
+
+    with inst.tempdir() as cwd:
+        ctx = inst.Context(None, op.join('fsl'))
+        ctx.args = mock.MagicMock()
+
+        ctx.run(mock_run, 'abcd')
+
+        assert gotargs == [('abcd',)]
+
+
+        ctx.run(mock_run, 'abcd',
+                env={       'ENVVAR'    : '1234'},
+                append_env={'APPENVVAR' : '5678'})
+
+        assert gotargs == [('abcd',)]
+        assert gotkwargs[0]['env'][       'ENVVAR']    == '1234'
+        assert gotkwargs[0]['append_env']['APPENVVAR'] == '5678'
