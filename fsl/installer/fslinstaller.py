@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.8.2'
+__version__ = '3.9.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -704,7 +704,9 @@ class Progress(object):
                  transform=None,
                  fmt='{:.1f}',
                  total=None,
-                 width=None):
+                 width=None,
+                 proglabel='progress',
+                 progfile=None):
         """Create a Progress reporter.
 
         :arg label:     Units (e.g. "MB", "%",)
@@ -720,6 +722,13 @@ class Progress(object):
         :arg width:     Maximum width, if a progress bar is displayed. Default
                         is to automatically infer the terminal width (see
                         get_terminal_width).
+
+        :arg proglabel: Label to use when writing progress updates to progfile.
+
+        :arg progfile:  File to write progress updates to. Each update is
+                        written on a new line, and has the form:
+
+                        <proglabel> <value>[ <total>]
         """
 
         if transform is None:
@@ -730,6 +739,8 @@ class Progress(object):
         self.total     = total
         self.label     = label
         self.transform = transform
+        self.proglabel = proglabel
+        self.progfile  = progfile
 
         # used by the spin function
         self.__last_spin = None
@@ -756,6 +767,17 @@ class Progress(object):
     def __exit__(self, *args, **kwargs):
         printmsg('', log=False, fill=False)
 
+    def write_progress(self, value, total):
+
+        if self.progfile is None:
+            return
+
+        if value is None: value = ''
+        if total is None: total = ''
+
+        with open(self.progfile, 'at') as f:
+            f.write('{} {} {}\n'.format(self.proglabel, value, total))
+
     def update(self, value=None, total=None):
 
         if total is None:
@@ -769,6 +791,8 @@ class Progress(object):
             self.count(value)
         elif value is not None and total is not None:
             self.progress(value, total)
+
+        self.write_progress(value, total)
 
     def spin(self):
 
@@ -965,24 +989,30 @@ class Process(object):
         """Runs the given command(s), and shows a progress bar under the
         assumption that cmd will produce "total" number of lines of output.
 
-        :arg cmd:      The commmand to run as a string, or a sequence of
-                       multiple commands.
+        :arg cmd:       The commmand to run as a string, or a sequence of
+                        multiple commands.
 
-        :arg total:    Total number of lines of standard output to expect.
+        :arg total:     Total number of lines of standard output to expect.
 
-        :arg timeout:  Refresh rate in seconds. Must be passed as a keyword
-                       argument.
+        :arg timeout:   Refresh rate in seconds. Must be passed as a keyword
+                        argument.
 
-        :arg progfunc: Function which returns a number indicating how far
-                       the process has progressed.  If provided, this
-                       function is called, instead of standard output
-                       lines being monitored. The function is passed a
-                       reference to the Process object. Must be passed as a
-                       keyword argument.
+        :arg progfunc:  Function which returns a number indicating how far
+                        the process has progressed.  If provided, this
+                        function is called, instead of standard output
+                        lines being monitored. The function is passed a
+                        reference to the Process object. Must be passed as a
+                        keyword argument.
+
+        :arg progfile:  File to write progress updates to.
+
+        :arg proglabel: Label to use when writing progress updates to progfile.
         """
 
-        timeout  = kwargs.pop('timeout',  0.5)
-        progfunc = kwargs.pop('progfunc', None)
+        timeout   = kwargs.pop('timeout',   0.5)
+        progfunc  = kwargs.pop('progfunc',  None)
+        proglabel = kwargs.pop('proglabel', None)
+        progfile  = kwargs.pop('progfile',  None)
 
         if total is None: label = None
         else:             label = '%'
@@ -1002,7 +1032,9 @@ class Process(object):
 
         with Progress(label=label,
                       fmt='{:.0f}',
-                      transform=Progress.percent) as prog:
+                      transform=Progress.percent,
+                      proglabel=proglabel,
+                      progfile=progfile) as prog:
 
             progcount = 0 if total else None
 
@@ -1784,7 +1816,9 @@ def download_miniconda(ctx):
 
     # Download
     printmsg('Downloading miniconda from {}...'.format(url))
-    with Progress('MB', transform=Progress.bytes_to_mb) as prog:
+    with Progress('MB', transform=Progress.bytes_to_mb,
+                  proglabel='download_miniconda',
+                  progfile=ctx.args.progress_file) as prog:
         download_file(url, 'miniconda.sh', prog.update,
                       ssl_verify=(not ctx.args.skip_ssl_verify))
     if (not ctx.args.no_checksum) and (checksum is not None):
@@ -1813,7 +1847,9 @@ def install_miniconda(ctx):
     # the installer to <pwd>/miniconda.sh
     printmsg('Installing miniconda at {}...'.format(ctx.basedir))
     cmd = 'bash miniconda.sh -b -p {}'.format(ctx.basedir)
-    ctx.run(Process.monitor_progress, cmd, total=output)
+    ctx.run(Process.monitor_progress, cmd, total=output,
+            proglabel='install_miniconda',
+            progfile=ctx.args.progress_file)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
@@ -2100,7 +2136,8 @@ def install_fsl(ctx):
 
     printmsg('Installing FSL into {}...'.format(ctx.destdir))
     ctx.run(Process.monitor_progress, cmd,
-            timeout=2, total=progval, progfunc=progfunc)
+            timeout=2, total=progval, progfunc=progfunc,
+            proglabel='install_fsl', progfile=ctx.args.progress_file)
 
 
 @warn_on_error('WARNING: The installation succeeded, but an error occurred '
@@ -2474,6 +2511,7 @@ def parse_args(argv=None, include=None, parser=None):
         'no_self_update'  : (None, {'action'  : 'store_true'}),
         'exclude_package' : (None, {'action'  : 'append'}),
         'root_env'        : (None, {'action'  : 'store_true'}),
+        'progress_file'   : (None, {}),
     }
 
     if include is None:
@@ -2593,6 +2631,9 @@ def parse_args(argv=None, include=None, parser=None):
         # --no_env flag is automatically enabled
         # UNLESS this flag is also provided.
         'root_env'        : argparse.SUPPRESS,
+
+        # File to send progress information to.
+        'progress_file'   : argparse.SUPPRESS,
     }
 
     # parse args
@@ -2659,6 +2700,11 @@ def parse_args(argv=None, include=None, parser=None):
 
     if args.exclude_package is None:
         args.exclude_package = []
+
+    if args.logfile is not None:
+        args.logfile = op.abspath(args.logfile)
+    if args.progress_file is not None:
+        args.progress_file = op.abspath(args.progress_file)
 
     # accept local path for manifest and environment
     if args.manifest is not None:
