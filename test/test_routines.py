@@ -290,6 +290,7 @@ def test_download_install_miniconda():
             ctx.args.no_checksum     = False
             ctx.args.skip_ssl_verify = False
             ctx.args.miniconda       = None
+            ctx.args.progress_file   = None
             ctx.use_existing_base    = False
             ctx.platform             = 'linux'
             ctx.manifest             = gen_manifest('linux', srv.port, sha256)
