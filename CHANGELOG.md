@@ -1,6 +1,13 @@
 # FSL installer script release history
 
 
+# 3.9.0 (Friday 9th February 2024)
+
+ - New `--logfile` option, allowing the log file location to be customised.
+ - New `--progress_file` option, which instructs the installer to write progress
+   updates to a file for external monitoring.
+
+
 # 3.8.2 (Tuesday 6th February 2024)
 
  - Fixed another new issue which was allowing `~/.condarc` settings to override
