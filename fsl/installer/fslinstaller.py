@@ -2459,6 +2459,7 @@ def parse_args(argv=None, include=None, parser=None):
 
         # hidden options
         'debug'           : (None, {'action'  : 'store_true'}),
+        'logfile'         : (None, {}),
         'username'        : (None, {'default' : username}),
         'password'        : (None, {'default' : password}),
         'no_checksum'     : (None, {'action'  : 'store_true'}),
@@ -2498,6 +2499,10 @@ def parse_args(argv=None, include=None, parser=None):
         # Enable verbose output when calling
         # mamba/conda.
         'debug'           : argparse.SUPPRESS,
+
+        # Direct the installer log to this file
+        # (default: file in $TMPDIR)
+        'logfile'         : argparse.SUPPRESS,
 
         # Username / password for accessing
         # internal FSL conda channel, if an
@@ -2671,20 +2676,22 @@ def parse_args(argv=None, include=None, parser=None):
     return args
 
 
-def config_logging(prefix='fslinstaller_', logdir=None):
-    """Configures logging. Log messages are directed to
-    $TMPDIR/fslinstaller_<unique_token>.log, or
+def config_logging(prefix='fslinstaller_', logdir=None, logfile=None):
+    """Configures logging. If a logfile is not specified, log messages are
+    directed to $TMPDIR/fslinstaller_<unique_token>.log, or
     logdir/fslinstaller_<unique_token>.log
     """
-    if logdir is None:
-        logdir = tempfile.gettempdir()
 
-    # Use a unique name for the log file
-    # (important for multi-user systems)
-    logfilef, logfile = tempfile.mkstemp(prefix=prefix,
-                                         suffix='.log',
-                                         dir=logdir)
-    os.close(logfilef)
+    if logfile is None:
+        if logdir is None:
+            logdir = tempfile.gettempdir()
+
+        # Use a unique name for the log file
+        # (important for multi-user systems)
+        logfilef, logfile = tempfile.mkstemp(prefix=prefix,
+                                             suffix='.log',
+                                             dir=logdir)
+        os.close(logfilef)
 
     handler   = logging.FileHandler(logfile)
     formatter = logging.Formatter(
@@ -2763,9 +2770,10 @@ def main(argv=None):
                  WARNING, EMPHASIS)
 
     args    = parse_args(argv)
-    logfile = config_logging(logdir=args.workdir)
+    logfile = config_logging(logdir=args.workdir, logfile=args.logfile)
 
     log.debug(' '.join(sys.argv))
+    log.debug('Python: %s', sys.executable)
     printmsg('Installation log file: {}\n'.format(logfile), INFO)
 
     ctx         = Context(args)
