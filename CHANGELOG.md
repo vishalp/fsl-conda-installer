@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.9.1 (Tuesday 14th May 2024)
+
+ - Prevent conda from updating itself during installations, as this can sometimes
+   cause installation to crash.
+
+
 # 3.9.0 (Friday 9th February 2024)
 
  - New `--logfile` option, allowing the log file location to be customised.

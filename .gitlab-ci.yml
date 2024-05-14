@@ -67,10 +67,6 @@ test:py27:
   extends: .test-template
   image:    python:2.7
 
-test:py33:
-  extends: .test-template
-  image:    python:3.3
-
 test:py34:
   extends: .test-template
   image:    python:3.4

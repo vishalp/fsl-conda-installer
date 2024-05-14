@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.9.0'
+__version__ = '3.9.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1917,6 +1917,13 @@ def generate_condarc(fsldir,
     # priority order being modified by user ~/.condarc
     # configuration files.
     channel_priority: strict #!final
+
+
+    # Prevent conda from updating itself, as conda
+    # can sometimes break itself by updating itself
+    # in-place (see e.g.
+    # https://github.com/conda/conda/issues/13920)
+    auto_update_conda: false #!final
     """)
 
     # Fix the conda package cache
