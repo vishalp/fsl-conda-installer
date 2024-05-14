@@ -1917,6 +1917,13 @@ def generate_condarc(fsldir,
     # priority order being modified by user ~/.condarc
     # configuration files.
     channel_priority: strict #!final
+
+
+    # Prevent conda from updating itself, as conda
+    # can sometimes break itself by updating itself
+    # in-place (see e.g.
+    # https://github.com/conda/conda/issues/13920)
+    auto_update_conda: false #!final
     """)
 
     # Fix the conda package cache
