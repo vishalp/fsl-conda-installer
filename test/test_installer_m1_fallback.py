@@ -60,12 +60,16 @@ mock_manifest = """
     }},
     "miniconda" : {{
         "macos-64" : {{
-            "url"    : "{url}/miniconda.sh",
-            "sha256" : "{condasha256}"
+            "python3.11" : {{
+                "url"    : "{url}/miniconda.sh",
+                "sha256" : "{condasha256}"
+            }}
         }},
         "macos-M1" : {{
-            "url"    : "{url}/miniconda.sh",
-            "sha256" : "{condasha256}"
+            "python3.11" : {{
+                "url"    : "{url}/miniconda.sh",
+                "sha256" : "{condasha256}"
+            }}
         }}
     }},
     "versions" : {{
@@ -112,6 +116,7 @@ mock_env_yml_template = """
 {version}
 dependencies:
  - fsl-base 1234.0
+ - python 3.11.*
 """.strip()
 
 
