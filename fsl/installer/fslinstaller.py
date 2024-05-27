@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.9.1'
+__version__ = '3.10.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1252,9 +1252,11 @@ class Context(object):
 
         # The download_fsl_environment function stores
         # the path to the FSL conda environment file
-        # and list of conda channels
+        # list of conda channels, and python version
+        # to be installed
         self.environment_file     = None
         self.environment_channels = None
+        self.python_version       = None
 
         # The config_logging function stores the path
         # to the fslinstaller log file here.
@@ -1314,6 +1316,41 @@ class Context(object):
             self.__platform = plat
 
         return self.__platform
+
+
+    @property
+    def miniconda_metadata(self):
+        """Returns a dict with information about the miniconda installer
+        to use as the base of the FSL installation. This must not be called
+        until after the download_fsl_environment function has been called.
+
+        The returned dict has `'url'`, `'sha256'` and `'output'` keys.
+        """
+        # Get information about the miniconda installer
+        # from the manifest.
+        metadata = self.manifest['miniconda'][self.platform]
+        pyver    = 'python{}'.format(self.python_version)
+
+        # From FSL 6.0.7.12 and newer, the manifest
+        # contains a separate miniconda installer URL
+        # for each Python version that is used in the
+        # different FSL versions. Prior to this, the
+        # manifest just contained a single miniconda URL
+        # for each platform. This code supports both the
+        # old and new manifest formats.
+        if pyver in metadata:
+            metadata = metadata[pyver]
+
+        # if pyver is not in metadata, we either have an
+        # old manifest format which contains info for a
+        # single miniconda installer, or the manifest
+        # does not contain a miniconda installer entry
+        # for the python version to be installed.
+        elif 'url' not in metadata:
+            raise Exception('Manifest does not contain metadata for a Python '
+                            '{} miniconda installer!'.format(pyver))
+
+        return metadata
 
 
     @property
@@ -1749,10 +1786,12 @@ def download_fsl_environment(ctx):
     # The install_miniconda function will then add the
     # channels to $FSLDIR/.condarc.
     #
-    # We also remove any packages that the user has
+    # We also identify the version of Python to be
+    # installed, remove any packages that the user has
     # requested to exclude from the installation.
     copy     = '.' + op.basename(ctx.environment_file)
     channels = []
+    pyver    = None
 
     shutil.move(ctx.environment_file, copy)
     with open(copy,                 'rt') as inf, \
@@ -1776,8 +1815,17 @@ def download_fsl_environment(ctx):
                     continue
 
             # Include/exclude packages upon user request
+            exclude = False
             pkgname = line.strip(' -').split()[0]
-            exclude = match_any(pkgname, ctx.args.exclude_package)
+
+            # Also pull out the python version so we
+            # know which miniconda installer to use
+            if pkgname == 'python' and pyver is None:
+                pyver = line.strip(' -').split()[1]
+                pyver = '.'.join(pyver.split('.')[:2])
+            else:
+                exclude = match_any(pkgname, ctx.args.exclude_package)
+
             if exclude:
                 log.debug('Excluding package %s (matched '
                           '--exclude_package %s)', line, exclude)
@@ -1785,6 +1833,7 @@ def download_fsl_environment(ctx):
                 outf.write(line)
 
     ctx.environment_channels = channels
+    ctx.python_version       = pyver
 
 
 def download_miniconda(ctx):
@@ -1807,10 +1856,10 @@ def download_miniconda(ctx):
         url      = ctx.args.miniconda
         checksum = None
 
-    # Use miniconda installer specified in
-    # FSL release manifest
+    # Use miniconda installer specified
+    # in FSL release manifest
     else:
-        metadata = ctx.manifest['miniconda'][ctx.platform]
+        metadata = ctx.miniconda_metadata
         url      = metadata['url']
         checksum = metadata['sha256']
 
@@ -1837,7 +1886,9 @@ def install_miniconda(ctx):
     if ctx.use_existing_base:
         return
 
-    metadata = ctx.manifest['miniconda'][ctx.platform]
+    # Get information about the miniconda installer
+    # from the manifest.
+    metadata = ctx.miniconda_metadata
     output   = metadata.get('output', '').strip()
 
     if output == '': output = None
