@@ -262,15 +262,24 @@ def test_download_install_miniconda():
     touch $3/installed
     """)
 
-    def gen_manifest(platform, port, sha256):
-        return {
-            'miniconda' : {
-                platform : {
+    def gen_manifest(platform, port, sha256, pyver=None):
+
+        if pyver is not None:
+            # new manifest format with separate miniconda installer
+            # for each pyver
+            return {
+                'miniconda' : { platform : { pyver : {
                     'url'    : 'http://localhost:{}/remote.sh'.format(port),
                     'sha256' : sha256,
-                }
-            }
-        }
+                }}}}
+        else:
+            # old manifest format with single miniconda installer
+            return {
+                'miniconda' : { platform : {
+                    'url'    : 'http://localhost:{}/remote.sh'.format(port),
+                    'sha256' : sha256,
+                }}}
+
 
     with inst.tempdir() as cwd:
         os.mkdir('remote')
@@ -279,6 +288,8 @@ def test_download_install_miniconda():
         sha256 = inst.sha256(op.join('remote', 'remote.sh'))
 
         with server('remote') as srv:
+
+            manifest = gen_manifest('linux', srv.port, sha256, '3.11')
 
             destdir                  = op.join(cwd, 'miniconda')
             ctx                      = MockObject()
@@ -293,7 +304,8 @@ def test_download_install_miniconda():
             ctx.args.progress_file   = None
             ctx.use_existing_base    = False
             ctx.platform             = 'linux'
-            ctx.manifest             = gen_manifest('linux', srv.port, sha256)
+            ctx.manifest             = manifest
+            ctx.miniconda_metadata   = manifest['miniconda']['linux']['3.11']
             ctx.environment_channels = []
             ctx.run                  = lambda f, *a, **kwa: f(*a, **kwa)
 
@@ -304,16 +316,33 @@ def test_download_install_miniconda():
             assert op.exists(op.join(destdir, 'installed'))
             shutil.rmtree(destdir)
 
-            ctx.manifest = gen_manifest('linux', srv.port, 'bad')
+            # error on bad checksum
+            manifest               = gen_manifest('linux', srv.port, 'bad', '3.11')
+            ctx.manifest           = manifest
+            ctx.miniconda_metadata = manifest['miniconda']['linux']['3.11']
             with pytest.raises(Exception):
                 inst.download_miniconda(ctx)
 
+            # skip checksum
             ctx.args.no_checksum = True
             inst.download_miniconda(ctx)
+            inst.install_miniconda(ctx)
 
-            with open(op.join('remote', 'remote.sh'), 'wt') as f:
-                f.write(installer)
-            sha256 = inst.sha256(op.join('remote', 'remote.sh'))
+            assert op.exists(destdir)
+            assert op.exists(op.join(destdir, 'installed'))
+            shutil.rmtree(destdir)
+
+            # old manifest format with single miniconda installer
+            manifest               = gen_manifest('linux', srv.port, sha256)
+            ctx.manifest           = manifest
+            ctx.miniconda_metadata = manifest['miniconda']['linux']
+
+            inst.download_miniconda(ctx)
+            inst.install_miniconda(ctx)
+
+            assert op.exists(destdir)
+            assert op.exists(op.join(destdir, 'installed'))
+            shutil.rmtree(destdir)
 
 
 def test_self_update():

@@ -1,17 +1,25 @@
 # FSL installer script release history
 
 
+# 3.10.0 (Monday 27th May 2024)
+
+ - The `fslinstaller.py` script will now download and install a Miniconda
+   installer which matches the Python version that is to be installed as
+   part of FSL, if this information is present in the installation manifest
+   file.
+
+
 # 3.9.1 (Tuesday 14th May 2024)
 
- - Prevent conda from updating itself during installations, as this can sometimes
-   cause installation to crash.
+ - Prevent conda from updating itself during installations, as this can
+   sometimes cause installation to crash.
 
 
 # 3.9.0 (Friday 9th February 2024)
 
  - New `--logfile` option, allowing the log file location to be customised.
- - New `--progress_file` option, which instructs the installer to write progress
-   updates to a file for external monitoring.
+ - New `--progress_file` option, which instructs the installer to write
+   progress updates to a file for external monitoring.
 
 
 # 3.8.2 (Tuesday 6th February 2024)

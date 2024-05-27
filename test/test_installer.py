@@ -42,17 +42,18 @@ prefix=$(cd $prefix && pwd)
 #  - conda env update -p <fsldir> -f <envfile>
 #  - conda env create -p <fsldir> -f <envfile>
 #  - conda clean -y --all
-echo "#!/usr/bin/env bash"  >> $prefix/bin/conda
-echo 'if   [ "$1" = "clean" ]; then '         >> $3/bin/conda
-echo "    touch $prefix/cleaned"              >> $3/bin/conda
-echo 'elif [ "$1" = "env" ]; then '           >> $3/bin/conda
-echo '    envprefix=$4'                       >> $3/bin/conda
-echo '    mkdir -p $envprefix/bin/'           >> $3/bin/conda
-echo '    mkdir -p $envprefix/etc/'           >> $3/bin/conda
-echo '    mkdir -p $envprefix/pkgs/'          >> $3/bin/conda
-echo '    cp "$6" $envprefix/'                >> $3/bin/conda
-echo '    echo "$2" > $envprefix/env_command' >> $3/bin/conda
-echo "fi"                                     >> $3/bin/conda
+echo "#!/usr/bin/env bash"                          >> $prefix/bin/conda
+echo 'if   [ "$1" = "clean" ]; then '               >> $prefix/bin/conda
+echo "    touch $prefix/cleaned"                    >> $prefix/bin/conda
+echo 'elif [ "$1" = "env" ]; then '                 >> $prefix/bin/conda
+echo '    envprefix=$4'                             >> $prefix/bin/conda
+echo '    mkdir -p $envprefix/bin/'                 >> $prefix/bin/conda
+echo '    mkdir -p $envprefix/etc/'                 >> $prefix/bin/conda
+echo '    mkdir -p $envprefix/pkgs/'                >> $prefix/bin/conda
+echo '    cp "$6" $envprefix/'                      >> $prefix/bin/conda
+echo '    echo "$2" > $envprefix/env_command'       >> $prefix/bin/conda
+echo '    echo "python {pyver}" > $envprefix/pyver' >> $prefix/bin/conda
+echo "fi"                                           >> $prefix/bin/conda
 chmod a+x $prefix/bin/conda
 """.strip()
 
@@ -69,8 +70,14 @@ mock_manifest = """
     }},
     "miniconda" : {{
         "{platform}" : {{
-            "url"    : "{url}/miniconda.sh",
-            "sha256" : "{conda_sha256}"
+            "python3.11" : {{
+                "url"    : "{url}/miniconda311.sh",
+                "sha256" : "{conda311_sha256}"
+            }},
+            "python3.10" : {{
+                "url"    : "{url}/miniconda310.sh",
+                "sha256" : "{conda310_sha256}"
+            }}
         }}
     }},
     "versions" : {{
@@ -163,11 +170,21 @@ mock_manifest = """
 """.strip()
 # Format vars: version platform url conda_sha256 env620_sha256 env610_sha256 env**
 
+mock_python_versions = {
+    '6.2.0'  : '3.11',
+    '6.1.0'  : '3.11',
+    '6.0.99' : '3.10',
+    '6.0.98' : '3.10',
+    '6.0.97' : '3.10',
+    '6.0.96' : '3.10',
+}
+
 
 mock_env_yml_template = """
 {version}
 packages:
  - fsl-base 1234.0
+ - python {pyver}.*
 """.strip()
 
 
@@ -202,36 +219,36 @@ def installer_server(cwd=None):
     cwd = op.abspath(cwd)
 
     with indir(cwd), server(cwd) as srv:
-        with open('miniconda.sh', 'wt') as f:
-            f.write(mock_miniconda_sh)
-        with open('env-6.2.0.yml', 'wt') as f:
-            f.write(mock_env_yml_template.format(version='6.2.0'))
-        with open('env-6.1.0.yml', 'wt') as f:
-            f.write(mock_env_yml_template.format(version='6.1.0'))
-        with open('env-6.0.99.yml', 'wt') as f:
-            f.write(mock_env_yml_template.format(version='6.0.99'))
-        with open('env-6.0.98.yml', 'wt') as f:
-            f.write(mock_env_yml_template.format(version='6.0.98'))
-        with open('env-6.0.97.yml', 'wt') as f:
-            f.write(mock_env_yml_template.format(version='6.0.97'))
-        with open('env-6.0.96.yml', 'wt') as f:
-            f.write(mock_env_yml_template.format(version='6.0.96'))
+        with open('miniconda310.sh', 'wt') as f:
+            f.write(mock_miniconda_sh.format(pyver='3.10'))
+        with open('miniconda311.sh', 'wt') as f:
+            f.write(mock_miniconda_sh.format(pyver='3.11'))
 
-        conda_sha256   = inst.sha256('miniconda.sh')
-        env620_sha256  = inst.sha256('env-6.2.0.yml')
-        env610_sha256  = inst.sha256('env-6.1.0.yml')
-        env6099_sha256 = inst.sha256('env-6.0.99.yml')
-        env6098_sha256 = inst.sha256('env-6.0.98.yml')
-        env6097_sha256 = inst.sha256('env-6.0.97.yml')
-        env6096_sha256 = inst.sha256('env-6.0.96.yml')
+        for fslver in ['6.2.0', '6.1.0', '6.0.99',
+                       '6.0.98', '6.0.97', '6.0.96']:
+            with open('env-{}.yml'.format(fslver), 'wt') as f:
+                f.write(mock_env_yml_template.format(
+                    version=fslver,
+                    pyver=mock_python_versions[fslver]))
 
-        os.chmod('miniconda.sh', 0o755)
+        conda311_sha256 = inst.sha256('miniconda311.sh')
+        conda310_sha256 = inst.sha256('miniconda310.sh')
+        env620_sha256   = inst.sha256('env-6.2.0.yml')
+        env610_sha256   = inst.sha256('env-6.1.0.yml')
+        env6099_sha256  = inst.sha256('env-6.0.99.yml')
+        env6098_sha256  = inst.sha256('env-6.0.98.yml')
+        env6097_sha256  = inst.sha256('env-6.0.97.yml')
+        env6096_sha256  = inst.sha256('env-6.0.96.yml')
+
+        os.chmod('miniconda311.sh', 0o755)
+        os.chmod('miniconda310.sh', 0o755)
 
         manifest = mock_manifest.format(
             version=inst.__version__,
             platform=inst.identify_platform(),
             url=srv.url,
-            conda_sha256=conda_sha256,
+            conda311_sha256=conda311_sha256,
+            conda310_sha256=conda310_sha256,
             env620_sha256=env620_sha256,
             env610_sha256=env610_sha256,
             env6099_sha256=env6099_sha256,
@@ -250,7 +267,8 @@ def check_install(homedir, destdir, version,
                   postinst=True,
                   finalise=True,
                   basedir=None,
-                  env_command='update'):
+                  env_command='update',
+                  pyver=None):
     # the devrelease test patches the manifest
     # file with devrelease versions, but leaves
     # the env files untouched, and referring to
@@ -267,16 +285,21 @@ def check_install(homedir, destdir, version,
     if envver is None:
         envver = version
 
+    if pyver is None:
+        pyver = mock_python_versions[version]
+
     destdir = op.abspath(destdir)
     basedir = op.abspath(basedir)
     etc     = op.join(destdir, 'etc')
     shell   = os.environ.get('SHELL', 'sh')
     profile = inst.configure_shell.shell_profiles.get(shell, None)
 
+
     with indir(destdir):
         # added by our mock conda env creeate call
         with open(op.join(destdir, 'env-{}.yml'.format(envver)), 'rt') as f:
-            exp = mock_env_yml_template.format(version=envver)
+            exp = mock_env_yml_template.format(version=envver,
+                                               pyver=pyver)
             assert f.read().strip() == exp
 
         # added by our mock conda clean call
@@ -288,6 +311,12 @@ def check_install(homedir, destdir, version,
             ecfile = op.join(destdir, 'env_command')
             assert op.exists(ecfile)
             assert open(ecfile, 'rt').read().strip() == env_command
+
+        # python version added by our mock conbda env [update|create] call
+
+        pvfile = op.join(destdir, 'pyver')
+        assert op.exists(pvfile)
+        assert open(pvfile, 'rt').read().strip() == 'python {}'.format(pyver)
 
         assert op.exists(op.join(homedir, 'Documents', 'MATLAB'))
 
@@ -416,21 +445,24 @@ def test_installer_devrelease():
                     dest = 'fsl'
                     with mock_input('2', dest):
                         inst.main(['--homedir', cwd, '--devrelease', '--root_env'])
-                    check_install(cwd, dest, '6.1.0.20220519', '6.2.0')
+                    check_install(cwd, dest, '6.1.0.20220519', '6.2.0',
+                                  pyver='3.11')
                     shutil.rmtree(dest)
                 # default option is newest devrelease
                 with inst.tempdir() as cwd:
                     dest = 'fsl'
                     with mock_input('', dest):
                         inst.main(['--homedir', cwd, '--devrelease', '--root_env'])
-                    check_install(cwd, dest, '6.1.0.20220520', '6.2.0')
+                    check_install(cwd, dest, '6.1.0.20220520', '6.2.0',
+                                  pyver='3.11')
                     shutil.rmtree(dest)
 
                 with inst.tempdir() as cwd:
                     dest = 'fsl'
                     with mock_input(dest):
                         inst.main(['--homedir', cwd, '--devlatest', '--root_env'])
-                    check_install(cwd, dest, '6.1.0.20220520', '6.2.0')
+                    check_install(cwd, dest, '6.1.0.20220520', '6.2.0',
+                                  pyver='3.11')
                     shutil.rmtree(dest)
 
 
@@ -561,7 +593,7 @@ def test_installer_existing_miniconda():
         patch_manifest(manifest, manifest, None,
                        ('installer', 'registration_url', srv.url))
 
-        sp.check_call(shlex.split('{}/miniconda.sh -b -p ./fsl'.format(srvdir)))
+        sp.check_call(shlex.split('{}/miniconda311.sh -b -p ./fsl'.format(srvdir)))
 
         inst.main(['--homedir',   cwd,
                    '--dest',      './fsl',
@@ -585,7 +617,7 @@ def test_installer_child_env():
         patch_manifest(manifest, manifest, None,
                        ('installer', 'registration_url', srv.url))
 
-        sp.check_call(shlex.split('{}/miniconda.sh -b -p ./miniconda3'.format(srvdir)))
+        sp.check_call(shlex.split('{}/miniconda311.sh -b -p ./miniconda3'.format(srvdir)))
 
         inst.main(['--homedir',   cwd,
                    '--dest',      './fsl',
