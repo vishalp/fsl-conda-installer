@@ -1832,6 +1832,10 @@ def download_fsl_environment(ctx):
             else:
                 outf.write(line)
 
+    if pyver is None:
+        raise Exception('Could not identify Python version in '
+                        'FSL environment file ({})'.format(url))
+
     ctx.environment_channels = channels
     ctx.python_version       = pyver
 
