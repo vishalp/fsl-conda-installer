@@ -30,6 +30,8 @@ import textwrap       as tw
 import                   argparse
 import                   collections
 import                   contextlib
+import                   ctypes
+import                   ctypes.util
 import                   datetime
 import                   fnmatch
 import                   getpass
@@ -249,6 +251,33 @@ def post_request(url, data):
             resp.close()
 
 
+def funccache(func):
+    """Memoisation decorator for a function. Alternative to
+    ``functools.lru_cache``, which is not available in Python 2.x.
+    """
+
+    cache = {}
+
+    def decorator(*args, **kwargs):
+
+        key = list()
+        key.extend(args)
+        key.extend([kwargs[k] for k in sorted(kwargs.keys())])
+
+        if len(key) > 0: key = tuple(key)
+        else:            key = ('default',)
+
+        value = cache.get(key, None)
+
+        if value is None:
+            value      = func(*args, **kwargs)
+            cache[key] = value
+
+        return value
+
+    return decorator
+
+
 def identify_platform():
     """Figures out what platform we are running on. Returns a platform
     identifier string - one of:
@@ -290,6 +319,85 @@ def timestamp():
     minutes = int((offset % 3600) / 60)
     now     = now.strftime('%Y-%m-%dT%H:%M:%S')
     return '{}{:+03d}:{:02d}'.format(now, hours, minutes)
+
+
+@funccache
+def identify_cuda(device=None):
+    """Uses the CUDA driver API to interrogate the supported CUDA runtime
+    version and compute capability for the specified device (default: 0).
+
+    If no GPU is present, or if the GPU cannot be interrogated, returns
+    a tuple containing (None, None, None).
+
+    Otherwise returns a tuple containing:
+      - The device name
+      - The latest CUDA version supported by the driver, as a tuple of
+        (major, minor) ints.
+      - The latest compute capability version supported by the GPU, as
+        a tuple of (major, minor) ints.
+    """
+
+    if device is None:
+        device = 0
+
+    # User can pass --gpu=-1 to ignore the local
+    # GPU, which will cause CUDA libraries to
+    # *not* be installed
+    if device == -1:
+        return None, None, None
+
+    # Used by code below to call a CUDA function
+    # which returns a success/error code.
+    def call(func, *args):
+        result = func(*args)
+        if result != 0:
+            errstr = ctypes.pointer((ctypes.c_char * 1024)())
+            cuda.cuGetErrorString(result, ctypes.byref(errstr))
+            raise Exception('Error calling {}: [{}] {}'.format(
+                func.__name__, result, errstr.contents.value))
+
+    # Used by code below to call a CUDA
+    # function which inserts its return value
+    # into a provided pointer, and returns a
+    # success/error code.
+    def callp(func, ptr, *args):
+        call(func, ptr, *args)
+        return ptr.contents.value
+
+    try:
+        cuda = ctypes.util.find_library('cuda')
+        if cuda is None:
+            raise Exception('Unable to locate cuda driver library')
+
+        cuda = ctypes.cdll.LoadLibrary(cuda)
+
+        call(cuda.cuInit, 0)
+
+        # Codes 75 / 76 correspond to these constants defined in cuda.h:
+        #  - CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR (75)
+        #  - CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR (76)
+
+        nameptr       = ctypes.pointer((ctypes.c_char * 256)())
+        intptr        = ctypes.pointer(ctypes.c_int())
+        deviceName    = callp(cuda.cuDeviceGetName,      nameptr, 256, device)
+        driverVersion = callp(cuda.cuDriverGetVersion,   intptr)
+        computeMajor  = callp(cuda.cuDeviceGetAttribute, intptr,  75,  device)
+        computeMinor  = callp(cuda.cuDeviceGetAttribute, intptr,  76,  device)
+
+        driverMajor       = int(driverVersion / 1000.0)
+        driverMinor       = int((driverVersion - (driverMajor * 1000)) / 10.0)
+        driverVersion     = (driverMajor,  driverMinor)
+        computeCapability = (computeMajor, computeMinor)
+
+        log.debug('Identified local GPU: %s; CUDA version: %0.1f; '
+                  'Compute capability: %0.1f', deviceName, driverVersion,
+                  computeCapability)
+
+        return deviceName, driverVersion, computeCapability
+
+    except Exception as e:
+        log.debug('Unable to interrogate CUDA version: %s', e, exc_info=True)
+        return None, None, None
 
 
 def check_need_admin(dirname):
