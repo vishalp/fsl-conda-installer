@@ -30,8 +30,6 @@ import textwrap       as tw
 import                   argparse
 import                   collections
 import                   contextlib
-import                   ctypes
-import                   ctypes.util
 import                   datetime
 import                   fnmatch
 import                   getpass
@@ -43,6 +41,7 @@ import                   os
 import                   platform
 import                   pwd
 import                   readline
+import                   re
 import                   shlex
 import                   shutil
 import                   ssl
@@ -323,81 +322,48 @@ def timestamp():
 
 @funccache
 def identify_cuda(device=None):
-    """Uses the CUDA driver API to interrogate the supported CUDA runtime
-    version and compute capability for the specified device (default: 0).
+    """Tries to call nvidia-smi to interrogate the supported CUDA runtime
+    version for the specified device (default: 0).
 
-    If no GPU is present, or if the GPU cannot be interrogated, returns
-    a tuple containing (None, None, None).
+    If device == -1, or nvidia-smi cannot be called, returns None.
 
-    Otherwise returns a tuple containing:
-      - The device name
-      - The latest CUDA version supported by the driver, as a tuple of
-        (major, minor) ints.
-      - The latest compute capability version supported by the GPU, as
-        a tuple of (major, minor) ints.
+    Otherwise returns the latest CUDA version supported by the driver, as a
+    tuple of (major, minor) ints.
     """
 
     if device is None:
         device = 0
 
-    # User can pass --gpu=-1 to ignore the local
-    # GPU, which will cause CUDA libraries to
-    # *not* be installed
-    if device == -1:
-        return None, None, None
-
-    # Used by code below to call a CUDA function
-    # which returns a success/error code.
-    def call(func, *args):
-        result = func(*args)
-        if result != 0:
-            errstr = ctypes.pointer((ctypes.c_char * 1024)())
-            cuda.cuGetErrorString(result, ctypes.byref(errstr))
-            raise Exception('Error calling {}: [{}] {}'.format(
-                func.__name__, result, errstr.contents.value))
-
-    # Used by code below to call a CUDA
-    # function which inserts its return value
-    # into a provided pointer, and returns a
-    # success/error code.
-    def callp(func, ptr, *args):
-        call(func, ptr, *args)
-        return ptr.contents.value
+    # We can use the nvidia-smi --query-gpu option to
+    # selectively query device name, compute capability,
+    # driver version, etc, e.g.:
+    #
+    #     nvidia-smi -i <device>                        \
+    #       --query-gpu=name,compute_cap,driver_version \
+    #       --format=noheader
+    #
+    # But this option doesn't allow us to query the
+    # supported CUDA version. So here we just scrape the
+    # human-readable output to get that information.
+    cudaver = None
 
     try:
-        cuda = ctypes.util.find_library('cuda')
-        if cuda is None:
-            raise Exception('Unable to locate cuda driver library')
-
-        cuda = ctypes.cdll.LoadLibrary(cuda)
-
-        call(cuda.cuInit, 0)
-
-        # Codes 75 / 76 correspond to these constants defined in cuda.h:
-        #  - CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR (75)
-        #  - CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR (76)
-
-        nameptr       = ctypes.pointer((ctypes.c_char * 256)())
-        intptr        = ctypes.pointer(ctypes.c_int())
-        deviceName    = callp(cuda.cuDeviceGetName,      nameptr, 256, device)
-        driverVersion = callp(cuda.cuDriverGetVersion,   intptr)
-        computeMajor  = callp(cuda.cuDeviceGetAttribute, intptr,  75,  device)
-        computeMinor  = callp(cuda.cuDeviceGetAttribute, intptr,  76,  device)
-
-        driverMajor       = int(driverVersion / 1000.0)
-        driverMinor       = int((driverVersion - (driverMajor * 1000)) / 10.0)
-        driverVersion     = (driverMajor,  driverMinor)
-        computeCapability = (computeMajor, computeMinor)
-
-        log.debug('Identified local GPU: %s; CUDA version: %0.1f; '
-                  'Compute capability: %0.1f', deviceName, driverVersion,
-                  computeCapability)
-
-        return deviceName, driverVersion, computeCapability
+        output = Process.check_output('nvidia-smi -i {}'.format(device))
+        output = output.split('\n')
+        pat    = r'CUDA Version: (\S+)'
+        for line in output:
+            match = re.search(pat, line)
+            if match:
+                cudaver      = match.group(1)
+                major, minor = cudaver.split('.')
+                cudaver      = (int(major),  int(minor))
+                break
 
     except Exception as e:
         log.debug('Unable to interrogate CUDA version: %s', e, exc_info=True)
-        return None, None, None
+        return None
+
+    return cudaver
 
 
 def check_need_admin(dirname):
@@ -694,7 +660,7 @@ def install_environ(fsldir, username=None, password=None, cuda_version=None):
     #
     # Otherwise clear the var in case we have a
     # local GPU that the user wishes to ignore (if
-    # they passed --gpu=1)
+    # they passed --cuda=none)
     #
     # https://conda.io/projects/conda/en/\
     # latest/user-guide/tasks/manage-virtual.html
@@ -2003,6 +1969,10 @@ def add_cuda_packages(ctx):
        not to be installed.
     """
 
+    # User has requested no CUDA
+    if ctx.args.cuda is False:
+        return {}, None
+
     # If user has requested a specific CUDA/
     # compute capability, ignore the version
     # supported by the local GPU (if present)
@@ -2014,7 +1984,7 @@ def add_cuda_packages(ctx):
     # returned value will be None if there
     # is no GPU available on this system.
     else:
-        cuda = identify_cuda(ctx.args.gpu)[1]
+        cuda = identify_cuda()
 
     # There is no GPU on this system, and the
     # user has not requested a particular CUDA
@@ -3083,9 +3053,6 @@ def parse_args(argv=None, include=None, parser=None):
         'skip_registration' : ('-r', {'action'  : 'store_true'}),
         'extra'             : ('-e', {'action'  : 'append'}),
         'fslversion'        : ('-V', {'default' : 'latest'}),
-        'gpu'               : ('-g', {'metavar' : 'DEVICE',
-                                      'type'    : int,
-                                      'default' : None}),
         'cuda'              : ('-c', {'metavar' : 'X.Y'}),
 
         # hidden options
@@ -3133,17 +3100,13 @@ def parse_args(argv=None, include=None, parser=None):
                               'FSL development team.',
         'extra'             : 'Install optional FSL components',
         'fslversion'        : 'Install this specific version of FSL.',
-        'gpu'               : 'Install CUDA libraries which are compatible '
-                              'with the specified GPU device (default: 0). '
-                              'Only relevant on systems with multiple CUDA-'
-                              'capable GPUs. Set to -1 to disable '
-                              'installation of CUDA libraries.',
         'cuda'              : 'Install CUDA libraries which are compatible '
                               'with this CUDA version (default: install '
                               'versions of CUDA libraries that are compatible '
                               'with the GPU on the system, or do not install '
-                              'CUDA libraries on systems without a GPU). '
-                              'Ignored if --gpu is specified.',
+                              'CUDA libraries on systems without a GPU). Set '
+                              'to "none" to disable installation of CUDA '
+                              'libraries.',
 
         # Configure conda to skip SSL verification.
         # Not recommended.
@@ -3318,32 +3281,24 @@ def parse_args(argv=None, include=None, parser=None):
                      ERROR, EMPHASIS)
             sys.exit(1)
 
-    # User specified a GPU device, but
-    # target system has no GPU
-    if args.gpu is not None and identify_cuda(args.gpu) is None:
-        printmsg('Unable to access GPU device {}! Either this system does not '
-                 'have a GPU, or the GPU is not accessible by CUDA.'.format(
-                     args.gpu), ERROR, EMPHASIS)
-        sys.exit(1)
-
-    # If user specified a GPU device,
-    # --cuda is ignored
-    if args.gpu is not None:
-        args.cuda = None
-
     # convert --cuda X.Y into
     # a tuple of (X, Y) ints
     if args.cuda is not None:
-        try:
-            major, minor = args.cuda.split('.')
-            major        = int(major)
-            minor        = int(minor)
-            args.cuda    = (major, minor)
-        except Exception:
-            printmsg('Invalid CUDA version specified: '
-                     '{}'.format(args.cuda),
-                     ERROR, EMPHASIS)
-            sys.exit(1)
+
+        # User does not want CUDA
+        if args.cuda.lower() == 'none':
+            args.cuda = False
+        else:
+            try:
+                major, minor = args.cuda.split('.')
+                major        = int(major)
+                minor        = int(minor)
+                args.cuda    = (major, minor)
+            except Exception:
+                printmsg('Invalid CUDA version specified: '
+                         '{}'.format(args.cuda),
+                         ERROR, EMPHASIS)
+                sys.exit(1)
 
     # --no-env is automatically enabled
     #  when installer is run as root
