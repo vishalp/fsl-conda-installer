@@ -2992,6 +2992,10 @@ def parse_args(argv=None, include=None, parser=None):
         'skip_registration' : ('-r', {'action'  : 'store_true'}),
         'extra'             : ('-e', {'action'  : 'append'}),
         'fslversion'        : ('-V', {'default' : 'latest'}),
+        'gpu'               : ('-g', {'metavar' : 'DEVICE',
+                                      'type'    : int,
+                                      'default' : None}),
+        'cuda'              : ('-c', {'metavar' : 'X.Y'}),
 
         # hidden options
         'skip_ssl_verify'    : (None, {'action'  : 'store_true'}),
@@ -3038,6 +3042,17 @@ def parse_args(argv=None, include=None, parser=None):
                               'FSL development team.',
         'extra'             : 'Install optional FSL components',
         'fslversion'        : 'Install this specific version of FSL.',
+        'gpu'               : 'Install CUDA libraries which are compatible '
+                              'with the specified GPU device (default: 0). '
+                              'Only relevant on systems with multiple CUDA-'
+                              'capable GPUs. Set to -1 to disable '
+                              'installation of CUDA libraries.',
+        'cuda'              : 'Install CUDA libraries which are compatible '
+                              'with this CUDA version (default: install '
+                              'versions of CUDA libraries that are compatible '
+                              'with the GPU on the system, or do not install '
+                              'CUDA libraries on systems without a GPU). '
+                              'Ignored if --gpu is specified.',
 
         # Configure conda to skip SSL verification.
         # Not recommended.
@@ -3209,6 +3224,33 @@ def parse_args(argv=None, include=None, parser=None):
         args.homedir = op.abspath(args.homedir)
         if not op.isdir(args.homedir):
             printmsg('Home directory {} does not exist!'.format(args.homedir),
+                     ERROR, EMPHASIS)
+            sys.exit(1)
+
+    # User specified a GPU device, but
+    # target system has no GPU
+    if args.gpu is not None and identify_cuda(args.gpu) is None:
+        printmsg('Unable to access GPU device {}! Either this system does not '
+                 'have a GPU, or the GPU is not accessible by CUDA.'.format(
+                     args.gpu), ERROR, EMPHASIS)
+        sys.exit(1)
+
+    # If user specified a GPU device,
+    # --cuda is ignored
+    if args.gpu is not None:
+        args.cuda = None
+
+    # convert --cuda X.Y into
+    # a tuple of (X, Y) ints
+    if args.cuda is not None:
+        try:
+            major, minor = args.cuda.split('.')
+            major        = int(major)
+            minor        = int(minor)
+            args.cuda    = (major, minor)
+        except Exception:
+            printmsg('Invalid CUDA version specified: '
+                     '{}'.format(args.cuda),
                      ERROR, EMPHASIS)
             sys.exit(1)
 
