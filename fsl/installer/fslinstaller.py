@@ -203,7 +203,14 @@ def printmsg(*args, **kwargs):
         print(coded, **kwargs)
 
         if logmsg:
-            log.debug(uncoded)
+
+            # print line number of caller rather than
+            # this line number with the stacklevel
+            # argument if we are running python >= 3.8
+            if PYVER >= (3, 8): kwargs = {'stacklevel' : 2}
+            else:               kwargs = {}
+
+            log.debug(uncoded, **kwargs)
 
     sys.stdout.flush()
 
@@ -2091,9 +2098,9 @@ def generate_condarc(fsldir,
     if len(channels) > 0:
         channels[0]  += ' #!top'
         channels[-1] += ' #!bottom'
-    condarc      += '\nchannels: #!final\n'
-    for channel in channels:
-        condarc += ' - {}\n'.format(channel)
+        condarc      += '\nchannels: #!final\n'
+        for channel in channels:
+            condarc += ' - {}\n'.format(channel)
 
     return condarc
 
@@ -2688,6 +2695,7 @@ def parse_args(argv=None, include=None, parser=None):
         'devrelease'         : (None, {'action'  : 'store_true'}),
         'devlatest'          : (None, {'action'  : 'store_true'}),
         'manifest'           : (None, {}),
+        'channel'            : (None, {'action'  : 'append'}),
         'miniconda'          : (None, {}),
         'conda'              : (None, {'action'  : 'store_true'}),
         'no_self_update'     : (None, {'action'  : 'store_true'}),
@@ -2767,6 +2775,22 @@ def parse_args(argv=None, include=None, parser=None):
         # Path/URL to alternative FSL release
         # manifest.
         'manifest' : argparse.SUPPRESS,
+
+        # Source packages from additional conda
+        # channels. Can be used multiple times.
+        # Channels specified with this argument
+        # are pre-pended to the channel list,
+        # e.g.:
+        #
+        #   fslinstaller.py --channel A --channel B
+        #
+        # will result in a channel list such as:
+        #
+        #   - A
+        #   - B
+        #   - https://fsl.fmrib..../fslconda/public
+        #   - conda-forge
+        'channel'         : argparse.SUPPRESS,
 
         # Install miniconda from this path/URL,
         # instead of the one specified in the
@@ -2866,7 +2890,7 @@ def parse_args(argv=None, include=None, parser=None):
 
     # --no-env is automatically enabled
     #  when installer is run as root
-    if os.getuid() == 0 and not (args.root_env):
+    if os.getuid() == 0 and not args.root_env:
         args.no_env = True
 
     # don't modify shell profile
@@ -2887,6 +2911,12 @@ def parse_args(argv=None, include=None, parser=None):
 
     if args.manifest is None:
         args.manifest = FSL_RELEASE_MANIFEST
+
+    if args.channel is None:
+        args.channel = []
+    for i, channel in enumerate(args.channel):
+        if op.exists(channel):
+            args.channel[i] = op.abspath(channel)
 
     if args.devlatest:
         args.devrelease = True
@@ -3012,7 +3042,7 @@ def main(argv=None):
     logfile = config_logging(logdir=args.workdir, logfile=args.logfile)
 
     log.debug(' '.join(sys.argv))
-    log.debug('Python: %s', sys.executable)
+    log.debug('Python: %s %s', sys.executable, str(PYVER))
     printmsg('Installation log file: {}\n'.format(logfile), INFO)
 
     ctx         = Context(args)
@@ -3043,6 +3073,8 @@ def main(argv=None):
         printmsg('An error has occurred: {}'.format(e), ERROR)
         sys.exit(1)
 
+    # Check if using x86 emulation on an Apple
+    # arm64 machine
     check_rosetta_status(ctx)
 
     # Do everything in a temporary directory,
