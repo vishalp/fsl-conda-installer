@@ -274,6 +274,11 @@ def funccache(func):
 
         return value
 
+    def reset():
+        cache.clear()
+
+    decorator.reset = reset
+
     return decorator
 
 
@@ -325,7 +330,7 @@ def identify_cuda(device=None):
     """Tries to call nvidia-smi to interrogate the supported CUDA runtime
     version for the specified device (default: 0).
 
-    If device == -1, or nvidia-smi cannot be called, returns None.
+    If nvidia-smi cannot be called, returns None.
 
     Otherwise returns the latest CUDA version supported by the driver, as a
     tuple of (major, minor) ints.
@@ -1988,8 +1993,7 @@ def add_cuda_packages(ctx):
 
     # There is no GPU on this system, and the
     # user has not requested a particular CUDA
-    # version, so we don't constrain conda in
-    # its selection.
+    # version, so we don't add any CUDA pins
     if cuda is None:
         return {}, None
 
@@ -2003,11 +2007,12 @@ def add_cuda_packages(ctx):
     # CUDA >= 11 should have binary compatibility
     # within major release, so we set the version
     # constraint accordingly. Conda-forge has
-    # limited support for older CUDA versions,
-    # so these are not considered.
+    # limited support for CUDA versions older
+    # than 11.2, so we are not doing anything
+    # special to handle older versions.
     major, minor = cuda
     packages     = {
-        'cuda-version' : '>={}.{}.*,<{}'.format(major, minor, major + 1)
+        'cuda-version' : '>={}.{},<{}'.format(major, minor, major + 1)
     }
 
     return packages, '{}.{}'.format(*cuda)
