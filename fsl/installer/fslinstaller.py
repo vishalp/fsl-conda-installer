@@ -1466,11 +1466,15 @@ class Context(object):
         # The download_fsl_environment_files function
         # stores the path to the FSL conda environment
         # files, list of conda channels, and python
-        # version to be installed
+        # version to be installed. The cuda version is
+        # stored in main, and used during installation
+        # to ensure that the correct CUDA packages are
+        # installed.
         self.environment_file        = None
         self.extra_environment_files = None
         self.environment_channels    = None
         self.python_version          = None
+        self.cuda_version            = None
 
         # The config_logging function stores the path
         # to the fslinstaller log file here.
@@ -1851,6 +1855,7 @@ class Context(object):
         append_env.update(install_environ(self.destdir,
                                           self.args.username,
                                           self.args.password))
+
         return process_func(admin=self.need_admin,
                             password=self.admin_password,
                             env=env,
@@ -1960,6 +1965,69 @@ def prompt_dev_release(devreleases, latest):
     return devreleases[selection][0]
 
 
+def add_cuda_packages(ctx):
+    """Used by download_fsl_environment. If the target system has a GPU,
+    or the user has explicitly requested a CUDA version.
+
+    The way that CUDA libraries are packaged on conda-forge has changed
+    a few times. The current state of affairs is described in a github issue:
+
+    https://github.com/conda-forge/conda-forge.github.io/issues/1963
+
+    This function just adds "cuda-version" to the list of packages to be
+    installed, which should cause conda to install packages compatible with
+    that version.
+
+    Returns a tuple containing:
+
+     - a dict of packages, of the form "{package : version};", to be
+       installed. Prints warnings if it appears that the requested CUDA version
+       might not be compatible with the system, or might not be available on
+       conda-forge.
+     - A string containing the X.Y CUDA version, or None if CUDA libraries are
+       not to be installed.
+    """
+
+    # If user has requested a specific CUDA/
+    # compute capability, ignore the version
+    # supported by the local GPU (if present)
+    if ctx.args.cuda is not None:
+        cuda = ctx.args.cuda
+
+    # Otherwise interrogate the local GPU to
+    # select a suitable CUDA version. The
+    # returned value will be None if there
+    # is no GPU available on this system.
+    else:
+        cuda = identify_cuda(ctx.args.gpu)[1]
+
+    # There is no GPU on this system, and the
+    # user has not requested a particular CUDA
+    # version, so we don't constrain conda in
+    # its selection.
+    if cuda is None:
+        return {}, None
+
+    # We have a GPU, and/or the user
+    # has requested CUDA packages.
+    printmsg('\nBy downloading and using the CUDA Toolkit conda packages, you '
+             'accept the terms and conditions of the CUDA End User License '
+             'Agreement (EULA): https://docs.nvidia.com/cuda/eula/index.html'
+             '\n', IMPORTANT)
+
+    # CUDA >= 11 should have binary compatibility
+    # within major release, so we set the version
+    # constraint accordingly. Conda-forge has
+    # limited support for older CUDA versions,
+    # so these are not considered.
+    major, minor = cuda
+    packages     = {
+        'cuda-version' : '>={}.{}.*,<{}'.format(major, minor, major + 1)
+    }
+
+    return packages, '{}.{}'.format(*cuda)
+
+
 def read_environment_file(filename):
     """Very primitive routine which loads a conda environment.yml file.
     Returns:
@@ -2060,22 +2128,27 @@ def write_environment_file(filename, name, channels, packages):
             f.write(' - {}{}\n'.format(package, version))
 
 
-def download_fsl_environment_files(ctx):
+def download_fsl_environment_files(ctx, extra_pkgs=None):
     """Downloads the environment specification files for the selected FSL
     version.
 
+    A copy of each environment file is made. Any packages specified by
+    --exclude_package will be removed from the environment specifications.
+
     Internal/development FSL versions may source packages from the internal
     FSL conda channel, which requires a username+password to authenticate.
+    These are referred to in the environment file as ${FSLCONDA_USERNAME} and
+    ${FSLCONDA_PASSWORD}.  If the user has not provided a username+password on
+    the command-line, they are prompted for them.
 
-    These are referred to in the environment file as ${FSLCONDA_USERNAME}
-    and ${FSLCONDA_PASSWORD}.
-
-    If the user has not provided a username+password on the command-line, they
-    are prompted for them.
-
-    The downloaded environment files may be modified - if the (hidden)
-    --exclude_package option has been used.
+    extra_pkgs may be a dict of {package : version} entries - these will be
+    added to each environment file. This is used to add a CUDA version
+    constraint to each environment, in the event that CUDA packages are being
+    installed.
     """
+
+    if extra_pkgs is None:
+        extra_pkgs = {}
 
     # A FSL release may comprise multiple
     # separate environment files - a "main"
@@ -2173,6 +2246,9 @@ def download_fsl_environment_files(ctx):
             if exclude:
                 log.debug('Excluding package %s', exclude)
                 packages.pop(package)
+
+        # Add extra_pkgs to each environment
+        packages.update(extra_pkgs)
 
         # Re-generate the environment file so it contains
         # the updated package list. We don't need to
@@ -3449,6 +3525,12 @@ def main(argv=None):
     # arm64 machine
     check_rosetta_status(ctx)
 
+    # If installing CUDA libraries, we add appropriate
+    # versions of CUDA packges to the package list
+    # for each conda environment to be installed
+    cudapkgs, cudaver = add_cuda_packages(ctx)
+    ctx.cuda_version  = cudaver
+
     # Do everything in a temporary directory,
     # but don't delete it, as some operations
     # may be run as root. The tempdir is
@@ -3463,7 +3545,7 @@ def main(argv=None):
         # an existing installation
         overwrite_destdir(ctx)
 
-        download_fsl_environment_files(ctx)
+        download_fsl_environment_files(ctx, cudapkgs)
         printmsg('\nInstalling FSL in {}\n'.format(ctx.destdir), EMPHASIS)
 
         with handle_error(ctx):
