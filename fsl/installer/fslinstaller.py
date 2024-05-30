@@ -1813,6 +1813,106 @@ def prompt_dev_release(devreleases, latest):
     return devreleases[selection][0]
 
 
+def read_environment_file(filename):
+    """Very primitive routine which loads a conda environment.yml file.
+    Returns:
+     - An environment name
+     - A list of conda channels
+     - A dict of { package : version } packages (where version may be None)
+    """
+
+    name     = None
+    channels = []
+    packages = {}
+
+    # load the channel and package lists
+    # from the environment file.
+    with open(filename, 'rt') as f:
+
+        in_channels_section = False
+        in_deps_section     = False
+
+        for line in f:
+            line = line.strip()
+
+            # environment name
+            if line.startswith('name:'):
+                name = line.split(':')[1].strip()
+                continue
+
+            line = line.strip()
+
+            if line == '':           continue
+            if line.startswith('#'): continue
+
+            # start of channels list
+            if line == 'channels:':
+                in_channels_section = True
+                continue
+
+            if in_channels_section:
+                # end of channels list
+                if not line.startswith('-'):
+                    in_channels_section = False
+                else:
+                    channels.append(line[1:].strip())
+                    continue
+
+            # start of deps list
+            if line == 'dependencies:':
+                in_deps_section = True
+                continue
+
+            if in_deps_section:
+                # end of deps list
+                if not line.startswith('-'):
+                    in_deps_section = False
+
+                else:
+                    # Split line into (package, version+build).
+                    # Setting maxsplit=1 ensures the result will
+                    # be either length 1 or 2 (unless the line
+                    # was just a single "-", in which case it is
+                    # an invalid file).
+                    #
+                    # Note that we assume here that packages are
+                    # specified as "package version", rather than
+                    # "package=version".
+                    pkg = line.strip('- ').split(' ', 1)
+
+                    if len(pkg) == 1: pkg, ver = pkg[0], None
+                    else:             pkg, ver = pkg
+
+                    packages[pkg] = ver
+                    continue
+
+    return name, channels, packages
+
+
+def write_environment_file(filename, name, channels, packages):
+    """Writes a conda environment.yml file with the given channels and
+    and packages.
+    """
+
+    with open(filename, 'wt') as f:
+
+        if name is not None:
+            f.write('name: {}\n'.format(name))
+
+        if len(channels) > 0:
+            f.write('channels:\n')
+            for channel in channels:
+                f.write(' - {}\n'.format(channel))
+
+        f.write('dependencies:\n')
+        for package, version in packages.items():
+
+            if version is None: version = ''
+            else:               version = ' {}'.format(version)
+
+            f.write(' - {}{}\n'.format(package, version))
+
+
 def download_fsl_environment(ctx):
     """Downloads the environment specification file for the selected FSL
     version.
@@ -1858,67 +1958,55 @@ def download_fsl_environment(ctx):
         ctx.args.username = prompt('Username:').strip()
         ctx.args.password = getpass.getpass('Password: ').strip()
 
+    # We are now going to load, modify, and re-write, the
+    # FSL environment file.
+    #
     # Conda expands environment variables within a
     # .condarc file, but *not* within an environment.yml
     # file. So to authenticate to our internal channel
     # without storing credentials anywhere in plain text,
     # we *move* the channel list from the environment.yml
     # file into $FSLDIR/.condarc.
-    #
-    # Here we extract the channels from the environment
-    # file, and save them to ctx.environment_channels.
-    # The install_miniconda function will then add the
-    # channels to $FSLDIR/.condarc.
-    #
-    # We also identify the version of Python to be
-    # installed, remove any packages that the user has
-    # requested to exclude from the installation.
-    copy     = '.' + op.basename(ctx.environment_file)
-    channels = []
-    pyver    = None
+    name, channels, packages = read_environment_file(ctx.environment_file)
 
-    shutil.move(ctx.environment_file, copy)
-    with open(copy,                 'rt') as inf, \
-         open(ctx.environment_file, 'wt') as outf:
-
-        in_channels_section = False
-
-        for line in inf:
-
-            # start of channels list
-            if line.strip() == 'channels:':
-                in_channels_section = True
-                continue
-
-            if in_channels_section:
-                # end of channels list
-                if not line.strip().startswith('-'):
-                    in_channels_section = False
-                else:
-                    channels.append(line.split()[-1])
-                    continue
-
-            # Include/exclude packages upon user request
-            exclude = False
-            pkgname = line.strip(' -').split()[0]
-
-            # Also pull out the python version so we
-            # know which miniconda installer to use
-            if pkgname == 'python' and pyver is None:
-                pyver = line.strip(' -').split()[1]
-                pyver = '.'.join(pyver.split('.')[:2])
-            else:
-                exclude = match_any(pkgname, ctx.args.exclude_package)
-
-            if exclude:
-                log.debug('Excluding package %s (matched '
-                          '--exclude_package %s)', line, exclude)
-            else:
-                outf.write(line)
-
-    if pyver is None:
+    if 'python' not in packages:
         raise Exception('Could not identify Python version in '
                         'FSL environment file ({})'.format(url))
+
+    # Prepend any additional channels that the user has
+    # specified on the command-line (e.g. file-system-
+    # based conda channels that can be used as local
+    # caches)
+    channels = ctx.args.channel + channels
+
+    # Save the python version to ctx.python_version.
+    # The Context.miniconda_metadata function will
+    # use it to select a suitable miniconda installer.
+    # We just extract the major.minor components of
+    # the version string.
+    pyver = packages.get('python')
+    pyver = '.'.join(pyver.split('.')[:2])
+
+    # Remove any packages that the user has
+    # requested to exclude from the installation.
+    for package in list(packages.keys()):
+        exclude = match_any(package, ctx.args.exclude_package)
+        if exclude:
+            log.debug('Excluding package %s (matched '
+                      '--exclude_package %s)', line, exclude)
+            packages.pop(package)
+
+    # Re-generate the environment file so it contains
+    # the updated package list. We don't need to
+    # save the channels, as they will be written to
+    # condarc.
+    copy = '.' + op.basename(ctx.environment_file)
+    shutil.move(ctx.environment_file, copy)
+    write_environment_file(ctx.environment_file, name, [], packages)
+
+    # Save the channels to ctx.environment_channels.
+    # The install_miniconda function will then add the
+    # channels to $FSLDIR/.condarc.
 
     ctx.environment_channels = channels
     ctx.python_version       = pyver
