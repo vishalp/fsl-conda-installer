@@ -1357,6 +1357,7 @@ class Context(object):
         self.destdir
         self.need_admin
         self.admin_password
+        self.extras_dir
 
 
     @property
@@ -1591,6 +1592,21 @@ class Context(object):
             return self.args.miniconda
         else:
             return self.destdir
+
+
+    @property
+    def extras_dir(self):
+        """Return the path to a directory into which child environments for
+        additional FSL modules should be installed into. For a normal FSL
+        installation, this is set to $FSLDIR/envs/.
+        """
+        if self.basedir == self.destdir:
+            return op.join(self.destdir, 'envs')
+
+        if self.args.extras_dir is None:
+            raise RuntimeError('--extras_dir must be specified when '
+                               'installing FSL as a child environment!')
+        return self.args.extras_dir
 
 
     @property
@@ -2065,7 +2081,11 @@ def install_miniconda(ctx):
     # Get information about the miniconda installer
     # from the manifest.
     metadata = ctx.miniconda_metadata
-    output   = metadata.get('output', '').strip()
+    output   = metadata.get('output', '')
+
+    # output may be a string or int
+    if isinstance(output, str):
+        output = output.strip()
 
     if output == '': output = None
     else:            output = int(output)
@@ -2412,6 +2432,16 @@ def install_fsl(ctx):
                        proglabel='install_fsl', progfile=ctx.args.progress_file,
                        retry_error_message=err_message,
                        retry_condition=retry_install)
+
+
+def install_extras(ctx):
+    """Install additional FSL modules as separate child environments into
+    ctx.destdir/envs/ (which is assumed to be a miniconda installation).
+
+    This function assumes that it is run within a temporary/scratch directory.
+    """
+    # TODO
+
 
 
 @warn_on_error('WARNING: The installation succeeded, but an error occurred '
@@ -2766,6 +2796,7 @@ def parse_args(argv=None, include=None, parser=None):
         'no_shell'          : ('-s', {'action'  : 'store_true'}),
         'no_matlab'         : ('-m', {'action'  : 'store_true'}),
         'skip_registration' : ('-r', {'action'  : 'store_true'}),
+        'extra'             : ('-e', {'action'  : 'append'}),
         'fslversion'        : ('-V', {'default' : 'latest'}),
 
         # hidden options
@@ -2785,6 +2816,7 @@ def parse_args(argv=None, include=None, parser=None):
         'manifest'           : (None, {}),
         'channel'            : (None, {'action'  : 'append'}),
         'miniconda'          : (None, {}),
+        'extras_dir'         : (None, {}),
         'conda'              : (None, {'action'  : 'store_true'}),
         'no_self_update'     : (None, {'action'  : 'store_true'}),
         'exclude_package'    : (None, {'action'  : 'append'}),
@@ -2810,6 +2842,7 @@ def parse_args(argv=None, include=None, parser=None):
         'no_matlab'         : 'Do not modify your MATLAB configuration.',
         'skip_registration' : 'Do not register this installation with the '
                               'FSL development team.',
+        'extra'             : 'Install additional FSL module',
         'fslversion'        : 'Install this specific version of FSL.',
 
         # Configure conda to skip SSL verification.
@@ -2878,7 +2911,7 @@ def parse_args(argv=None, include=None, parser=None):
         #   - B
         #   - https://fsl.fmrib..../fslconda/public
         #   - conda-forge
-        'channel'         : argparse.SUPPRESS,
+        'channel' : argparse.SUPPRESS,
 
         # Install miniconda from this path/URL,
         # instead of the one specified in the
@@ -2910,6 +2943,15 @@ def parse_args(argv=None, include=None, parser=None):
         #
         #   fslinstaller.py --miniconda ~/miniconda3/ -d ~/fsl/
         'miniconda' : argparse.SUPPRESS,
+
+        # Directory in which to create child
+        # environments for additional FSL
+        # modules. Defaults to destdir/envs/
+        # for typical installations where
+        # destdir is a base miniconda environment.
+        # Must be specified when destdir is an
+        # existing miniconda installation.
+        'extras_dir' : argparse.SUPPRESS,
 
         # Use conda and not mamba
         'conda' : argparse.SUPPRESS,
@@ -2991,6 +3033,9 @@ def parse_args(argv=None, include=None, parser=None):
         args.workdir = op.abspath(args.workdir)
         if not op.exists(args.workdir):
             os.mkdir(args.workdir)
+
+    if args.extras_dir is not None:
+        args.extras_dir = op.abspath(args.extras_dir)
 
     # manifest takes priority over devrelease/devlatest
     if args.manifest is not None:
@@ -3186,6 +3231,7 @@ def main(argv=None):
             download_miniconda(ctx)
             install_miniconda(ctx)
             install_fsl(ctx)
+            install_extras(ctx)
             finalise_installation(ctx)
             post_install_cleanup(ctx, tmpdir)
             register_installation(ctx)
