@@ -790,7 +790,8 @@ class Progress(object):
                  total=None,
                  width=None,
                  proglabel='progress',
-                 progfile=None):
+                 progfile=None,
+                 prefix=None):
         """Create a Progress reporter.
 
         :arg label:     Units (e.g. "MB", "%",)
@@ -805,7 +806,8 @@ class Progress(object):
 
         :arg width:     Maximum width, if a progress bar is displayed. Default
                         is to automatically infer the terminal width (see
-                        get_terminal_width).
+                        get_terminal_width). Not applied to count/spin
+                        displays.
 
         :arg proglabel: Label to use when writing progress updates to progfile.
 
@@ -813,10 +815,15 @@ class Progress(object):
                         written on a new line, and has the form:
 
                         <proglabel> <value>[ <total>]
+
+        :arg prefix:    Text to display before the progress bar
         """
 
         if transform is None:
             transform = Progress.default_transform
+
+        if prefix is None: prefix = ''
+        else:              prefix = '{} '.format(prefix)
 
         self.width     = width
         self.fmt       = fmt.format
@@ -825,6 +832,7 @@ class Progress(object):
         self.transform = transform
         self.proglabel = proglabel
         self.progfile  = progfile
+        self.prefix    = prefix
 
         # used by the spin function
         self.__last_spin = None
@@ -878,7 +886,7 @@ class Progress(object):
 
         self.write_progress(value, total)
 
-    def spin(self):
+    def spin(self, show_prefix=True):
 
         symbols = ['|', '/', '-',  '\\']
 
@@ -889,7 +897,10 @@ class Progress(object):
         idx  = (idx + 1) % len(symbols)
         this = symbols[idx]
 
-        printmsg(this, end='\r', log=False, fill=False)
+        if show_prefix: msg = '{}{}'.format(self.prefix, this)
+        else:           msg = this
+
+        printmsg(msg, end='\r', log=False, fill=False)
         self.__last_spin = this
 
     def count(self, value):
@@ -899,7 +910,9 @@ class Progress(object):
         if self.label is None: line = '{} ...'.format(value)
         else:                  line = '{}{} ...'.format(value, self.label)
 
-        printmsg(line, end='\r', log=False, fill=False)
+        msg = '{}{}'.format(self.prefix, line)
+
+        printmsg(msg, end='\r', log=False, fill=False)
 
     def progress(self, value, total):
 
@@ -912,21 +925,23 @@ class Progress(object):
 
         fvalue = self.fmt(value)
         ftotal = self.fmt(total)
+        prefix = self.prefix
         suffix = '{} / {} {}'.format(fvalue, ftotal, self.label).rstrip()
 
         # +5: - square brackets around bar
         #     - space between bar and tally
         #     - space+spin at the end
-        width     = width - (len(suffix) + 5)
+        width     = width - (len(prefix) + len(suffix) + 6)
         completed = int(round(width * (value  / total)))
         remaining = width - completed
-        progress  = '[{}{}] {}'.format('#' * completed,
-                                       ' ' * remaining,
-                                       suffix)
+        progress  = '{}[{}{}] {}'.format(prefix,
+                                         '#' * completed,
+                                         ' ' * remaining,
+                                         suffix)
 
         printmsg(progress, end='', log=False, fill=False)
         printmsg(' ', end='', log=False, fill=False)
-        self.spin()
+        self.spin(False)
         printmsg(end='\r', log=False, fill=False)
 
 
