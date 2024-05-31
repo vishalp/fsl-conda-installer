@@ -1353,9 +1353,10 @@ class Context(object):
         # stores the path to the FSL conda environment
         # files, list of conda channels, and python
         # version to be installed
-        self.environment_files    = None
-        self.environment_channels = None
-        self.python_version       = None
+        self.environment_file        = None
+        self.extra_environment_files = None
+        self.environment_channels    = None
+        self.python_version          = None
 
         # The config_logging function stores the path
         # to the fslinstaller log file here.
@@ -1976,7 +1977,7 @@ def download_fsl_environment_files(ctx):
     allenvs  = [('', ctx.build)]
     allenvs += list(ctx.build.get('extras', {}).items())
 
-    ctx.environment_files = {}
+    ctx.extra_environment_files = {}
 
     for envname, build in allenvs:
 
@@ -2022,6 +2023,7 @@ def download_fsl_environment_files(ctx):
 
         # Save some key information about the base environment
         if envname == '':
+            ctx.environment_file = fname
 
             # Save the python version to ctx.python_version.
             # The Context.miniconda_metadata function will
@@ -2046,6 +2048,8 @@ def download_fsl_environment_files(ctx):
             # channel list in the main/base environment file -
             # channels in extra/child environments are ignored.
             ctx.environment_channels = ctx.args.channel + channels
+        else:
+            ctx.extra_environment_files[envname] = fname
 
         # Remove any packages that the user has
         # requested to exclude from the installation.
@@ -2062,8 +2066,6 @@ def download_fsl_environment_files(ctx):
         copy = '.' + op.basename(fname)
         shutil.move(fname, copy)
         write_environment_file(fname, name, [], packages)
-
-        ctx.environment_files[envname] = fname
 
 
 def download_miniconda(ctx):
@@ -2427,7 +2429,7 @@ def install_fsl(ctx):
 
     # We install FSL simply by running conda
     # env [update|create] -f env.yml.
-    envfile = ctx.environment_files['']
+    envfile = ctx.environment_file
     cmd     = (ctx.conda + ' env ' + cmd +
                ' -p ' + ctx.destdir      +
                ' -f ' + envfile)
@@ -2497,8 +2499,10 @@ def finalise_installation(ctx):
         f.write(ctx.build['version'])
 
     etcdir = op.join(ctx.destdir, 'etc')
-    cmds   = ['cp fslversion {}' .format(etcdir)]
-    for envfile in ctx.environment_files.values():
+    cmds   = ['cp fslversion {}' .format(etcdir),
+              'cp {} {}'         .format(ctx.environment_file, etcdir)]
+
+    for envfile in ctx.extra_environment_files.values():
         cmds.append('cp {} {}'.format(envfile, etcdir))
 
     for cmd in cmds:
