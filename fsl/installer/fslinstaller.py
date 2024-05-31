@@ -134,6 +134,7 @@ ANSICODES = {
     RESET     : '\033[0m',          # Used internally
 }
 
+
 def get_terminal_width(fallback=None):
     """Return the number of columns in the current terminal, or fallback
     if it cannot be determined.
@@ -1106,12 +1107,15 @@ class Process(object):
         :arg progfile:  File to write progress updates to.
 
         :arg proglabel: Label to use when writing progress updates to progfile.
+
+        :arg prefix:    Label to show before progress bar
         """
 
         timeout   = kwargs.pop('timeout',   0.5)
         progfunc  = kwargs.pop('progfunc',  None)
         proglabel = kwargs.pop('proglabel', None)
         progfile  = kwargs.pop('progfile',  None)
+        prefix    = kwargs.pop('prefix',    None)
 
         if total is None: label = None
         else:             label = '%'
@@ -1133,7 +1137,8 @@ class Process(object):
                       fmt='{:.0f}',
                       transform=Progress.percent,
                       proglabel=proglabel,
-                      progfile=progfile) as prog:
+                      progfile=progfile,
+                      prefix=prefix) as prog:
 
             progcount = 0 if total else None
 
@@ -2068,11 +2073,13 @@ def download_fsl_environment_files(ctx):
         write_environment_file(fname, name, [], packages)
 
 
-def download_miniconda(ctx):
+def download_miniconda(ctx, **kwargs):
     """Downloads the miniconda/miniforge installer and saves it as
     "miniconda.sh".
 
     This function assumes that it is run within a temporary/scratch directory.
+
+    Keyword arguments are passed through to the Progress bar constructor.
     """
 
     # The user has specified a path to an
@@ -2099,18 +2106,21 @@ def download_miniconda(ctx):
     printmsg('Downloading miniconda from {}...'.format(url))
     with Progress('MB', transform=Progress.bytes_to_mb,
                   proglabel='download_miniconda',
-                  progfile=ctx.args.progress_file) as prog:
+                  progfile=ctx.args.progress_file,
+                  **kwargs) as prog:
         download_file(url, 'miniconda.sh', prog.update,
                       ssl_verify=(not ctx.args.skip_ssl_verify))
     if (not ctx.args.no_checksum) and (checksum is not None):
         sha256('miniconda.sh', checksum)
 
 
-def install_miniconda(ctx):
+def install_miniconda(ctx, **kwargs):
     """Downloads the miniconda/miniforge installer, and installs it to the
     destination directory.
 
     This function assumes that it is run within a temporary/scratch directory.
+
+    Keyword arguments are passed through to the Progress bar constructor.
     """
 
     # We have been instructed to use an
@@ -2136,7 +2146,8 @@ def install_miniconda(ctx):
     cmd = 'bash miniconda.sh -b -p {}'.format(ctx.basedir)
     ctx.run(Process.monitor_progress, cmd, total=output,
             proglabel='install_miniconda',
-            progfile=ctx.args.progress_file)
+            progfile=ctx.args.progress_file,
+            **kwargs)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
@@ -2253,7 +2264,7 @@ def generate_condarc(fsldir,
     return condarc
 
 
-def get_install_fsl_progress_reporting_method(ctx):
+def get_install_fsl_progress_reporting_method(ctx, build=None, destdir=None):
     """Figure out which reporting mechansim to use for reporting progress
     whilst FSL is being installed. The mechanism that is used has changed
     a few times.
@@ -2265,13 +2276,16 @@ def get_install_fsl_progress_reporting_method(ctx):
       - a function to pass as the progfunc.
     """
 
+    if build   is None: build   = ctx.build
+    if destdir is None: destdir = ctx.destdir
+
     # We calculate installation progress in
     # one of a few ways, as we have changed
     # the mechanism a few times.  The
     # 'output/install' field in the manifest
     # gives us information about how to
     # report installation progress.
-    progparams = ctx.build.get('output', {}).get('install', None)
+    progparams = build.get('output', {}).get('install', None)
 
     # The first method (version 1) involves
     # progress reporting by monitoring number of
@@ -2308,8 +2322,8 @@ def get_install_fsl_progress_reporting_method(ctx):
     # $FSLDIR/lib/
     pkgdir = op.join(ctx.basedir, 'pkgs')
     pkgdir = op.join(ctx.basedir, 'pkgs')
-    bindir = op.join(ctx.destdir, 'bin')
-    libdir = op.join(ctx.destdir, 'lib')
+    bindir = op.join(    destdir, 'bin')
+    libdir = op.join(    destdir, 'lib')
 
     def matchany(name, *filters):
         return any([fnmatch.fnmatch(name, f) for f in filters])
@@ -2385,11 +2399,13 @@ def get_install_fsl_progress_reporting_method(ctx):
     return progval, progfunc
 
 
-def install_fsl(ctx):
+def install_fsl(ctx, **kwargs):
     """Install FSL into ctx.destdir (which is assumed to be a miniconda
     installation.
 
     This function assumes that it is run within a temporary/scratch directory.
+
+    Keyword arguments are passed through to the Progress bar constructor.
     """
 
     progval, progfunc = get_install_fsl_progress_reporting_method(ctx)
@@ -2472,17 +2488,33 @@ def install_fsl(ctx):
                        cmd, timeout=2, total=progval, progfunc=progfunc,
                        proglabel='install_fsl', progfile=ctx.args.progress_file,
                        retry_error_message=err_message,
-                       retry_condition=retry_install)
+                       retry_condition=retry_install, **kwargs)
 
 
-def install_extras(ctx):
+def install_extra(ctx, name, envfile, **kwargs):
     """Install additional FSL modules as separate child environments into
     ctx.destdir/envs/ (which is assumed to be a miniconda installation).
 
     This function assumes that it is run within a temporary/scratch directory.
-    """
-    # TODO
 
+    Keyword arguments are passed through to the Progress bar constructor.
+    """
+
+    destdir = op.join(ctx.extras_dir, name)
+    cmd     = ctx.conda + ' env create -p ' + destdir + ' -f ' + envfile
+
+    if ctx.args.debug:
+        cmd += ' -v -v -v'
+
+    progval, progfunc = get_install_fsl_progress_reporting_method(
+        ctx, ctx.build['extras'][name], destdir)
+
+    printmsg('Installing {} into {}...'.format(name, destdir))
+    ctx.run(Process.monitor_progress, cmd,
+            timeout=2, total=progval, progfunc=progfunc,
+            proglabel='install_{}'.format(name),
+            progfile=ctx.args.progress_file,
+            **kwargs)
 
 
 @warn_on_error('WARNING: The installation succeeded, but an error occurred '
@@ -3268,13 +3300,27 @@ def main(argv=None):
         overwrite_destdir(ctx)
 
         download_fsl_environment_files(ctx)
-
         printmsg('\nInstalling FSL in {}\n'.format(ctx.destdir), EMPHASIS)
+
         with handle_error(ctx):
-            download_miniconda(ctx)
-            install_miniconda(ctx)
-            install_fsl(ctx)
-            install_extras(ctx)
+
+            # These are the main steps of the installation,
+            # which perform downloading and/or installing.
+            # We iterate over them so we can show the user
+            # a step number and a total, e.g. "Step 2 of 4".
+            steps = [
+                (download_miniconda, ctx),
+                (install_miniconda,  ctx),
+                (install_fsl,        ctx)]
+            for name, envfile in ctx.extra_environment_files.items():
+                steps.append((install_extra, ctx, name, envfile))
+
+            for i, step in enumerate(steps):
+                func     = step[0]
+                funcargs = step[1:]
+                prefix   = '{} / {}'.format(i + 1, len(steps))
+                func(*funcargs, prefix=prefix)
+
             finalise_installation(ctx)
             post_install_cleanup(ctx, tmpdir)
             register_installation(ctx)
