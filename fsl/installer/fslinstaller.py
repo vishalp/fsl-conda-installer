@@ -1334,11 +1334,11 @@ class Context(object):
         # here - refer to overwrite_destdir.
         self.old_destdir = None
 
-        # The download_fsl_environment function stores
-        # the path to the FSL conda environment file
-        # list of conda channels, and python version
-        # to be installed
-        self.environment_file     = None
+        # The download_fsl_environment_files function
+        # stores the path to the FSL conda environment
+        # files, list of conda channels, and python
+        # version to be installed
+        self.environment_files    = None
         self.environment_channels = None
         self.python_version       = None
 
@@ -1407,7 +1407,8 @@ class Context(object):
     def miniconda_metadata(self):
         """Returns a dict with information about the miniconda installer
         to use as the base of the FSL installation. This must not be called
-        until after the download_fsl_environment function has been called.
+        until after the download_fsl_environment_files function has been
+        called.
 
         The returned dict has `'url'`, `'sha256'` and `'output'` keys.
         """
@@ -1929,8 +1930,8 @@ def write_environment_file(filename, name, channels, packages):
             f.write(' - {}{}\n'.format(package, version))
 
 
-def download_fsl_environment(ctx):
-    """Downloads the environment specification file for the selected FSL
+def download_fsl_environment_files(ctx):
+    """Downloads the environment specification files for the selected FSL
     version.
 
     Internal/development FSL versions may source packages from the internal
@@ -1942,90 +1943,112 @@ def download_fsl_environment(ctx):
     If the user has not provided a username+password on the command-line, they
     are prompted for them.
 
-    The downloaded environment file may be modified - if the (hidden)
+    The downloaded environment files may be modified - if the (hidden)
     --exclude_package option has been used.
     """
 
-    build        = ctx.build
-    url          = build['environment']
-    checksum     = build.get('sha256', None)
-
-    printmsg('Downloading FSL environment specification '
-             'from {}...'.format(url))
-    fname = url.split('/')[-1]
-    download_file(url, fname, ssl_verify=(not ctx.args.skip_ssl_verify))
-    ctx.environment_file = op.abspath(fname)
-    if (checksum is not None) and (not ctx.args.no_checksum):
-        sha256(fname, checksum)
-
-    # Environment files for internal/dev FSL versions
-    # will list the internal FSL conda channel with
-    # ${FSLCONDA_USERNAME} and ${FSLCONDA_PASSWORD}
-    # as placeholders for the username/password.
-    with open(fname, 'rt') as f:
-        need_auth = '${FSLCONDA_USERNAME}' in f.read()
-
-    # We need a username/password to access the internal
-    # FSL conda channel. Prompt the user if they haven't
-    # provided credentials.
-    if need_auth and (ctx.args.username is None):
-        printmsg('A username and password are required to install '
-                 'this version of FSL.', WARNING, EMPHASIS)
-        ctx.args.username = prompt('Username:').strip()
-        ctx.args.password = getpass.getpass('Password: ').strip()
-
-    # We are now going to load, modify, and re-write, the
-    # FSL environment file.
+    # A FSL release may comprise multiple
+    # separate environment files - a "main"
+    # environment, and a set of additional/
+    # extra environments - these extra envs
+    # are installed as child environemnts.
+    # We gather all fo the environment file
+    # URLs and loop through and download+
+    # process them one-by-one.
     #
-    # Conda expands environment variables within a
-    # .condarc file, but *not* within an environment.yml
-    # file. So to authenticate to our internal channel
-    # without storing credentials anywhere in plain text,
-    # we *move* the channel list from the environment.yml
-    # file into $FSLDIR/.condarc.
-    name, channels, packages = read_environment_file(ctx.environment_file)
+    # We identify the main env with an empty
+    # string.
+    allenvs  = [('', ctx.build)]
+    allenvs += list(ctx.build.get('extras', {}).items())
 
-    if 'python' not in packages:
-        raise Exception('Could not identify Python version in '
-                        'FSL environment file ({})'.format(url))
+    ctx.environment_files = {}
 
-    # Prepend any additional channels that the user has
-    # specified on the command-line (e.g. file-system-
-    # based conda channels that can be used as local
-    # caches)
-    channels = ctx.args.channel + channels
+    for envname, build in allenvs:
 
-    # Save the python version to ctx.python_version.
-    # The Context.miniconda_metadata function will
-    # use it to select a suitable miniconda installer.
-    # We just extract the major.minor components of
-    # the version string.
-    pyver = packages.get('python')
-    pyver = '.'.join(pyver.split('.')[:2])
+        url      = build['environment']
+        checksum = build.get('sha256', None)
 
-    # Remove any packages that the user has
-    # requested to exclude from the installation.
-    for package in list(packages.keys()):
-        exclude = match_any(package, ctx.args.exclude_package)
-        if exclude:
-            log.debug('Excluding package %s (matched '
-                      '--exclude_package %s)', line, exclude)
-            packages.pop(package)
+        printmsg('Downloading FSL environment specification '
+                 'from {}...'.format(url))
 
-    # Re-generate the environment file so it contains
-    # the updated package list. We don't need to
-    # save the channels, as they will be written to
-    # condarc.
-    copy = '.' + op.basename(ctx.environment_file)
-    shutil.move(ctx.environment_file, copy)
-    write_environment_file(ctx.environment_file, name, [], packages)
+        fname = url.split('/')[-1]
 
-    # Save the channels to ctx.environment_channels.
-    # The install_miniconda function will then add the
-    # channels to $FSLDIR/.condarc.
+        download_file(url, fname, ssl_verify=(not ctx.args.skip_ssl_verify))
 
-    ctx.environment_channels = channels
-    ctx.python_version       = pyver
+        if (checksum is not None) and (not ctx.args.no_checksum):
+            sha256(fname, checksum)
+
+        # Environment files for internal/dev FSL versions
+        # will list the internal FSL conda channel with
+        # ${FSLCONDA_USERNAME} and ${FSLCONDA_PASSWORD}
+        # as placeholders for the username/password.
+        with open(fname, 'rt') as f:
+            need_auth = '${FSLCONDA_USERNAME}' in f.read()
+
+        # We need a username/password to access the internal
+        # FSL conda channel. Prompt the user if they haven't
+        # provided credentials.
+        if need_auth and (ctx.args.username is None):
+            printmsg('A username and password are required to install '
+                     'this version of FSL.', WARNING, EMPHASIS)
+            ctx.args.username = prompt('Username:').strip()
+            ctx.args.password = getpass.getpass('Password: ').strip()
+
+        # We are now going to load, modify, and re-write, the
+        # FSL environment file.
+        #
+        # Conda expands environment variables within a
+        # .condarc file, but *not* within an environment.yml
+        # file. So to authenticate to our internal channel
+        # without storing credentials anywhere in plain text,
+        # we *move* the channel list from the environment.yml
+        # file into $FSLDIR/.condarc.
+        name, channels, packages = read_environment_file(fname)
+
+        # Save some key information about the base environment
+        if envname == '':
+
+            # Save the python version to ctx.python_version.
+            # The Context.miniconda_metadata function will
+            # use it to select a suitable miniconda installer.
+            if 'python' not in packages:
+                raise Exception('Could not identify Python version in '
+                                'FSL environment file ({})'.format(url))
+
+            # Just save the X.Y version
+            pyver              = packages['python'].split('.')
+            pyver              = '.'.join(pyver[:2])
+            ctx.python_version = pyver
+
+            # Save the channels to ctx.environment_channels.
+            # The install_miniconda function will then add the
+            # channels to $FSLDIR/.condarc.
+
+            # Prepend any additional channels that the user has
+            # specified on the command-line (e.g. file-system-
+            # based conda channels that can be used as local
+            # caches). Note though that we only consider the
+            # channel list in the main/base environment file -
+            # channels in extra/child environments are ignored.
+            ctx.environment_channels = ctx.args.channel + channels
+
+        # Remove any packages that the user has
+        # requested to exclude from the installation.
+        for package in list(packages.keys()):
+            exclude = match_any(package, ctx.args.exclude_package)
+            if exclude:
+                log.debug('Excluding package %s', exclude)
+                packages.pop(package)
+
+        # Re-generate the environment file so it contains
+        # the updated package list. We don't need to
+        # save the channels, as they will be written to
+        # condarc.
+        copy = '.' + op.basename(fname)
+        shutil.move(fname, copy)
+        write_environment_file(fname, name, [], packages)
+
+        ctx.environment_files[envname] = fname
 
 
 def download_miniconda(ctx):
@@ -2389,9 +2412,10 @@ def install_fsl(ctx):
 
     # We install FSL simply by running conda
     # env [update|create] -f env.yml.
-    cmd = (ctx.conda + ' env ' + cmd +
-           ' -p ' + ctx.destdir      +
-           ' -f ' + ctx.environment_file)
+    envfile = ctx.environment_files['']
+    cmd     = (ctx.conda + ' env ' + cmd +
+               ' -p ' + ctx.destdir      +
+               ' -f ' + envfile)
 
     # Make conda/mamba super verbose if the
     # hidden --debug option was specified.
@@ -2458,9 +2482,9 @@ def finalise_installation(ctx):
         f.write(ctx.build['version'])
 
     etcdir = op.join(ctx.destdir, 'etc')
-    cmds   = [
-        'cp fslversion {}' .format(etcdir),
-        'cp {} {}'         .format(ctx.environment_file, etcdir)]
+    cmds   = ['cp fslversion {}' .format(etcdir)]
+    for envfile in ctx.environment_files.values():
+        cmds.append('cp {} {}'.format(envfile, etcdir))
 
     for cmd in cmds:
         ctx.run(Process.check_call, cmd)
@@ -3224,7 +3248,7 @@ def main(argv=None):
         # an existing installation
         overwrite_destdir(ctx)
 
-        download_fsl_environment(ctx)
+        download_fsl_environment_files(ctx)
 
         printmsg('\nInstalling FSL in {}\n'.format(ctx.destdir), EMPHASIS)
         with handle_error(ctx):
