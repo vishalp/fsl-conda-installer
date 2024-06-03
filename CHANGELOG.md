@@ -1,6 +1,13 @@
 # FSL installer script release history
 
 
+# 3.12.0 (Under development)
+
+ - The `fslinstaller.py` script is now capable of installing software into
+   separate child environments, within `$FSLDIR/envs/`, to allow for better
+   isolation of different software stacks.
+
+
 # 3.11.0 (Wednesday 5th June 2024)
 
  - The `fslinstaller.py` script now attempts to detect network errors during
