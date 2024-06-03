@@ -28,6 +28,7 @@ import os.path        as op
 import subprocess     as sp
 import textwrap       as tw
 import                   argparse
+import                   collections
 import                   contextlib
 import                   datetime
 import                   fnmatch
@@ -1861,7 +1862,7 @@ def read_environment_file(filename):
 
     name     = None
     channels = []
-    packages = {}
+    packages = collections.OrderedDict()
 
     # load the channel and package lists
     # from the environment file.
