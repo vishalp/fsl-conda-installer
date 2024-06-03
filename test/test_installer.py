@@ -181,8 +181,8 @@ mock_python_versions = {
 
 
 mock_env_yml_template = """
-{version}
-packages:
+name: {version}
+dependencies:
  - fsl-base 1234.0
  - python {pyver}.*
 """.strip()
@@ -619,9 +619,10 @@ def test_installer_child_env():
 
         sp.check_call(shlex.split('{}/miniconda311.sh -b -p ./miniconda3'.format(srvdir)))
 
-        inst.main(['--homedir',   cwd,
-                   '--dest',      './fsl',
-                   '--miniconda', './miniconda3',
+        inst.main(['--homedir',    cwd,
+                   '--dest',       './fsl',
+                   '--extras_dir', './extras',
+                   '--miniconda',  './miniconda3',
                    '--root_env'])
 
         check_install(cwd, 'fsl', '6.2.0',
