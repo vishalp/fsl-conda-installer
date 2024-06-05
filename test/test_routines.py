@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import datetime
+import logging
 import os
 import os.path as op
 import shutil
@@ -536,3 +537,52 @@ def test_agree_to_license():
 
     ctx.license_url = 'http://abcdefg'
     inst.agree_to_license(ctx)
+
+
+def test_retry_on_error():
+
+    def func():
+        raise RuntimeError('always fail')
+
+    with pytest.raises(Exception):
+        inst.retry_on_error(func, 3)
+
+    ncalls = [0]
+
+    def func():
+        ncalls[0] += 1
+        if ncalls[0] < 3:
+            raise RuntimeError('pass on third call')
+        return 'passed'
+
+    with pytest.raises(Exception):
+        inst.retry_on_error(func, 2)
+
+    assert inst.retry_on_error(func, 3) == 'passed'
+
+
+def test_LogRecordingHandler():
+
+    log = logging.getLogger(__name__)
+    log.setLevel(logging.DEBUG)
+
+    patterns = ['pattern1', 'pattern2', 'pattern3']
+
+    with inst.LogRecordingHandler(patterns, log) as hd:
+        log.debug('message with pattern1')
+        log.debug('message with pattern2')
+        log.debug('message with pattern4')
+        records = hd.records()
+        assert records == ['message with pattern1',
+                           'message with pattern2']
+        hd.clear()
+        assert len(hd.records()) == 0
+
+        log.debug('message with pattern2')
+        log.debug('message with pattern3')
+        log.debug('message with pattern5')
+        records = hd.records()
+        assert records == ['message with pattern2',
+                           'message with pattern3']
+        hd.clear()
+        assert len(hd.records()) == 0

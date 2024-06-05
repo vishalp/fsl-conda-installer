@@ -1,6 +1,17 @@
 # FSL installer script release history
 
 
+# 3.11.0 (Wednesday 5th June 2024)
+
+ - The `fslinstaller.py` script now attempts to detect network errors during
+   the main installation step - if a network error occurs, the installation
+   will be retried up to three times. The number of retries can be changed
+   with the `--num_retries` option.
+ - New `--throttle_downloads` option, which limits the number of simultaneous
+   package downloads, for use when installing over unreliable network
+   connections.
+
+
 # 3.10.0 (Monday 27th May 2024)
 
  - The `fslinstaller.py` script will now download and install a Miniconda
