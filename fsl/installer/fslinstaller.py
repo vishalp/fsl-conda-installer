@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.10.0'
+__version__ = '3.10.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1915,6 +1915,7 @@ def install_miniconda(ctx):
 def generate_condarc(fsldir,
                      channels,
                      skip_ssl_verify=False,
+                     throttle_downloads=False,
                      pkgsdir=None):
     """Called by install_miniconda. Generates content for a .condarc file to
     be saved in $FSLDIR/.condarc. This file contains some default values, and
@@ -1999,6 +2000,14 @@ def generate_condarc(fsldir,
         # fslinstaller script was called with
         # --skip_ssl_verify). NOT RECOMMENDED.
         ssl_verify: false
+        """)
+
+    if throttle_downloads:
+        condarc += tw.dedent("""
+        # Limit number of simultaneous package
+        # downloads - useful when installing
+        # over an unreliable network connection.
+        fetch_threads: 1
         """)
 
     channels = list(channels)
@@ -2171,6 +2180,7 @@ def install_fsl(ctx):
     condarc_contents = generate_condarc(ctx.destdir,
                                         ctx.environment_channels,
                                         ctx.args.skip_ssl_verify,
+                                        ctx.args.throttle_downloads,
                                         pkgsdir)
     with open('.condarc', 'wt') as f:
         f.write(condarc_contents)
@@ -2557,23 +2567,24 @@ def parse_args(argv=None, include=None, parser=None):
         'fslversion'        : ('-V', {'default' : 'latest'}),
 
         # hidden options
-        'debug'           : (None, {'action'  : 'store_true'}),
-        'logfile'         : (None, {}),
-        'username'        : (None, {'default' : username}),
-        'password'        : (None, {'default' : password}),
-        'no_checksum'     : (None, {'action'  : 'store_true'}),
-        'skip_ssl_verify' : (None, {'action'  : 'store_true'}),
-        'workdir'         : (None, {}),
-        'homedir'         : (None, {'default' : homedir}),
-        'devrelease'      : (None, {'action'  : 'store_true'}),
-        'devlatest'       : (None, {'action'  : 'store_true'}),
-        'manifest'        : (None, {}),
-        'miniconda'       : (None, {}),
-        'conda'           : (None, {'action'  : 'store_true'}),
-        'no_self_update'  : (None, {'action'  : 'store_true'}),
-        'exclude_package' : (None, {'action'  : 'append'}),
-        'root_env'        : (None, {'action'  : 'store_true'}),
-        'progress_file'   : (None, {}),
+        'skip_ssl_verify'    : (None, {'action'  : 'store_true'}),
+        'throttle_downloads' : (None, {'action'  : 'store_true'}),
+        'debug'              : (None, {'action'  : 'store_true'}),
+        'logfile'            : (None, {}),
+        'username'           : (None, {'default' : username}),
+        'password'           : (None, {'default' : password}),
+        'no_checksum'        : (None, {'action'  : 'store_true'}),
+        'workdir'            : (None, {}),
+        'homedir'            : (None, {'default' : homedir}),
+        'devrelease'         : (None, {'action'  : 'store_true'}),
+        'devlatest'          : (None, {'action'  : 'store_true'}),
+        'manifest'           : (None, {}),
+        'miniconda'          : (None, {}),
+        'conda'              : (None, {'action'  : 'store_true'}),
+        'no_self_update'     : (None, {'action'  : 'store_true'}),
+        'exclude_package'    : (None, {'action'  : 'append'}),
+        'root_env'           : (None, {'action'  : 'store_true'}),
+        'progress_file'      : (None, {}),
     }
 
     if include is None:
@@ -2596,13 +2607,22 @@ def parse_args(argv=None, include=None, parser=None):
                               'FSL development team.',
         'fslversion'        : 'Install this specific version of FSL.',
 
+        # Configure conda to skip SSL verification.
+        # Not recommended.
+        'skip_ssl_verify' : argparse.SUPPRESS,
+
+        # Limit the number of simultaneous package
+        # downloads - may be needed when installing
+        # over unreliable network connection.
+        'throttle_downloads' : argparse.SUPPRESS,
+
         # Enable verbose output when calling
         # mamba/conda.
-        'debug'           : argparse.SUPPRESS,
+        'debug' : argparse.SUPPRESS,
 
         # Direct the installer log to this file
         # (default: file in $TMPDIR)
-        'logfile'         : argparse.SUPPRESS,
+        'logfile' : argparse.SUPPRESS,
 
         # Username / password for accessing
         # internal FSL conda channel, if an
@@ -2610,11 +2630,11 @@ def parse_args(argv=None, include=None, parser=None):
         # installed. If not set, will be read from
         # FSLCONDA_USERNAME/FSLCONDA_PASSWORD
         # environment variables.
-        'username'        : argparse.SUPPRESS,
-        'password'        : argparse.SUPPRESS,
+        'username' : argparse.SUPPRESS,
+        'password' : argparse.SUPPRESS,
 
         # Do not automatically update the installer script,
-        'no_self_update'  : argparse.SUPPRESS,
+        'no_self_update' : argparse.SUPPRESS,
 
         # Install a development release. This
         # option will cause the installer to
@@ -2626,12 +2646,12 @@ def parse_args(argv=None, include=None, parser=None):
         # --manifest option. If --devlatest
         # is used, the most recent developmet
         # release is automatically selected.
-        'devrelease'      : argparse.SUPPRESS,
-        'devlatest'       : argparse.SUPPRESS,
+        'devrelease' : argparse.SUPPRESS,
+        'devlatest' : argparse.SUPPRESS,
 
         # Path/URL to alternative FSL release
         # manifest.
-        'manifest'        : argparse.SUPPRESS,
+        'manifest' : argparse.SUPPRESS,
 
         # Install miniconda from this path/URL,
         # instead of the one specified in the
@@ -2662,27 +2682,23 @@ def parse_args(argv=None, include=None, parser=None):
         # different path, e.g.:
         #
         #   fslinstaller.py --miniconda ~/miniconda3/ -d ~/fsl/
-        'miniconda'       : argparse.SUPPRESS,
+        'miniconda' : argparse.SUPPRESS,
 
         # Use conda and not mamba
-        'conda'           : argparse.SUPPRESS,
+        'conda' : argparse.SUPPRESS,
 
         # Disable SHA256 checksum validation
         # of downloaded files
-        'no_checksum'     : argparse.SUPPRESS,
+        'no_checksum' : argparse.SUPPRESS,
 
         # Store temp files in this directory
         # rather than in a temporary directory
-        'workdir'         : argparse.SUPPRESS,
+        'workdir' : argparse.SUPPRESS,
 
         # Treat this directory as user's home
         # directory, for the purposes of shell
         # configuration. Must already exist.
-        'homedir'         : argparse.SUPPRESS,
-
-        # Configure conda to skip SSL verification.
-        # Not recommended.
-        'skip_ssl_verify' : argparse.SUPPRESS,
+        'homedir' : argparse.SUPPRESS,
 
         # Do not install packages matching this
         # fnmatch-style wildcard pattern. Can
@@ -2692,10 +2708,10 @@ def parse_args(argv=None, include=None, parser=None):
         # If the installer is run as root, the
         # --no_env flag is automatically enabled
         # UNLESS this flag is also provided.
-        'root_env'        : argparse.SUPPRESS,
+        'root_env' : argparse.SUPPRESS,
 
         # File to send progress information to.
-        'progress_file'   : argparse.SUPPRESS,
+        'progress_file' : argparse.SUPPRESS,
     }
 
     # parse args
