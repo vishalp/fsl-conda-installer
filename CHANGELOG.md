@@ -1,6 +1,13 @@
 # FSL installer script release history
 
 
+# 3.10.1 (Wednesday 5th June 2024)
+
+ - New `--throttle_downloads` option, which limits the number of simultaneous
+   package downloads, for use when installing over unreliable network
+   connections.
+
+
 # 3.10.0 (Monday 27th May 2024)
 
  - The `fslinstaller.py` script will now download and install a Miniconda
