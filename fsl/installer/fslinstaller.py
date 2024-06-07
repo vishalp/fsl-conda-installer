@@ -3201,8 +3201,8 @@ def handle_error(ctx):
 
         # send env to logfile
         log.debug('Environment variables:')
-        for k, v in os.environ.items():
-            log.debug('{}={}'.format(k, v))
+        for k in sorted(os.environ.keys()):
+            log.debug('{}={}'.format(k, os.environ[k]))
 
         if op.exists(ctx.destdir):
             printmsg('Removing failed installation directory '
