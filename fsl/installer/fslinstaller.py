@@ -3110,6 +3110,9 @@ def parse_args(argv=None, include=None, parser=None):
         if not op.exists(args.workdir):
             os.mkdir(args.workdir)
 
+    if args.extra is None:
+        args.extra = []
+
     if args.extras_dir is not None:
         args.extras_dir = op.abspath(args.extras_dir)
 
@@ -3313,7 +3316,13 @@ def main(argv=None):
                 (download_miniconda, ctx),
                 (install_miniconda,  ctx),
                 (install_fsl,        ctx)]
-            for name, envfile in ctx.extra_environment_files.items():
+
+            for name in args.extra:
+                envfile = ctx.extra_environment_files.get(name)
+                if envfile is None:
+                    printmsg('There is no extra FSL package called {} - '
+                             'ignoring'.format(name), WARNING, EMPHASIS)
+                    continue
                 steps.append((install_extra, ctx, name, envfile))
 
             for i, step in enumerate(steps):
