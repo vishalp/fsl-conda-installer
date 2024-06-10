@@ -10,10 +10,8 @@ import json
 
 import fsl.installer.fslinstaller as inst
 
-try:
-    from unittest import mock
-except ImportError:
-    import mock
+try:                from unittest import mock
+except ImportError: import mock
 
 import pytest
 
@@ -87,7 +85,6 @@ mock_manifest = """
                 "platform"      : "{platform}",
                 "environment"   : "{url}/env-6.2.0.yml",
                 "sha256"        : "{env620_sha256}",
-                "base_packages" : ["fsl-base", "libopenblas"],
                 "output"        : {{
                     "install"   : {{
                         "version" : "4",
@@ -107,7 +104,6 @@ mock_manifest = """
                 "platform"      : "{platform}",
                 "environment"   : "{url}/env-6.1.0.yml",
                 "sha256"        : "{env610_sha256}",
-                "base_packages" : ["fsl-base", "libopenblas"],
                 "output"        : {{
                     "install"   : {{
                         "version" : "4",
@@ -126,7 +122,6 @@ mock_manifest = """
                 "platform"      : "{platform}",
                 "environment"   : "{url}/env-6.0.99.yml",
                 "sha256"        : "{env6099_sha256}",
-                "base_packages" : ["fsl-base", "libopenblas"],
                 "output"        : {{
                     "install"   : {{ "version" : "3", "value" : "100" }}
                 }}
@@ -137,7 +132,6 @@ mock_manifest = """
                 "platform"      : "{platform}",
                 "environment"   : "{url}/env-6.0.98.yml",
                 "sha256"        : "{env6098_sha256}",
-                "base_packages" : ["fsl-base", "libopenblas"],
                 "output"        : {{
                     "install"   : {{ "version" : "2", "value" : "100" }}
                 }}
@@ -148,7 +142,6 @@ mock_manifest = """
                 "platform"      : "{platform}",
                 "environment"   : "{url}/env-6.0.97.yml",
                 "sha256"        : "{env6097_sha256}",
-                "base_packages" : ["fsl-base", "libopenblas"],
                 "output"        : {{
                     "install"   : {{ "version" : "1", "value" : "100" }}
                 }}
@@ -159,7 +152,6 @@ mock_manifest = """
                 "platform"      : "{platform}",
                 "environment"   : "{url}/env-6.0.96.yml",
                 "sha256"        : "{env6096_sha256}",
-                "base_packages" : ["fsl-base", "libopenblas"],
                 "output"        : {{
                     "install"   : "100"
                 }}
@@ -372,8 +364,6 @@ def test_installer_list_versions():
 
 
 def test_installer_normal_cli_usage():
-
-
 
     with inst.tempdir():
         with installer_server() as srv:
