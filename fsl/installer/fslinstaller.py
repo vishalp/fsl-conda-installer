@@ -2501,7 +2501,7 @@ def install_extra(ctx, name, **kwargs):
     Keyword arguments are passed through to the Progress bar constructor.
     """
 
-    envfile = ctx.exttra_environment_files[name]
+    envfile = ctx.extra_environment_files[name]
     destdir = op.join(ctx.extras_dir, name)
     cmd     = ctx.conda + ' env create -p ' + destdir + ' -f ' + envfile
 
@@ -2919,7 +2919,7 @@ def parse_args(argv=None, include=None, parser=None):
         'no_matlab'         : 'Do not modify your MATLAB configuration.',
         'skip_registration' : 'Do not register this installation with the '
                               'FSL development team.',
-        'extra'             : 'Install additional FSL module',
+        'extra'             : 'Install optional FSL components',
         'fslversion'        : 'Install this specific version of FSL.',
 
         # Configure conda to skip SSL verification.
