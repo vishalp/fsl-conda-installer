@@ -2492,7 +2492,7 @@ def install_fsl(ctx, **kwargs):
                        retry_condition=retry_install, **kwargs)
 
 
-def install_extra(ctx, name, envfile, **kwargs):
+def install_extra(ctx, name, **kwargs):
     """Install additional FSL modules as separate child environments into
     ctx.destdir/envs/ (which is assumed to be a miniconda installation).
 
@@ -2501,6 +2501,7 @@ def install_extra(ctx, name, envfile, **kwargs):
     Keyword arguments are passed through to the Progress bar constructor.
     """
 
+    envfile = ctx.exttra_environment_files[name]
     destdir = op.join(ctx.extras_dir, name)
     cmd     = ctx.conda + ' env create -p ' + destdir + ' -f ' + envfile
 
@@ -3318,12 +3319,11 @@ def main(argv=None):
                 (install_fsl,        ctx)]
 
             for name in args.extra:
-                envfile = ctx.extra_environment_files.get(name)
-                if envfile is None:
+                if envfile not in ctx.extra_environment_files:
                     printmsg('There is no extra FSL package called {} - '
                              'ignoring'.format(name), WARNING, EMPHASIS)
                     continue
-                steps.append((install_extra, ctx, name, envfile))
+                steps.append((install_extra, ctx, name))
 
             for i, step in enumerate(steps):
                 func     = step[0]
