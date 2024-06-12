@@ -930,9 +930,9 @@ class Progress(object):
         prefix = self.prefix
         suffix = '{} / {} {}'.format(fvalue, ftotal, self.label).rstrip()
 
-        # +5: - square brackets around bar
+        # +6: - square brackets around bar
         #     - space between bar and tally
-        #     - space+spin at the end
+        #     - space+spin+space at the end
         width     = width - (len(prefix) + len(suffix) + 6)
         completed = int(round(width * (value  / total)))
         remaining = width - completed
@@ -1979,7 +1979,8 @@ def download_fsl_environment_files(ctx):
     # process them one-by-one.
     #
     # We identify the main env with an empty
-    # string.
+    # string - extra/child environments are
+    # all named in the manifest.
     allenvs  = [('', ctx.build)]
     allenvs += list(ctx.build.get('extras', {}).items())
 
@@ -2493,8 +2494,8 @@ def install_fsl(ctx, **kwargs):
 
 
 def install_extra(ctx, name, **kwargs):
-    """Install additional FSL modules as separate child environments into
-    ctx.destdir/envs/ (which is assumed to be a miniconda installation).
+    """Install an additional FSL component as a separate child environment into
+    <ctx.destdir>/envs/<name>/.
 
     This function assumes that it is run within a temporary/scratch directory.
 
@@ -3320,7 +3321,7 @@ def main(argv=None):
 
             for name in args.extra:
                 if name not in ctx.extra_environment_files:
-                    printmsg('There is no extra FSL package called {} - '
+                    printmsg('There is no extra FSL component called {} - '
                              'ignoring'.format(name), WARNING, EMPHASIS)
                     continue
                 steps.append((install_extra, ctx, name))
