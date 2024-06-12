@@ -3319,7 +3319,7 @@ def main(argv=None):
                 (install_fsl,        ctx)]
 
             for name in args.extra:
-                if envfile not in ctx.extra_environment_files:
+                if name not in ctx.extra_environment_files:
                     printmsg('There is no extra FSL package called {} - '
                              'ignoring'.format(name), WARNING, EMPHASIS)
                     continue
