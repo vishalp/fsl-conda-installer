@@ -252,6 +252,54 @@ def test_list_available_versions():
     inst.list_available_versions(manifest)
 
 
+def test_read_write_environment_file():
+    envyml = tw.dedent("""
+    name: env
+    channels:
+      - a
+      - b
+      - c
+    dependencies:
+      - d 1
+      - e 2.* build*
+      - f
+    """).strip()
+    exp_channels = ['a',   'b',   'c']
+    exp_packages = {'d' : '1', 'e' : '2.* build*', 'f' : None}
+    with inst.tempdir():
+        with open('env.yml', 'wt') as f:
+            f.write(envyml)
+
+        name, got_channels, got_packages = inst.read_environment_file('env.yml')
+        assert name         == 'env'
+        assert got_channels == exp_channels
+        assert got_packages == exp_packages
+
+        inst.write_environment_file('env2.yml', 'some-env', exp_channels, exp_packages)
+        name, got_channels, got_packages = inst.read_environment_file('env2.yml')
+        assert name         == 'some-env'
+        assert got_channels == exp_channels
+        assert got_packages == exp_packages
+
+        inst.write_environment_file('env3.yml', 'some-env', [], exp_packages)
+        name, got_channels, got_packages = inst.read_environment_file('env3.yml')
+        assert name         == 'some-env'
+        assert got_channels == []
+        assert got_packages == exp_packages
+
+        inst.write_environment_file('env4.yml', 'some-env', exp_channels, {})
+        name, got_channels, got_packages = inst.read_environment_file('env4.yml')
+        assert name         == 'some-env'
+        assert got_channels == exp_channels
+        assert got_packages == {}
+
+        inst.write_environment_file('env5.yml', None, exp_channels, exp_packages)
+        name, got_channels, got_packages = inst.read_environment_file('env5.yml')
+        assert name         == None
+        assert got_channels == exp_channels
+        assert got_packages == exp_packages
+
+
 def test_download_install_miniconda():
     class MockObject(object):
         pass

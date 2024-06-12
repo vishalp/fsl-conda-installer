@@ -30,6 +30,12 @@ MERGE_REQUEST_MSG = """
 This MR was automatically opened as a result of a new tag being added
 to the fsl/installer> project. It updates the installer version in
 fsl-release.yml to the latest installer version.
+
+**Important**
+
+The `update-fslinstaller-version` CI job can be used to update the installer
+version in the official release `manifest.json`.  This is required to ensure
+that end users are running the latest version of the `fslinstaller.py` script.
 """.strip()
 
 

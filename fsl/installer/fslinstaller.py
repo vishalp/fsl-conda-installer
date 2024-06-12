@@ -28,6 +28,7 @@ import os.path        as op
 import subprocess     as sp
 import textwrap       as tw
 import                   argparse
+import                   collections
 import                   contextlib
 import                   datetime
 import                   fnmatch
@@ -74,7 +75,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.11.0'
+__version__ = '3.12.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -133,6 +134,7 @@ ANSICODES = {
     UNDERLINE : '\033[4m',          # Underline
     RESET     : '\033[0m',          # Used internally
 }
+
 
 def get_terminal_width(fallback=None):
     """Return the number of columns in the current terminal, or fallback
@@ -203,7 +205,14 @@ def printmsg(*args, **kwargs):
         print(coded, **kwargs)
 
         if logmsg:
-            log.debug(uncoded)
+
+            # print line number of caller rather than
+            # this line number with the stacklevel
+            # argument if we are running python >= 3.8
+            if PYVER >= (3, 8): kwargs = {'stacklevel' : 2}
+            else:               kwargs = {}
+
+            log.debug(uncoded, **kwargs)
 
     sys.stdout.flush()
 
@@ -783,7 +792,8 @@ class Progress(object):
                  total=None,
                  width=None,
                  proglabel='progress',
-                 progfile=None):
+                 progfile=None,
+                 prefix=None):
         """Create a Progress reporter.
 
         :arg label:     Units (e.g. "MB", "%",)
@@ -798,7 +808,8 @@ class Progress(object):
 
         :arg width:     Maximum width, if a progress bar is displayed. Default
                         is to automatically infer the terminal width (see
-                        get_terminal_width).
+                        get_terminal_width). Not applied to count/spin
+                        displays.
 
         :arg proglabel: Label to use when writing progress updates to progfile.
 
@@ -806,10 +817,15 @@ class Progress(object):
                         written on a new line, and has the form:
 
                         <proglabel> <value>[ <total>]
+
+        :arg prefix:    Text to display before the progress bar
         """
 
         if transform is None:
             transform = Progress.default_transform
+
+        if prefix is None: prefix = ''
+        else:              prefix = '{} '.format(prefix)
 
         self.width     = width
         self.fmt       = fmt.format
@@ -818,6 +834,7 @@ class Progress(object):
         self.transform = transform
         self.proglabel = proglabel
         self.progfile  = progfile
+        self.prefix    = prefix
 
         # used by the spin function
         self.__last_spin = None
@@ -871,7 +888,7 @@ class Progress(object):
 
         self.write_progress(value, total)
 
-    def spin(self):
+    def spin(self, show_prefix=True):
 
         symbols = ['|', '/', '-',  '\\']
 
@@ -882,7 +899,10 @@ class Progress(object):
         idx  = (idx + 1) % len(symbols)
         this = symbols[idx]
 
-        printmsg(this, end='\r', log=False, fill=False)
+        if show_prefix: msg = '{}{}'.format(self.prefix, this)
+        else:           msg = this
+
+        printmsg(msg, end='\r', log=False, fill=False)
         self.__last_spin = this
 
     def count(self, value):
@@ -892,7 +912,9 @@ class Progress(object):
         if self.label is None: line = '{} ...'.format(value)
         else:                  line = '{}{} ...'.format(value, self.label)
 
-        printmsg(line, end='\r', log=False, fill=False)
+        msg = '{}{}'.format(self.prefix, line)
+
+        printmsg(msg, end='\r', log=False, fill=False)
 
     def progress(self, value, total):
 
@@ -905,21 +927,23 @@ class Progress(object):
 
         fvalue = self.fmt(value)
         ftotal = self.fmt(total)
+        prefix = self.prefix
         suffix = '{} / {} {}'.format(fvalue, ftotal, self.label).rstrip()
 
-        # +5: - square brackets around bar
+        # +6: - square brackets around bar
         #     - space between bar and tally
-        #     - space+spin at the end
-        width     = width - (len(suffix) + 5)
+        #     - space+spin+space at the end
+        width     = width - (len(prefix) + len(suffix) + 6)
         completed = int(round(width * (value  / total)))
         remaining = width - completed
-        progress  = '[{}{}] {}'.format('#' * completed,
-                                       ' ' * remaining,
-                                       suffix)
+        progress  = '{}[{}{}] {}'.format(prefix,
+                                         '#' * completed,
+                                         ' ' * remaining,
+                                         suffix)
 
         printmsg(progress, end='', log=False, fill=False)
         printmsg(' ', end='', log=False, fill=False)
-        self.spin()
+        self.spin(False)
         printmsg(end='\r', log=False, fill=False)
 
 
@@ -1084,12 +1108,15 @@ class Process(object):
         :arg progfile:  File to write progress updates to.
 
         :arg proglabel: Label to use when writing progress updates to progfile.
+
+        :arg prefix:    Label to show before progress bar
         """
 
         timeout   = kwargs.pop('timeout',   0.5)
         progfunc  = kwargs.pop('progfunc',  None)
         proglabel = kwargs.pop('proglabel', None)
         progfile  = kwargs.pop('progfile',  None)
+        prefix    = kwargs.pop('prefix',    None)
 
         if total is None: label = None
         else:             label = '%'
@@ -1111,7 +1138,8 @@ class Process(object):
                       fmt='{:.0f}',
                       transform=Progress.percent,
                       proglabel=proglabel,
-                      progfile=progfile) as prog:
+                      progfile=progfile,
+                      prefix=prefix) as prog:
 
             progcount = 0 if total else None
 
@@ -1327,13 +1355,14 @@ class Context(object):
         # here - refer to overwrite_destdir.
         self.old_destdir = None
 
-        # The download_fsl_environment function stores
-        # the path to the FSL conda environment file
-        # list of conda channels, and python version
-        # to be installed
-        self.environment_file     = None
-        self.environment_channels = None
-        self.python_version       = None
+        # The download_fsl_environment_files function
+        # stores the path to the FSL conda environment
+        # files, list of conda channels, and python
+        # version to be installed
+        self.environment_file        = None
+        self.extra_environment_files = None
+        self.environment_channels    = None
+        self.python_version          = None
 
         # The config_logging function stores the path
         # to the fslinstaller log file here.
@@ -1350,6 +1379,7 @@ class Context(object):
         self.destdir
         self.need_admin
         self.admin_password
+        self.extras_dir
 
 
     @property
@@ -1399,7 +1429,8 @@ class Context(object):
     def miniconda_metadata(self):
         """Returns a dict with information about the miniconda installer
         to use as the base of the FSL installation. This must not be called
-        until after the download_fsl_environment function has been called.
+        until after the download_fsl_environment_files function has been
+        called.
 
         The returned dict has `'url'`, `'sha256'` and `'output'` keys.
         """
@@ -1584,6 +1615,21 @@ class Context(object):
             return self.args.miniconda
         else:
             return self.destdir
+
+
+    @property
+    def extras_dir(self):
+        """Return the path to a directory into which child environments for
+        additional FSL modules should be installed into. For a normal FSL
+        installation, this is set to $FSLDIR/envs/.
+        """
+        if self.basedir == self.destdir:
+            return op.join(self.destdir, 'envs')
+
+        if self.args.extras_dir is None:
+            raise RuntimeError('--extras_dir must be specified when '
+                               'installing FSL as a child environment!')
+        return self.args.extras_dir
 
 
     @property
@@ -1806,8 +1852,108 @@ def prompt_dev_release(devreleases, latest):
     return devreleases[selection][0]
 
 
-def download_fsl_environment(ctx):
-    """Downloads the environment specification file for the selected FSL
+def read_environment_file(filename):
+    """Very primitive routine which loads a conda environment.yml file.
+    Returns:
+     - An environment name
+     - A list of conda channels
+     - A dict of { package : version } packages (where version may be None)
+    """
+
+    name     = None
+    channels = []
+    packages = collections.OrderedDict()
+
+    # load the channel and package lists
+    # from the environment file.
+    with open(filename, 'rt') as f:
+
+        in_channels_section = False
+        in_deps_section     = False
+
+        for line in f:
+            line = line.strip()
+
+            # environment name
+            if line.startswith('name:'):
+                name = line.split(':')[1].strip()
+                continue
+
+            line = line.strip()
+
+            if line == '':           continue
+            if line.startswith('#'): continue
+
+            # start of channels list
+            if line == 'channels:':
+                in_channels_section = True
+                continue
+
+            if in_channels_section:
+                # end of channels list
+                if not line.startswith('-'):
+                    in_channels_section = False
+                else:
+                    channels.append(line[1:].strip())
+                    continue
+
+            # start of deps list
+            if line == 'dependencies:':
+                in_deps_section = True
+                continue
+
+            if in_deps_section:
+                # end of deps list
+                if not line.startswith('-'):
+                    in_deps_section = False
+
+                else:
+                    # Split line into (package, version+build).
+                    # Setting maxsplit=1 ensures the result will
+                    # be either length 1 or 2 (unless the line
+                    # was just a single "-", in which case it is
+                    # an invalid file).
+                    #
+                    # Note that we assume here that packages are
+                    # specified as "package version", rather than
+                    # "package=version".
+                    pkg = line.strip('- ').split(' ', 1)
+
+                    if len(pkg) == 1: pkg, ver = pkg[0], None
+                    else:             pkg, ver = pkg
+
+                    packages[pkg] = ver
+                    continue
+
+    return name, channels, packages
+
+
+def write_environment_file(filename, name, channels, packages):
+    """Writes a conda environment.yml file with the given channels and
+    and packages.
+    """
+
+    with open(filename, 'wt') as f:
+
+        if name is not None:
+            f.write('name: {}\n'.format(name))
+
+        if len(channels) > 0:
+            f.write('channels:\n')
+            for channel in channels:
+                f.write(' - {}\n'.format(channel))
+
+        f.write('dependencies:\n')
+        for package, version in packages.items():
+
+            if version is None: version = ''
+            else:               version = ' {}'.format(version)
+
+            f.write(' - {}{}\n'.format(package, version))
+
+
+def download_fsl_environment_files(ctx):
+    """Downloads the environment specification files for the selected FSL
     version.
 
     Internal/development FSL versions may source packages from the internal
@@ -1819,109 +1965,123 @@ def download_fsl_environment(ctx):
     If the user has not provided a username+password on the command-line, they
     are prompted for them.
 
-    The downloaded environment file may be modified - if the (hidden)
+    The downloaded environment files may be modified - if the (hidden)
     --exclude_package option has been used.
     """
 
-    build        = ctx.build
-    url          = build['environment']
-    checksum     = build.get('sha256', None)
-
-    printmsg('Downloading FSL environment specification '
-             'from {}...'.format(url))
-    fname = url.split('/')[-1]
-    download_file(url, fname, ssl_verify=(not ctx.args.skip_ssl_verify))
-    ctx.environment_file = op.abspath(fname)
-    if (checksum is not None) and (not ctx.args.no_checksum):
-        sha256(fname, checksum)
-
-    # Environment files for internal/dev FSL versions
-    # will list the internal FSL conda channel with
-    # ${FSLCONDA_USERNAME} and ${FSLCONDA_PASSWORD}
-    # as placeholders for the username/password.
-    with open(fname, 'rt') as f:
-        need_auth = '${FSLCONDA_USERNAME}' in f.read()
-
-    # We need a username/password to access the internal
-    # FSL conda channel. Prompt the user if they haven't
-    # provided credentials.
-    if need_auth and (ctx.args.username is None):
-        printmsg('A username and password are required to install '
-                 'this version of FSL.', WARNING, EMPHASIS)
-        ctx.args.username = prompt('Username:').strip()
-        ctx.args.password = getpass.getpass('Password: ').strip()
-
-    # Conda expands environment variables within a
-    # .condarc file, but *not* within an environment.yml
-    # file. So to authenticate to our internal channel
-    # without storing credentials anywhere in plain text,
-    # we *move* the channel list from the environment.yml
-    # file into $FSLDIR/.condarc.
+    # A FSL release may comprise multiple
+    # separate environment files - a "main"
+    # environment, and a set of additional/
+    # extra environments - these extra envs
+    # are installed as child environemnts.
+    # We gather all fo the environment file
+    # URLs and loop through and download+
+    # process them one-by-one.
     #
-    # Here we extract the channels from the environment
-    # file, and save them to ctx.environment_channels.
-    # The install_miniconda function will then add the
-    # channels to $FSLDIR/.condarc.
-    #
-    # We also identify the version of Python to be
-    # installed, remove any packages that the user has
-    # requested to exclude from the installation.
-    copy     = '.' + op.basename(ctx.environment_file)
-    channels = []
-    pyver    = None
+    # We identify the main env with an empty
+    # string - extra/child environments are
+    # all named in the manifest.
+    allenvs  = [('', ctx.build)]
+    allenvs += list(ctx.build.get('extras', {}).items())
 
-    shutil.move(ctx.environment_file, copy)
-    with open(copy,                 'rt') as inf, \
-         open(ctx.environment_file, 'wt') as outf:
+    ctx.extra_environment_files = {}
 
-        in_channels_section = False
+    for envname, build in allenvs:
 
-        for line in inf:
+        url      = build['environment']
+        checksum = build.get('sha256', None)
 
-            # start of channels list
-            if line.strip() == 'channels:':
-                in_channels_section = True
-                continue
+        printmsg('Downloading FSL environment specification '
+                 'from {}...'.format(url))
 
-            if in_channels_section:
-                # end of channels list
-                if not line.strip().startswith('-'):
-                    in_channels_section = False
-                else:
-                    channels.append(line.split()[-1])
-                    continue
+        fname = url.split('/')[-1]
 
-            # Include/exclude packages upon user request
-            exclude = False
-            pkgname = line.strip(' -').split()[0]
+        download_file(url, fname, ssl_verify=(not ctx.args.skip_ssl_verify))
 
-            # Also pull out the python version so we
-            # know which miniconda installer to use
-            if pkgname == 'python' and pyver is None:
-                pyver = line.strip(' -').split()[1]
-                pyver = '.'.join(pyver.split('.')[:2])
-            else:
-                exclude = match_any(pkgname, ctx.args.exclude_package)
+        if (checksum is not None) and (not ctx.args.no_checksum):
+            sha256(fname, checksum)
 
+        # Environment files for internal/dev FSL versions
+        # will list the internal FSL conda channel with
+        # ${FSLCONDA_USERNAME} and ${FSLCONDA_PASSWORD}
+        # as placeholders for the username/password.
+        with open(fname, 'rt') as f:
+            need_auth = '${FSLCONDA_USERNAME}' in f.read()
+
+        # We need a username/password to access the internal
+        # FSL conda channel. Prompt the user if they haven't
+        # provided credentials.
+        if need_auth and (ctx.args.username is None):
+            printmsg('A username and password are required to install '
+                     'this version of FSL.', WARNING, EMPHASIS)
+            ctx.args.username = prompt('Username:').strip()
+            ctx.args.password = getpass.getpass('Password: ').strip()
+
+        # We are now going to load, modify, and re-write, the
+        # FSL environment file.
+        #
+        # Conda expands environment variables within a
+        # .condarc file, but *not* within an environment.yml
+        # file. So to authenticate to our internal channel
+        # without storing credentials anywhere in plain text,
+        # we *move* the channel list from the environment.yml
+        # file into $FSLDIR/.condarc.
+        name, channels, packages = read_environment_file(fname)
+
+        # Save some key information about the base environment
+        if envname == '':
+            ctx.environment_file = fname
+
+            # Save the python version to ctx.python_version.
+            # The Context.miniconda_metadata function will
+            # use it to select a suitable miniconda installer.
+            if 'python' not in packages:
+                raise Exception('Could not identify Python version in '
+                                'FSL environment file ({})'.format(url))
+
+            # Just save the X.Y version
+            pyver              = packages['python'].split('.')
+            pyver              = '.'.join(pyver[:2])
+            ctx.python_version = pyver
+
+            # Save the channels to ctx.environment_channels.
+            # The install_miniconda function will then add the
+            # channels to $FSLDIR/.condarc.
+
+            # Prepend any additional channels that the user has
+            # specified on the command-line (e.g. file-system-
+            # based conda channels that can be used as local
+            # caches). Note though that we only consider the
+            # channel list in the main/base environment file -
+            # channels in extra/child environments are ignored.
+            ctx.environment_channels = ctx.args.channel + channels
+        else:
+            ctx.extra_environment_files[envname] = fname
+
+        # Remove any packages that the user has
+        # requested to exclude from the installation.
+        for package in list(packages.keys()):
+            exclude = match_any(package, ctx.args.exclude_package)
             if exclude:
-                log.debug('Excluding package %s (matched '
-                          '--exclude_package %s)', line, exclude)
-            else:
-                outf.write(line)
+                log.debug('Excluding package %s', exclude)
+                packages.pop(package)
 
-    if pyver is None:
-        raise Exception('Could not identify Python version in '
-                        'FSL environment file ({})'.format(url))
+        # Re-generate the environment file so it contains
+        # the updated package list. We don't need to
+        # save the channels, as they will be written to
+        # condarc.
+        copy = '.' + op.basename(fname)
+        shutil.move(fname, copy)
+        write_environment_file(fname, name, [], packages)
 
-    ctx.environment_channels = channels
-    ctx.python_version       = pyver
 
-
-def download_miniconda(ctx):
+def download_miniconda(ctx, **kwargs):
     """Downloads the miniconda/miniforge installer and saves it as
     "miniconda.sh".
 
     This function assumes that it is run within a temporary/scratch directory.
+
+    Keyword arguments are passed through to the Progress bar constructor.
     """
 
     # The user has specified a path to an
@@ -1948,18 +2108,21 @@ def download_miniconda(ctx):
     printmsg('Downloading miniconda from {}...'.format(url))
     with Progress('MB', transform=Progress.bytes_to_mb,
                   proglabel='download_miniconda',
-                  progfile=ctx.args.progress_file) as prog:
+                  progfile=ctx.args.progress_file,
+                  **kwargs) as prog:
         download_file(url, 'miniconda.sh', prog.update,
                       ssl_verify=(not ctx.args.skip_ssl_verify))
     if (not ctx.args.no_checksum) and (checksum is not None):
         sha256('miniconda.sh', checksum)
 
 
-def install_miniconda(ctx):
+def install_miniconda(ctx, **kwargs):
     """Downloads the miniconda/miniforge installer, and installs it to the
     destination directory.
 
     This function assumes that it is run within a temporary/scratch directory.
+
+    Keyword arguments are passed through to the Progress bar constructor.
     """
 
     # We have been instructed to use an
@@ -1970,7 +2133,11 @@ def install_miniconda(ctx):
     # Get information about the miniconda installer
     # from the manifest.
     metadata = ctx.miniconda_metadata
-    output   = metadata.get('output', '').strip()
+    output   = metadata.get('output', '')
+
+    # output may be a string or int
+    if isinstance(output, str):
+        output = output.strip()
 
     if output == '': output = None
     else:            output = int(output)
@@ -1981,7 +2148,8 @@ def install_miniconda(ctx):
     cmd = 'bash miniconda.sh -b -p {}'.format(ctx.basedir)
     ctx.run(Process.monitor_progress, cmd, total=output,
             proglabel='install_miniconda',
-            progfile=ctx.args.progress_file)
+            progfile=ctx.args.progress_file,
+            **kwargs)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
@@ -2091,14 +2259,14 @@ def generate_condarc(fsldir,
     if len(channels) > 0:
         channels[0]  += ' #!top'
         channels[-1] += ' #!bottom'
-    condarc      += '\nchannels: #!final\n'
-    for channel in channels:
-        condarc += ' - {}\n'.format(channel)
+        condarc      += '\nchannels: #!final\n'
+        for channel in channels:
+            condarc += ' - {}\n'.format(channel)
 
     return condarc
 
 
-def get_install_fsl_progress_reporting_method(ctx):
+def get_install_fsl_progress_reporting_method(ctx, build=None, destdir=None):
     """Figure out which reporting mechansim to use for reporting progress
     whilst FSL is being installed. The mechanism that is used has changed
     a few times.
@@ -2110,13 +2278,16 @@ def get_install_fsl_progress_reporting_method(ctx):
       - a function to pass as the progfunc.
     """
 
+    if build   is None: build   = ctx.build
+    if destdir is None: destdir = ctx.destdir
+
     # We calculate installation progress in
     # one of a few ways, as we have changed
     # the mechanism a few times.  The
     # 'output/install' field in the manifest
     # gives us information about how to
     # report installation progress.
-    progparams = ctx.build.get('output', {}).get('install', None)
+    progparams = build.get('output', {}).get('install', None)
 
     # The first method (version 1) involves
     # progress reporting by monitoring number of
@@ -2153,8 +2324,8 @@ def get_install_fsl_progress_reporting_method(ctx):
     # $FSLDIR/lib/
     pkgdir = op.join(ctx.basedir, 'pkgs')
     pkgdir = op.join(ctx.basedir, 'pkgs')
-    bindir = op.join(ctx.destdir, 'bin')
-    libdir = op.join(ctx.destdir, 'lib')
+    bindir = op.join(    destdir, 'bin')
+    libdir = op.join(    destdir, 'lib')
 
     def matchany(name, *filters):
         return any([fnmatch.fnmatch(name, f) for f in filters])
@@ -2230,11 +2401,13 @@ def get_install_fsl_progress_reporting_method(ctx):
     return progval, progfunc
 
 
-def install_fsl(ctx):
+def install_fsl(ctx, **kwargs):
     """Install FSL into ctx.destdir (which is assumed to be a miniconda
     installation.
 
     This function assumes that it is run within a temporary/scratch directory.
+
+    Keyword arguments are passed through to the Progress bar constructor.
     """
 
     progval, progfunc = get_install_fsl_progress_reporting_method(ctx)
@@ -2274,9 +2447,10 @@ def install_fsl(ctx):
 
     # We install FSL simply by running conda
     # env [update|create] -f env.yml.
-    cmd = (ctx.conda + ' env ' + cmd +
-           ' -p ' + ctx.destdir      +
-           ' -f ' + ctx.environment_file)
+    envfile = ctx.environment_file
+    cmd     = (ctx.conda + ' env ' + cmd +
+               ' -p ' + ctx.destdir      +
+               ' -f ' + envfile)
 
     # Make conda/mamba super verbose if the
     # hidden --debug option was specified.
@@ -2316,7 +2490,34 @@ def install_fsl(ctx):
                        cmd, timeout=2, total=progval, progfunc=progfunc,
                        proglabel='install_fsl', progfile=ctx.args.progress_file,
                        retry_error_message=err_message,
-                       retry_condition=retry_install)
+                       retry_condition=retry_install, **kwargs)
+
+
+def install_extra(ctx, name, **kwargs):
+    """Install an additional FSL component as a separate child environment into
+    <ctx.destdir>/envs/<name>/.
+
+    This function assumes that it is run within a temporary/scratch directory.
+
+    Keyword arguments are passed through to the Progress bar constructor.
+    """
+
+    envfile = ctx.extra_environment_files[name]
+    destdir = op.join(ctx.extras_dir, name)
+    cmd     = ctx.conda + ' env create -p ' + destdir + ' -f ' + envfile
+
+    if ctx.args.debug:
+        cmd += ' -v -v -v'
+
+    progval, progfunc = get_install_fsl_progress_reporting_method(
+        ctx, ctx.build['extras'][name], destdir)
+
+    printmsg('Installing {} into {}...'.format(name, destdir))
+    ctx.run(Process.monitor_progress, cmd,
+            timeout=2, total=progval, progfunc=progfunc,
+            proglabel='install_{}'.format(name),
+            progfile=ctx.args.progress_file,
+            **kwargs)
 
 
 @warn_on_error('WARNING: The installation succeeded, but an error occurred '
@@ -2333,9 +2534,11 @@ def finalise_installation(ctx):
         f.write(ctx.build['version'])
 
     etcdir = op.join(ctx.destdir, 'etc')
-    cmds   = [
-        'cp fslversion {}' .format(etcdir),
-        'cp {} {}'         .format(ctx.environment_file, etcdir)]
+    cmds   = ['cp fslversion {}' .format(etcdir),
+              'cp {} {}'         .format(ctx.environment_file, etcdir)]
+
+    for envfile in ctx.extra_environment_files.values():
+        cmds.append('cp {} {}'.format(envfile, etcdir))
 
     for cmd in cmds:
         ctx.run(Process.check_call, cmd)
@@ -2671,6 +2874,7 @@ def parse_args(argv=None, include=None, parser=None):
         'no_shell'          : ('-s', {'action'  : 'store_true'}),
         'no_matlab'         : ('-m', {'action'  : 'store_true'}),
         'skip_registration' : ('-r', {'action'  : 'store_true'}),
+        'extra'             : ('-e', {'action'  : 'append'}),
         'fslversion'        : ('-V', {'default' : 'latest'}),
 
         # hidden options
@@ -2688,7 +2892,9 @@ def parse_args(argv=None, include=None, parser=None):
         'devrelease'         : (None, {'action'  : 'store_true'}),
         'devlatest'          : (None, {'action'  : 'store_true'}),
         'manifest'           : (None, {}),
+        'channel'            : (None, {'action'  : 'append'}),
         'miniconda'          : (None, {}),
+        'extras_dir'         : (None, {}),
         'conda'              : (None, {'action'  : 'store_true'}),
         'no_self_update'     : (None, {'action'  : 'store_true'}),
         'exclude_package'    : (None, {'action'  : 'append'}),
@@ -2714,6 +2920,7 @@ def parse_args(argv=None, include=None, parser=None):
         'no_matlab'         : 'Do not modify your MATLAB configuration.',
         'skip_registration' : 'Do not register this installation with the '
                               'FSL development team.',
+        'extra'             : 'Install optional FSL components',
         'fslversion'        : 'Install this specific version of FSL.',
 
         # Configure conda to skip SSL verification.
@@ -2768,6 +2975,22 @@ def parse_args(argv=None, include=None, parser=None):
         # manifest.
         'manifest' : argparse.SUPPRESS,
 
+        # Source packages from additional conda
+        # channels. Can be used multiple times.
+        # Channels specified with this argument
+        # are pre-pended to the channel list,
+        # e.g.:
+        #
+        #   fslinstaller.py --channel A --channel B
+        #
+        # will result in a channel list such as:
+        #
+        #   - A
+        #   - B
+        #   - https://fsl.fmrib..../fslconda/public
+        #   - conda-forge
+        'channel' : argparse.SUPPRESS,
+
         # Install miniconda from this path/URL,
         # instead of the one specified in the
         # FSL release manifest.
@@ -2798,6 +3021,15 @@ def parse_args(argv=None, include=None, parser=None):
         #
         #   fslinstaller.py --miniconda ~/miniconda3/ -d ~/fsl/
         'miniconda' : argparse.SUPPRESS,
+
+        # Directory in which to create child
+        # environments for additional FSL
+        # modules. Defaults to destdir/envs/
+        # for typical installations where
+        # destdir is a base miniconda environment.
+        # Must be specified when destdir is an
+        # existing miniconda installation.
+        'extras_dir' : argparse.SUPPRESS,
 
         # Use conda and not mamba
         'conda' : argparse.SUPPRESS,
@@ -2866,7 +3098,7 @@ def parse_args(argv=None, include=None, parser=None):
 
     # --no-env is automatically enabled
     #  when installer is run as root
-    if os.getuid() == 0 and not (args.root_env):
+    if os.getuid() == 0 and not args.root_env:
         args.no_env = True
 
     # don't modify shell profile
@@ -2880,6 +3112,12 @@ def parse_args(argv=None, include=None, parser=None):
         if not op.exists(args.workdir):
             os.mkdir(args.workdir)
 
+    if args.extra is None:
+        args.extra = []
+
+    if args.extras_dir is not None:
+        args.extras_dir = op.abspath(args.extras_dir)
+
     # manifest takes priority over devrelease/devlatest
     if args.manifest is not None:
         args.devrelease = False
@@ -2887,6 +3125,12 @@ def parse_args(argv=None, include=None, parser=None):
 
     if args.manifest is None:
         args.manifest = FSL_RELEASE_MANIFEST
+
+    if args.channel is None:
+        args.channel = []
+    for i, channel in enumerate(args.channel):
+        if op.exists(channel):
+            args.channel[i] = op.abspath(channel)
 
     if args.devlatest:
         args.devrelease = True
@@ -2962,8 +3206,8 @@ def handle_error(ctx):
 
         # send env to logfile
         log.debug('Environment variables:')
-        for k, v in os.environ.items():
-            log.debug('{}={}'.format(k, v))
+        for k in sorted(os.environ.keys()):
+            log.debug('{}={}'.format(k, os.environ[k]))
 
         if op.exists(ctx.destdir):
             printmsg('Removing failed installation directory '
@@ -3012,7 +3256,7 @@ def main(argv=None):
     logfile = config_logging(logdir=args.workdir, logfile=args.logfile)
 
     log.debug(' '.join(sys.argv))
-    log.debug('Python: %s', sys.executable)
+    log.debug('Python: %s %s', sys.executable, str(PYVER))
     printmsg('Installation log file: {}\n'.format(logfile), INFO)
 
     ctx         = Context(args)
@@ -3043,6 +3287,8 @@ def main(argv=None):
         printmsg('An error has occurred: {}'.format(e), ERROR)
         sys.exit(1)
 
+    # Check if using x86 emulation on an Apple
+    # arm64 machine
     check_rosetta_status(ctx)
 
     # Do everything in a temporary directory,
@@ -3059,13 +3305,33 @@ def main(argv=None):
         # an existing installation
         overwrite_destdir(ctx)
 
-        download_fsl_environment(ctx)
-
+        download_fsl_environment_files(ctx)
         printmsg('\nInstalling FSL in {}\n'.format(ctx.destdir), EMPHASIS)
+
         with handle_error(ctx):
-            download_miniconda(ctx)
-            install_miniconda(ctx)
-            install_fsl(ctx)
+
+            # These are the main steps of the installation,
+            # which perform downloading and/or installing.
+            # We iterate over them so we can show the user
+            # a step number and a total, e.g. "Step 2 of 4".
+            steps = [
+                (download_miniconda, ctx),
+                (install_miniconda,  ctx),
+                (install_fsl,        ctx)]
+
+            for name in args.extra:
+                if name not in ctx.extra_environment_files:
+                    printmsg('There is no extra FSL component called {} - '
+                             'ignoring'.format(name), WARNING, EMPHASIS)
+                    continue
+                steps.append((install_extra, ctx, name))
+
+            for i, step in enumerate(steps):
+                func     = step[0]
+                funcargs = step[1:]
+                prefix   = '{} / {}'.format(i + 1, len(steps))
+                func(*funcargs, prefix=prefix)
+
             finalise_installation(ctx)
             post_install_cleanup(ctx, tmpdir)
             register_installation(ctx)
