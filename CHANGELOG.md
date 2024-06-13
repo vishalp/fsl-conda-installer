@@ -1,7 +1,15 @@
 # FSL installer script release history
 
 
-# 3.12.0 (Under development)
+# 3.12.1 (Thursday 13th June 2024)
+
+ - If an extra FSL component has already been installed into `$FSLDIR/envs/`
+   and a request is made to install it again, it is updated using
+   `conda env update`. This functionality is used by the `update_fsl_release`
+   command.
+
+
+# 3.12.0 (Wednesday 12th June 2024)
 
  - The `fslinstaller.py` script is now capable of installing software into
    separate child environments, within `$FSLDIR/envs/`, to allow for better

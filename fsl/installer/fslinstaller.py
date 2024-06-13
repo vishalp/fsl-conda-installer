@@ -75,7 +75,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.12.0'
+__version__ = '3.12.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -2504,7 +2504,14 @@ def install_extra(ctx, name, **kwargs):
 
     envfile = ctx.extra_environment_files[name]
     destdir = op.join(ctx.extras_dir, name)
-    cmd     = ctx.conda + ' env create -p ' + destdir + ' -f ' + envfile
+
+    # directory already exists - try updating
+    if not op.exists(destdir): action = 'create'
+    else:                      action = 'update'
+
+    cmd = (ctx.conda + ' env ' + action +
+               ' -p ' + destdir +
+               ' -f ' + envfile)
 
     if ctx.args.debug:
         cmd += ' -v -v -v'
