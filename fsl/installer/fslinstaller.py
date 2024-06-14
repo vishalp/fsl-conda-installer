@@ -655,7 +655,7 @@ def clean_environ():
     return env
 
 
-def install_environ(fsldir, username=None, password=None):
+def install_environ(fsldir, username=None, password=None, cuda_version=None):
     """Returns a dict containing some environment variables that should
     be added to the shell environment when the FSL conda environment is
     being installed.
@@ -686,6 +686,20 @@ def install_environ(fsldir, username=None, password=None):
     # so we need to set those variables
     if username: env['FSLCONDA_USERNAME'] = username
     if password: env['FSLCONDA_PASSWORD'] = password
+
+    # Trick conda into thinking that CUDA is
+    # available on this platform if it is, or if
+    # the user has specifically requested that
+    # CUDA packages be installed
+    #
+    # Otherwise clear the var in case we have a
+    # local GPU that the user wishes to ignore (if
+    # they passed --gpu=1)
+    #
+    # https://conda.io/projects/conda/en/\
+    # latest/user-guide/tasks/manage-virtual.html
+    if cuda_version is not None: env['CONDA_OVERRIDE_CUDA'] = cuda_version
+    else:                        env['CONDA_OVERRIDE_CUDA'] = ''
 
     return env
 
@@ -1854,7 +1868,8 @@ class Context(object):
         env.update(clean_environ())
         append_env.update(install_environ(self.destdir,
                                           self.args.username,
-                                          self.args.password))
+                                          self.args.password,
+                                          self.cuda_version))
 
         return process_func(admin=self.need_admin,
                             password=self.admin_password,
