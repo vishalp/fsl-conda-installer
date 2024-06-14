@@ -57,6 +57,27 @@ Some FSL versions come with optional components, also known as _"extras"_, that 
     ```
 
 
+# Installing CUDA libraries
+
+Some FSL tools use CUDA for GPU acceleration. C++ programs such as [eddy](https://git.fmrib.ox.ac.uk/fsl/eddy) are statically linked against the CUDA Toolkit, meaning that target systems only need to have a CUDA driver installed in order to run them.
+
+For Python-based tools which use (e.g.) Pytorch, a copy of the CUDA Toolkit (and related libraries such as cuDNN) is installed from [conda-forge](https://anaconda.org/conda-forge/cuda-version).
+
+By default, the `fslinstaller.py` script will interrogate the local system to see if a CUDA-capable GPU is installed, and will install the most recent compatible CUDA version. The `fslinstaller.py` script will not install the CUDA toolkit at all on systems which do not have a CUDA-capable GPU.
+
+If you wish to install CUDA libraries for a specific CUDA version, you can do so with the `-c` / `--cuda` option, e.g.:
+
+    ```
+    python fslinstaller.py --cuda 11.5
+    ```
+
+To disable installation of CUDA libraries, you can pass `none`, e.g.:
+
+    ```
+    python fslinstaller.py --cuda none
+    ```
+
+
 # Other options
 
 Several advanced options are available - run `python fslinstaller.py -h`, and read the `parse_args` function in the `fslinstaller.py` script for more details on the advanced/hidden options.
