@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.12.2 (Friday 14th June 2024)
+
+ - Check for more network errors that may be able to be solved by retrying the
+   installation.
+
+
 # 3.12.1 (Thursday 13th June 2024)
 
  - If an extra FSL component has already been installed into `$FSLDIR/envs/`
