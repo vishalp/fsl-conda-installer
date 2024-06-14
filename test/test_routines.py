@@ -18,7 +18,7 @@ except ImportError:
 
 import pytest
 
-from . import onpath, server, mock_input
+from . import onpath, server, mock_input, mock_nvidia_smi
 
 import fsl.installer.fslinstaller as inst
 
@@ -679,18 +679,13 @@ def test_identify_cuda():
 
     inst.identify_cuda.reset()
 
-    with inst.tempdir() as td:
-        path = op.pathsep.join((td, os.environ['PATH']))
-        with mock.patch.dict(os.environ, PATH=path):
-
-            for cudaver, exitcode, expected in tests:
-                with open('nvidia-smi','wt') as f:
-                    f.write(nvidia_smi.format(cudaver, exitcode))
-                os.chmod('nvidia-smi', 0o755)
-                try:
-                    assert inst.identify_cuda() == expected
-                finally:
-                    inst.identify_cuda.reset()
+    with mock_nvidia_smi() as nvsmi:
+        for cudaver, exitcode, expected in tests:
+            nvsmi(cudaver, exitcode)
+            try:
+                assert inst.identify_cuda() == expected
+            finally:
+                inst.identify_cuda.reset()
 
 
 def test_add_cuda_packages():

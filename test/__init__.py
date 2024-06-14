@@ -11,8 +11,11 @@ import threading
 import multiprocessing as mp
 import functools as ft
 import sys
+import textwrap as tw
 import time
 import re
+
+import fsl.installer.fslinstaller as inst
 
 
 # py3
@@ -213,3 +216,30 @@ def mock_input(*responses):
 def strip_ansi_escape_sequences(text):
     """Does what function name says it does. """
     return re.sub(r'\x1b\[[0-9;]*m', '', text)
+
+
+@contextlib.contextmanager
+def mock_nvidia_smi(cudaver=None, exitcode=0):
+    with inst.tempdir(change_into=False) as td:
+
+        if cudaver is None:
+            cudaver = '11.2'
+
+        filepath = op.join(td, 'nvidia-smi')
+        contents = tw.dedent("""
+        #!/usr/bin/env bash
+
+        echo "CUDA Version: {}"
+        exit {}
+        """).strip()
+
+        def gen(cudaver, exitcode=0):
+            with open(filepath, 'wt') as f:
+                f.write(contents.format(cudaver, exitcode))
+            os.chmod(filepath, 0o755)
+
+        gen(cudaver, exitcode)
+
+        path = op.pathsep.join((td, os.environ['PATH']))
+        with mock.patch.dict(os.environ, PATH=path):
+            yield gen
