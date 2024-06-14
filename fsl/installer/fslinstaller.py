@@ -1975,7 +1975,7 @@ def add_cuda_packages(ctx):
     """
 
     # User has requested no CUDA
-    if ctx.args.cuda is False:
+    if ctx.args.cuda == 'none':
         return {}, None
 
     # If user has requested a specific CUDA/
@@ -3292,7 +3292,7 @@ def parse_args(argv=None, include=None, parser=None):
 
         # User does not want CUDA
         if args.cuda.lower() == 'none':
-            args.cuda = False
+            args.cuda = 'none'
         else:
             try:
                 major, minor = args.cuda.split('.')
