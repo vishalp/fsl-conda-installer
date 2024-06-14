@@ -2466,7 +2466,8 @@ def install_fsl(ctx, **kwargs):
     # to a network error.
     err_patterns = ['Connection broken',
                     'Download error',
-                    'NewConnectionError']
+                    'NewConnectionError',
+                    'Downloaded bytes did not match Content-Length']
 
     with LogRecordingHandler(err_patterns) as hd:
 
