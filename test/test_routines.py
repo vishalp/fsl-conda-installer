@@ -634,3 +634,108 @@ def test_LogRecordingHandler():
                            'message with pattern3']
         hd.clear()
         assert len(hd.records()) == 0
+
+
+def test_funccache():
+
+    ncalled = [0]
+
+    @inst.funccache
+    def func(arg):
+        ncalled[0] += 1
+        return arg * 2
+
+    assert func(1)    == 2
+    assert func(1)    == 2
+    assert ncalled[0] == 1
+    assert func(2)    == 4
+    assert func(2)    == 4
+    assert ncalled[0] == 2
+    func.reset()
+    assert func(1)    == 2
+    assert ncalled[0] == 3
+    assert func(2)    == 4
+    assert ncalled[0] == 4
+    assert func(1)    == 2
+    assert func(2)    == 4
+    assert ncalled[0] == 4
+
+
+def test_identify_cuda():
+
+    nvidia_smi = tw.dedent("""
+    #!/usr/bin/env bash
+
+    echo "CUDA Version: {}"
+    exit {}
+    """).strip()
+
+    # CUDA ver, exit code, expected
+    tests = [('10.0',   0, (10, 0)),
+             ('10.0',   1, None),
+             ('11.4',   0, (11, 4)),
+             ('ASDFGJ', 0, None),
+             ('ASDFGJ', 1, None)]
+
+    inst.identify_cuda.reset()
+
+    with inst.tempdir() as td:
+        path = op.pathsep.join((td, os.environ['PATH']))
+        with mock.patch.dict(os.environ, PATH=path):
+
+            for cudaver, exitcode, expected in tests:
+                with open('nvidia-smi','wt') as f:
+                    f.write(nvidia_smi.format(cudaver, exitcode))
+                os.chmod('nvidia-smi', 0o755)
+                try:
+                    assert inst.identify_cuda() == expected
+                finally:
+                    inst.identify_cuda.reset()
+
+
+def test_add_cuda_packages():
+    class Mock(object):
+        pass
+
+    ctx           = Mock()
+    ctx.args      = Mock()
+    ctx.args.cuda = None
+
+    # (system CUDA, requested CUDA, expected)
+    tests = [
+        (None,    None, None),
+        ((10, 2), None, ('>=10.2,<11', '10.2')),
+        ((11, 8), None, ('>=11.8,<12', '11.8')),
+        ((11, 0), None, ('>=11.0,<12', '11.0')),
+        ((11, 2), None, ('>=11.2,<12', '11.2')),
+        ((12, 4), None, ('>=12.4,<13', '12.4')),
+
+        # --cuda=none - no CUDA
+        ((12, 4), 'none',   None),
+
+        # --cuda=X.Y - if provided, the system cuda is ignored
+        (None,    (10, 2), ('>=10.2,<11', '10.2')),
+        (None,    (11, 2), ('>=11.2,<12', '11.2')),
+        ((12, 5), (11, 2), ('>=11.2,<12', '11.2')),
+        ((11, 2), (12, 4), ('>=12.4,<13', '12.4'))
+    ]
+
+    for syscuda, usrcuda, expect in tests:
+
+        if expect is None:
+            exppkgs, expcuda = {}, None
+        else:
+            exppkgs = {'cuda-version' : expect[0]}
+            expcuda = expect[1]
+
+        def mock_identify_cuda():
+            if syscuda is None:
+                return None
+            return (syscuda[0], syscuda[1])
+
+        with mock.patch('fsl.installer.fslinstaller.identify_cuda',
+                        mock_identify_cuda):
+
+            ctx.args.cuda = usrcuda
+            result        = inst.add_cuda_packages(ctx)
+            assert result == (exppkgs, expcuda)
