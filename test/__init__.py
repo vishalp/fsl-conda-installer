@@ -252,7 +252,8 @@ def mock_miniconda_installer(filename, pyver=None):
     """
 
     if pyver is None:
-        pyver = '.'.join(sys.version_info[:2])
+        pyver = [str(v) for v in sys.version_info[:2]]
+        pyver = '.'.join(pyver)
 
     mock_miniconda_sh = """
     #!/usr/bin/env bash
