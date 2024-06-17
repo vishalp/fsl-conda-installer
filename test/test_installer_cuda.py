@@ -17,6 +17,15 @@ try:                from unittest import mock
 except ImportError: import mock
 
 
+def reset_caches(func):
+    def decorator(*args, **kwargs):
+        try:
+            fi.identify_cuda.reset()
+            return func(*args, **kwargs)
+        finally:
+            fi.identify_cuda.reset()
+
+
 mock_manifest = {
     'installer' : {
         'version'          : fi.__version__,
@@ -89,7 +98,8 @@ def check_install(fsldir, cudaver=None):
     assert open(op.join(fsldir, 'env.yml'), 'rt').read().strip() == expect
 
 
-def test_installer_cuda_local_gpu():
+@reset_caches
+def test_installer_cuda_local_gou():
     """Local GPU available - installer should add "cuda-version X.Y" to package
     list.
     """
@@ -107,6 +117,7 @@ def test_installer_cuda_local_gpu():
         check_install(destdir, '11.2')
 
 
+@reset_caches
 def test_installer_cuda_local_gpu_different_cuda_requested():
     """Local GPU available, but user has requested different CUDA version.
     """
@@ -125,6 +136,7 @@ def test_installer_cuda_local_gpu_different_cuda_requested():
         check_install(destdir, '12.0')
 
 
+@reset_caches
 def test_installer_cuda_local_gpu_requested_none():
     """Local GPU available, but user has requested non-GPU installation. """
     with fi.tempdir()    as td,  \
@@ -142,6 +154,7 @@ def test_installer_cuda_local_gpu_requested_none():
         check_install(destdir)
 
 
+@reset_caches
 def test_installer_cuda_no_gpu_requested_cuda():
     """No GPU available, but user has requested a GPU installation. """
     with fi.tempdir()    as td,  \
