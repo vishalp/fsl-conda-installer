@@ -19,41 +19,8 @@ from . import (server,
                CaptureStdout,
                indir,
                mock_input,
+               mock_miniconda_installer,
                strip_ansi_escape_sequences)
-
-
-# mock miniconda installer which creates
-# a mock $FSLDIR/bin/conda command
-mock_miniconda_sh = """
-#!/usr/bin/env bash
-
-#called like <script> -b -p <prefix>
-prefix=$3
-
-mkdir -p $prefix/bin/
-mkdir -p $prefix/etc/
-mkdir -p $prefix/pkgs/
-
-prefix=$(cd $prefix && pwd)
-
-# called like
-#  - conda env update -p <fsldir> -f <envfile>
-#  - conda env create -p <fsldir> -f <envfile>
-#  - conda clean -y --all
-echo "#!/usr/bin/env bash"                          >> $prefix/bin/conda
-echo 'if   [ "$1" = "clean" ]; then '               >> $prefix/bin/conda
-echo "    touch $prefix/cleaned"                    >> $prefix/bin/conda
-echo 'elif [ "$1" = "env" ]; then '                 >> $prefix/bin/conda
-echo '    envprefix=$4'                             >> $prefix/bin/conda
-echo '    mkdir -p $envprefix/bin/'                 >> $prefix/bin/conda
-echo '    mkdir -p $envprefix/etc/'                 >> $prefix/bin/conda
-echo '    mkdir -p $envprefix/pkgs/'                >> $prefix/bin/conda
-echo '    cp "$6" $envprefix/'                      >> $prefix/bin/conda
-echo '    echo "$2" > $envprefix/env_command'       >> $prefix/bin/conda
-echo '    echo "python {pyver}" > $envprefix/pyver' >> $prefix/bin/conda
-echo "fi"                                           >> $prefix/bin/conda
-chmod a+x $prefix/bin/conda
-""".strip()
 
 
 mock_manifest = """
@@ -211,10 +178,8 @@ def installer_server(cwd=None):
     cwd = op.abspath(cwd)
 
     with indir(cwd), server(cwd) as srv:
-        with open('miniconda310.sh', 'wt') as f:
-            f.write(mock_miniconda_sh.format(pyver='3.10'))
-        with open('miniconda311.sh', 'wt') as f:
-            f.write(mock_miniconda_sh.format(pyver='3.11'))
+        mock_miniconda_installer('miniconda310.sh', pyver='3.10')
+        mock_miniconda_installer('miniconda311.sh', pyver='3.11')
 
         for fslver in ['6.2.0', '6.1.0', '6.0.99',
                        '6.0.98', '6.0.97', '6.0.96']:
@@ -232,9 +197,6 @@ def installer_server(cwd=None):
         env6097_sha256  = inst.sha256('env-6.0.97.yml')
         env6096_sha256  = inst.sha256('env-6.0.96.yml')
 
-        os.chmod('miniconda311.sh', 0o755)
-        os.chmod('miniconda310.sh', 0o755)
-
         manifest = mock_manifest.format(
             version=inst.__version__,
             platform=inst.identify_platform(),
@@ -251,7 +213,9 @@ def installer_server(cwd=None):
         with open('manifest.json', 'wt') as f:
             f.write(manifest)
 
-        yield srv
+        with mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                        '{}/manifest.json'.format(srv.url)):
+            yield srv
 
 
 def check_install(homedir, destdir, version,
@@ -326,69 +290,63 @@ def check_install(homedir, destdir, version,
 def test_installer_normal_interactive_usage():
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                            '{}/manifest.json'.format(srv.url)):
-                # accept rel/abs paths
-                for i in range(3):
-                    with inst.tempdir() as cwd:
-                        dests = ['fsl',
-                                 op.join('.', 'fsl'),
-                                 op.abspath('fsl')]
-                        dest  = dests[i]
-                        with mock_input(dest):
-                            inst.main(['--homedir', cwd,
-                                       '--root_env'])
-                        check_install(cwd, dest, '6.2.0')
-                        shutil.rmtree(dest)
+            # accept rel/abs paths
+            for i in range(3):
+                with inst.tempdir() as cwd:
+                    dests = ['fsl',
+                             op.join('.', 'fsl'),
+                             op.abspath('fsl')]
+                    dest  = dests[i]
+                    with mock_input(dest):
+                        inst.main(['--homedir', cwd,
+                                   '--root_env'])
+                    check_install(cwd, dest, '6.2.0')
+                    shutil.rmtree(dest)
 
 
 def test_installer_list_versions():
     platform = inst.identify_platform()
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                            '{}/manifest.json'.format(srv.url)):
-                with inst.tempdir() as cwd:
-                    with CaptureStdout() as cap:
-                        with pytest.raises(SystemExit) as e:
-                            inst.main(['--listversions'])
-                        assert e.value.code == 0
+            with inst.tempdir() as cwd:
+                with CaptureStdout() as cap:
+                    with pytest.raises(SystemExit) as e:
+                        inst.main(['--listversions'])
+                    assert e.value.code == 0
 
-                    out   = strip_ansi_escape_sequences(cap.stdout)
-                    lines = out.split('\n')
+                out   = strip_ansi_escape_sequences(cap.stdout)
+                lines = out.split('\n')
 
-                    assert '6.1.0' in lines
-                    assert '6.2.0' in lines
-                    assert '  {} {}/env-6.1.0.yml'.format(platform, srv.url) in lines
-                    assert '  {} {}/env-6.2.0.yml'.format(platform, srv.url) in lines
+                assert '6.1.0' in lines
+                assert '6.2.0' in lines
+                assert '  {} {}/env-6.1.0.yml'.format(platform, srv.url) in lines
+                assert '  {} {}/env-6.2.0.yml'.format(platform, srv.url) in lines
 
 
 def test_installer_normal_cli_usage():
 
     with inst.tempdir():
         with installer_server() as srv:
-            with mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                            '{}/manifest.json'.format(srv.url)):
 
-                # accept rel/abs paths
-                for i in range(3):
-                    with inst.tempdir() as cwd:
-                        dests = ['fsl', op.join('.', 'fsl'), op.abspath('fsl')]
-                        dest  = dests[i]
-                        inst.main(['--homedir', cwd,
-                                   '--dest', dest,
-                                   '--root_env'])
-                        check_install(cwd, dest, '6.2.0')
-                        shutil.rmtree(dest)
-
-                # install specific version
+            # accept rel/abs paths
+            for i in range(3):
                 with inst.tempdir() as cwd:
+                    dests = ['fsl', op.join('.', 'fsl'), op.abspath('fsl')]
+                    dest  = dests[i]
                     inst.main(['--homedir', cwd,
-                               '--dest', 'fsl',
-                               '--fslversion', '6.1.0',
+                               '--dest', dest,
                                '--root_env'])
-                    check_install(cwd, 'fsl', '6.1.0')
-                    shutil.rmtree('fsl')
+                    check_install(cwd, dest, '6.2.0')
+                    shutil.rmtree(dest)
+
+            # install specific version
+            with inst.tempdir() as cwd:
+                inst.main(['--homedir', cwd,
+                           '--dest', 'fsl',
+                           '--fslversion', '6.1.0',
+                           '--root_env'])
+                check_install(cwd, 'fsl', '6.1.0')
+                shutil.rmtree('fsl')
 
 
 def test_installer_fsldir_already_set():
@@ -397,16 +355,14 @@ def test_installer_fsldir_already_set():
         os.makedirs(existing_fsldir)
         with installer_server() as srv, \
              mock.patch.dict(os.environ, FSLDIR=existing_fsldir):
-            with mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                            '{}/manifest.json'.format(srv.url)):
 
-                with inst.tempdir() as cwd:
-                    # hit enter to accept default installation
-                    # directory, then 'y' to confirm overwrite
-                    with mock_input('', 'y'):
-                        inst.main(['--homedir',
-                                   cwd, '--root_env'])
-                    check_install(cwd, existing_fsldir, '6.2.0')
+            with inst.tempdir() as cwd:
+                # hit enter to accept default installation
+                # directory, then 'y' to confirm overwrite
+                with mock_input('', 'y'):
+                    inst.main(['--homedir',
+                               cwd, '--root_env'])
+                check_install(cwd, existing_fsldir, '6.2.0')
 
 
 def test_installer_devrelease():
@@ -471,8 +427,6 @@ def test_installer_finalise_or_post_cleanup_failure():
 
     with inst.tempdir(), \
          installer_server() as srv, \
-         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                    '{}/manifest.json'.format(srv.url)), \
          inst.tempdir() as cwd, \
          mock.patch('fsl.installer.fslinstaller.finalise_installation',
                     failing_finalise_installation):
@@ -484,8 +438,6 @@ def test_installer_finalise_or_post_cleanup_failure():
 
     with inst.tempdir(), \
          installer_server() as srv, \
-         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                    '{}/manifest.json'.format(srv.url)), \
          inst.tempdir() as cwd, \
          mock.patch('fsl.installer.fslinstaller.post_install_cleanup',
                     failing_post_install_cleanup):
@@ -501,8 +453,6 @@ def test_installer_skip_registration():
     # normal usage - registration info should be posted
     with inst.tempdir() as srvdir, \
          installer_server() as srv, \
-         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                    '{}/manifest.json'.format(srv.url)), \
          inst.tempdir() as cwd:
 
         manifest = '{}/manifest.json'.format(srvdir)
@@ -519,8 +469,6 @@ def test_installer_skip_registration():
     # --skip_registration - registration info should *not* be posted
     with inst.tempdir() as srvdir, \
          installer_server() as srv, \
-         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                    '{}/manifest.json'.format(srv.url)), \
          inst.tempdir() as cwd:
 
         manifest = '{}/manifest.json'.format(srvdir)
@@ -537,8 +485,6 @@ def test_installer_skip_registration():
     # bad registration url in manifest - install should still succeed
     with inst.tempdir() as srvdir, \
          installer_server() as srv, \
-         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                    '{}/manifest.json'.format(srv.url)), \
          inst.tempdir() as cwd:
         manifest = '{}/manifest.json'.format(srvdir)
         patch_manifest(manifest, manifest, None,
@@ -554,8 +500,6 @@ def test_installer_skip_registration():
     # no registration url in manifest - install should still succeed
     with inst.tempdir() as srvdir, \
          installer_server() as srv, \
-         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                    '{}/manifest.json'.format(srv.url)), \
          inst.tempdir() as cwd:
 
         manifest = '{}/manifest.json'.format(srvdir)
@@ -575,8 +519,6 @@ def test_installer_skip_registration():
 def test_installer_existing_miniconda():
     with inst.tempdir() as srvdir, \
          installer_server() as srv, \
-         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                    '{}/manifest.json'.format(srv.url)), \
          inst.tempdir() as cwd:
 
         manifest = '{}/manifest.json'.format(srvdir)
@@ -599,8 +541,6 @@ def test_installer_child_env():
 
     with inst.tempdir() as srvdir, \
          installer_server() as srv, \
-         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                    '{}/manifest.json'.format(srv.url)), \
          inst.tempdir() as cwd:
 
         manifest = '{}/manifest.json'.format(srvdir)
@@ -622,13 +562,10 @@ def test_installer_child_env():
         assert len(srv.posts) == 1
 
 
-
 def test_installer_progress_reporting():
 
     with inst.tempdir() as srvdir, \
          installer_server() as srv, \
-         mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                    '{}/manifest.json'.format(srv.url)), \
          inst.tempdir() as cwd:
 
         with open('{}/manifest.json'.format(srvdir), 'rt') as f:

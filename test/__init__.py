@@ -14,6 +14,7 @@ import sys
 import textwrap as tw
 import time
 import re
+import sys
 
 import fsl.installer.fslinstaller as inst
 
@@ -243,3 +244,50 @@ def mock_nvidia_smi(cudaver=None, exitcode=0):
         path = op.pathsep.join((td, os.environ['PATH']))
         with mock.patch.dict(os.environ, PATH=path):
             yield gen
+
+
+def mock_miniconda_installer(filename, pyver=None):
+    """Creates a mock miniconda installer which creates a mock $FSLDIR/bin/conda
+    command.
+    """
+
+    if pyver is None:
+        pyver = '.'.join(sys.version_info[:2])
+
+    mock_miniconda_sh = """
+    #!/usr/bin/env bash
+
+    #called like <script> -b -p <prefix>
+    prefix=$3
+
+    mkdir -p $prefix/bin/
+    mkdir -p $prefix/etc/
+    mkdir -p $prefix/pkgs/
+
+    prefix=$(cd $prefix && pwd)
+
+    # called like
+    #  - conda env update -p <fsldir> -f <envfile>
+    #  - conda env create -p <fsldir> -f <envfile>
+    #  - conda clean -y --all
+    echo "#!/usr/bin/env bash"                          >> $prefix/bin/conda
+    echo 'if   [ "$1" = "clean" ]; then '               >> $prefix/bin/conda
+    echo "    touch $prefix/cleaned"                    >> $prefix/bin/conda
+    echo 'elif [ "$1" = "env" ]; then '                 >> $prefix/bin/conda
+    echo '    envprefix=$4'                             >> $prefix/bin/conda
+    echo '    mkdir -p $envprefix/bin/'                 >> $prefix/bin/conda
+    echo '    mkdir -p $envprefix/etc/'                 >> $prefix/bin/conda
+    echo '    mkdir -p $envprefix/pkgs/'                >> $prefix/bin/conda
+    echo '    cp "$6" $envprefix/'                      >> $prefix/bin/conda
+    echo '    echo "$2" > $envprefix/env_command'       >> $prefix/bin/conda
+    echo '    echo "python {pyver}" > $envprefix/pyver' >> $prefix/bin/conda
+    echo "fi"                                           >> $prefix/bin/conda
+    chmod a+x $prefix/bin/conda
+    """.strip()
+
+    mock_miniconda_sh = mock_miniconda_sh.format(pyver=pyver)
+
+    with open(filename, 'wt') as f:
+        f.write(mock_miniconda_sh)
+
+    os.chmod(filename, 0o755)
