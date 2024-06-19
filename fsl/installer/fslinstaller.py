@@ -41,6 +41,7 @@ import                   os
 import                   platform
 import                   pwd
 import                   readline
+import                   re
 import                   shlex
 import                   shutil
 import                   ssl
@@ -75,7 +76,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.12.2'
+__version__ = '3.13.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -249,6 +250,38 @@ def post_request(url, data):
             resp.close()
 
 
+def funccache(func):
+    """Memoisation decorator for a function. Alternative to
+    ``functools.lru_cache``, which is not available in Python 2.x.
+    """
+
+    cache = {}
+
+    def decorator(*args, **kwargs):
+
+        key = list()
+        key.extend(args)
+        key.extend([kwargs[k] for k in sorted(kwargs.keys())])
+
+        if len(key) > 0: key = tuple(key)
+        else:            key = ('default',)
+
+        value = cache.get(key, None)
+
+        if value is None:
+            value      = func(*args, **kwargs)
+            cache[key] = value
+
+        return value
+
+    def reset():
+        cache.clear()
+
+    decorator.reset = reset
+
+    return decorator
+
+
 def identify_platform():
     """Figures out what platform we are running on. Returns a platform
     identifier string - one of:
@@ -290,6 +323,52 @@ def timestamp():
     minutes = int((offset % 3600) / 60)
     now     = now.strftime('%Y-%m-%dT%H:%M:%S')
     return '{}{:+03d}:{:02d}'.format(now, hours, minutes)
+
+
+@funccache
+def identify_cuda(device=None):
+    """Tries to call nvidia-smi to interrogate the supported CUDA runtime
+    version for the specified device (default: 0).
+
+    If nvidia-smi cannot be called, returns None.
+
+    Otherwise returns the latest CUDA version supported by the driver, as a
+    tuple of (major, minor) ints.
+    """
+
+    if device is None:
+        device = 0
+
+    # We can use the nvidia-smi --query-gpu option to
+    # selectively query device name, compute capability,
+    # driver version, etc, e.g.:
+    #
+    #     nvidia-smi -i <device>                        \
+    #       --query-gpu=name,compute_cap,driver_version \
+    #       --format=noheader
+    #
+    # But this option doesn't allow us to query the
+    # supported CUDA version. So here we just scrape the
+    # human-readable output to get that information.
+    cudaver = None
+
+    try:
+        output = Process.check_output('nvidia-smi -i {}'.format(device))
+        output = output.split('\n')
+        pat    = r'CUDA Version: (\S+)'
+        for line in output:
+            match = re.search(pat, line)
+            if match:
+                cudaver      = match.group(1)
+                major, minor = cudaver.split('.')
+                cudaver      = (int(major),  int(minor))
+                break
+
+    except Exception as e:
+        log.debug('Unable to interrogate CUDA version: %s', e, exc_info=True)
+        return None
+
+    return cudaver
 
 
 def check_need_admin(dirname):
@@ -547,7 +626,7 @@ def clean_environ():
     return env
 
 
-def install_environ(fsldir, username=None, password=None):
+def install_environ(fsldir, username=None, password=None, cuda_version=None):
     """Returns a dict containing some environment variables that should
     be added to the shell environment when the FSL conda environment is
     being installed.
@@ -578,6 +657,20 @@ def install_environ(fsldir, username=None, password=None):
     # so we need to set those variables
     if username: env['FSLCONDA_USERNAME'] = username
     if password: env['FSLCONDA_PASSWORD'] = password
+
+    # Trick conda into thinking that CUDA is
+    # available on this platform if it is, or if
+    # the user has specifically requested that
+    # CUDA packages be installed
+    #
+    # Otherwise clear the var in case we have a
+    # local GPU that the user wishes to ignore (if
+    # they passed --cuda=none)
+    #
+    # https://conda.io/projects/conda/en/\
+    # latest/user-guide/tasks/manage-virtual.html
+    if cuda_version is not None: env['CONDA_OVERRIDE_CUDA'] = cuda_version
+    else:                        env['CONDA_OVERRIDE_CUDA'] = ''
 
     return env
 
@@ -1358,11 +1451,15 @@ class Context(object):
         # The download_fsl_environment_files function
         # stores the path to the FSL conda environment
         # files, list of conda channels, and python
-        # version to be installed
+        # version to be installed. The cuda version is
+        # stored in main, and used during installation
+        # to ensure that the correct CUDA packages are
+        # installed.
         self.environment_file        = None
         self.extra_environment_files = None
         self.environment_channels    = None
         self.python_version          = None
+        self.cuda_version            = None
 
         # The config_logging function stores the path
         # to the fslinstaller log file here.
@@ -1742,7 +1839,9 @@ class Context(object):
         env.update(clean_environ())
         append_env.update(install_environ(self.destdir,
                                           self.args.username,
-                                          self.args.password))
+                                          self.args.password,
+                                          self.cuda_version))
+
         return process_func(admin=self.need_admin,
                             password=self.admin_password,
                             env=env,
@@ -1852,6 +1951,73 @@ def prompt_dev_release(devreleases, latest):
     return devreleases[selection][0]
 
 
+def add_cuda_packages(ctx):
+    """Used by download_fsl_environment. If the target system has a GPU,
+    or the user has explicitly requested a CUDA version.
+
+    The way that CUDA libraries are packaged on conda-forge has changed
+    a few times. The current state of affairs is described in a github issue:
+
+    https://github.com/conda-forge/conda-forge.github.io/issues/1963
+
+    This function just adds "cuda-version" to the list of packages to be
+    installed, which should cause conda to install packages compatible with
+    that version.
+
+    Returns a tuple containing:
+
+     - a dict of packages, of the form "{package : version};", to be
+       installed. Prints warnings if it appears that the requested CUDA version
+       might not be compatible with the system, or might not be available on
+       conda-forge.
+     - A string containing the X.Y CUDA version, or None if CUDA libraries are
+       not to be installed.
+    """
+
+    # User has requested no CUDA
+    if ctx.args.cuda == 'none':
+        return {}, None
+
+    # If user has requested a specific CUDA/
+    # compute capability, ignore the version
+    # supported by the local GPU (if present)
+    if ctx.args.cuda is not None:
+        cuda = ctx.args.cuda
+
+    # Otherwise interrogate the local GPU to
+    # select a suitable CUDA version. The
+    # returned value will be None if there
+    # is no GPU available on this system.
+    else:
+        cuda = identify_cuda()
+
+    # There is no GPU on this system, and the
+    # user has not requested a particular CUDA
+    # version, so we don't add any CUDA pins
+    if cuda is None:
+        return {}, None
+
+    # We have a GPU, and/or the user
+    # has requested CUDA packages.
+    printmsg('\nBy downloading and using the CUDA Toolkit conda packages, you '
+             'accept the terms and conditions of the CUDA End User License '
+             'Agreement (EULA): https://docs.nvidia.com/cuda/eula/index.html'
+             '\n', IMPORTANT)
+
+    # CUDA >= 11 should have binary compatibility
+    # within major release, so we set the version
+    # constraint accordingly. Conda-forge has
+    # limited support for CUDA versions older
+    # than 11.2, so we are not doing anything
+    # special to handle older versions.
+    major, minor = cuda
+    packages     = {
+        'cuda-version' : '>={}.{},<{}'.format(major, minor, major + 1)
+    }
+
+    return packages, '{}.{}'.format(*cuda)
+
+
 def read_environment_file(filename):
     """Very primitive routine which loads a conda environment.yml file.
     Returns:
@@ -1952,22 +2118,27 @@ def write_environment_file(filename, name, channels, packages):
             f.write(' - {}{}\n'.format(package, version))
 
 
-def download_fsl_environment_files(ctx):
+def download_fsl_environment_files(ctx, extra_pkgs=None):
     """Downloads the environment specification files for the selected FSL
     version.
 
+    A copy of each environment file is made. Any packages specified by
+    --exclude_package will be removed from the environment specifications.
+
     Internal/development FSL versions may source packages from the internal
     FSL conda channel, which requires a username+password to authenticate.
+    These are referred to in the environment file as ${FSLCONDA_USERNAME} and
+    ${FSLCONDA_PASSWORD}.  If the user has not provided a username+password on
+    the command-line, they are prompted for them.
 
-    These are referred to in the environment file as ${FSLCONDA_USERNAME}
-    and ${FSLCONDA_PASSWORD}.
-
-    If the user has not provided a username+password on the command-line, they
-    are prompted for them.
-
-    The downloaded environment files may be modified - if the (hidden)
-    --exclude_package option has been used.
+    extra_pkgs may be a dict of {package : version} entries - these will be
+    added to each environment file. This is used to add a CUDA version
+    constraint to each environment, in the event that CUDA packages are being
+    installed.
     """
+
+    if extra_pkgs is None:
+        extra_pkgs = {}
 
     # A FSL release may comprise multiple
     # separate environment files - a "main"
@@ -2065,6 +2236,9 @@ def download_fsl_environment_files(ctx):
             if exclude:
                 log.debug('Excluding package %s', exclude)
                 packages.pop(package)
+
+        # Add extra_pkgs to each environment
+        packages.update(extra_pkgs)
 
         # Re-generate the environment file so it contains
         # the updated package list. We don't need to
@@ -2231,9 +2405,13 @@ def generate_condarc(fsldir,
     # if a pkgsdir was provided
     if pkgsdir is not None:
         condarc += tw.dedent("""
-        # Fix the package cache at $FSLDIR/pkgs/
-        pkgs_dirs: #!final
-        - {} #!top #!bottom
+        # Fix the package cache at $FSLDIR/pkgs/. Conda
+        # will download packages to this directory,
+        # unless it is not writeable, in which case the
+        # user can specify another location in their
+        # ~/.condarc
+        pkgs_dirs:
+        - {} #!top
         """.format(pkgsdir))
 
     if skip_ssl_verify:
@@ -2884,6 +3062,7 @@ def parse_args(argv=None, include=None, parser=None):
         'skip_registration' : ('-r', {'action'  : 'store_true'}),
         'extra'             : ('-e', {'action'  : 'append'}),
         'fslversion'        : ('-V', {'default' : 'latest'}),
+        'cuda'              : ('-c', {'metavar' : 'X.Y'}),
 
         # hidden options
         'skip_ssl_verify'    : (None, {'action'  : 'store_true'}),
@@ -2930,6 +3109,13 @@ def parse_args(argv=None, include=None, parser=None):
                               'FSL development team.',
         'extra'             : 'Install optional FSL components',
         'fslversion'        : 'Install this specific version of FSL.',
+        'cuda'              : 'Install CUDA libraries which are compatible '
+                              'with this CUDA version (default: install '
+                              'versions of CUDA libraries that are compatible '
+                              'with the GPU on the system, or do not install '
+                              'CUDA libraries on systems without a GPU). Set '
+                              'to "none" to disable installation of CUDA '
+                              'libraries.',
 
         # Configure conda to skip SSL verification.
         # Not recommended.
@@ -3103,6 +3289,25 @@ def parse_args(argv=None, include=None, parser=None):
             printmsg('Home directory {} does not exist!'.format(args.homedir),
                      ERROR, EMPHASIS)
             sys.exit(1)
+
+    # convert --cuda X.Y into
+    # a tuple of (X, Y) ints
+    if args.cuda is not None:
+
+        # User does not want CUDA
+        if args.cuda.lower() == 'none':
+            args.cuda = 'none'
+        else:
+            try:
+                major, minor = args.cuda.split('.')
+                major        = int(major)
+                minor        = int(minor)
+                args.cuda    = (major, minor)
+            except Exception:
+                printmsg('Invalid CUDA version specified: '
+                         '{}'.format(args.cuda),
+                         ERROR, EMPHASIS)
+                sys.exit(1)
 
     # --no-env is automatically enabled
     #  when installer is run as root
@@ -3299,6 +3504,12 @@ def main(argv=None):
     # arm64 machine
     check_rosetta_status(ctx)
 
+    # If installing CUDA libraries, we add appropriate
+    # versions of CUDA packges to the package list
+    # for each conda environment to be installed
+    cudapkgs, cudaver = add_cuda_packages(ctx)
+    ctx.cuda_version  = cudaver
+
     # Do everything in a temporary directory,
     # but don't delete it, as some operations
     # may be run as root. The tempdir is
@@ -3313,7 +3524,7 @@ def main(argv=None):
         # an existing installation
         overwrite_destdir(ctx)
 
-        download_fsl_environment_files(ctx)
+        download_fsl_environment_files(ctx, cudapkgs)
         printmsg('\nInstalling FSL in {}\n'.format(ctx.destdir), EMPHASIS)
 
         with handle_error(ctx):

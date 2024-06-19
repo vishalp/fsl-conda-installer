@@ -13,40 +13,8 @@ except ImportError: import mock
 import fsl.installer.fslinstaller as inst
 
 from . import (server,
-               indir)
-
-
-# mock miniconda installer which creates
-# a mock $FSLDIR/bin/conda command
-mock_miniconda_sh = """
-#!/usr/bin/env bash
-
-#called like <script> -b -p <prefix>
-prefix=$3
-
-mkdir -p $prefix/bin/
-mkdir -p $prefix/etc/
-mkdir -p $prefix/pkgs/
-
-prefix=$(cd $prefix && pwd)
-
-# called like
-#  - conda env update -p <fsldir>                 -f <envfile>
-#  - conda env create -p <fsldir>/envs/<extraenv> -f <envfile>
-#  - conda clean -y --all
-echo "#!/usr/bin/env bash"                          >> $prefix/bin/conda
-echo 'if   [ "$1" = "clean" ]; then '               >> $prefix/bin/conda
-echo "    touch $prefix/cleaned"                    >> $prefix/bin/conda
-echo 'elif [ "$1" = "env" ]; then '                 >> $prefix/bin/conda
-echo '    envprefix=$4'                             >> $prefix/bin/conda
-echo '    mkdir -p $envprefix/bin/'                 >> $prefix/bin/conda
-echo '    mkdir -p $envprefix/etc/'                 >> $prefix/bin/conda
-echo '    mkdir -p $envprefix/pkgs/'                >> $prefix/bin/conda
-echo '    cp "$6" $envprefix/'                      >> $prefix/bin/conda
-echo '    echo "$2" > $envprefix/env_command'       >> $prefix/bin/conda
-echo "fi"                                           >> $prefix/bin/conda
-chmod a+x $prefix/bin/conda
-""".strip()
+               indir,
+               mock_miniconda_installer)
 
 
 mock_manifest = {
@@ -108,7 +76,8 @@ def mock_server(cwd=None):
     cwd = op.abspath(cwd)
     with indir(cwd), server(cwd) as srv:
 
-        with open('miniconda.sh',   'wt') as f: f.write(mock_miniconda_sh)
+        mock_miniconda_installer('miniconda.sh')
+
         with open('env.yml',        'wt') as f: f.write(mock_env_yml)
         with open('env_extra1.yml', 'wt') as f: f.write(mock_env_yml_extra1)
         with open('env_extra2.yml', 'wt') as f: f.write(mock_env_yml_extra2)
@@ -130,7 +99,9 @@ def mock_server(cwd=None):
         with open('manifest.json', 'wt') as f:
             f.write(json.dumps(manifest))
 
-        yield srv
+        with mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
+                        '{}/manifest.json'.format(srv.url)):
+            yield srv
 
 
 def check_install(fsldir, extras=None):
@@ -154,34 +125,32 @@ def check_install(fsldir, extras=None):
 def test_install_extra_environment():
     with inst.tempdir():
         with mock_server() as srv:
-            with mock.patch('fsl.installer.fslinstaller.FSL_RELEASE_MANIFEST',
-                            '{}/manifest.json'.format(srv.url)):
-                with inst.tempdir() as homedir:
-                    destdir = op.abspath('./fsl')
-                    inst.main(('--root_env',
-                               '--dest', destdir,
-                               '--homedir', homedir))
-                    check_install(destdir)
-                    shutil.rmtree(destdir)
+            with inst.tempdir() as homedir:
+                destdir = op.abspath('./fsl')
+                inst.main(('--root_env',
+                           '--dest', destdir,
+                           '--homedir', homedir))
+                check_install(destdir)
+                shutil.rmtree(destdir)
 
-                    inst.main(('--root_env',
-                               '--dest', destdir,
-                               '--homedir', homedir,
-                               '--extra', 'extra1'))
-                    check_install(destdir, ['extra1'])
-                    shutil.rmtree(destdir)
+                inst.main(('--root_env',
+                           '--dest', destdir,
+                           '--homedir', homedir,
+                           '--extra', 'extra1'))
+                check_install(destdir, ['extra1'])
+                shutil.rmtree(destdir)
 
-                    inst.main(('--root_env',
-                               '--dest', destdir,
-                               '--homedir', homedir,
-                               '--extra', 'extra2'))
-                    check_install(destdir, ['extra2'])
-                    shutil.rmtree(destdir)
+                inst.main(('--root_env',
+                           '--dest', destdir,
+                           '--homedir', homedir,
+                           '--extra', 'extra2'))
+                check_install(destdir, ['extra2'])
+                shutil.rmtree(destdir)
 
-                    inst.main(('--root_env',
-                               '--dest', destdir,
-                               '--homedir', homedir,
-                               '--extra', 'extra1',
-                               '--extra', 'extra2'))
-                    check_install(destdir, ['extra1', 'extra2'])
-                    shutil.rmtree(destdir)
+                inst.main(('--root_env',
+                           '--dest', destdir,
+                           '--homedir', homedir,
+                           '--extra', 'extra1',
+                           '--extra', 'extra2'))
+                check_install(destdir, ['extra1', 'extra2'])
+                shutil.rmtree(destdir)

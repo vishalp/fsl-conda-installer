@@ -11,8 +11,12 @@ import threading
 import multiprocessing as mp
 import functools as ft
 import sys
+import textwrap as tw
 import time
 import re
+import sys
+
+import fsl.installer.fslinstaller as inst
 
 
 # py3
@@ -213,3 +217,78 @@ def mock_input(*responses):
 def strip_ansi_escape_sequences(text):
     """Does what function name says it does. """
     return re.sub(r'\x1b\[[0-9;]*m', '', text)
+
+
+@contextlib.contextmanager
+def mock_nvidia_smi(cudaver=None, exitcode=0):
+    with inst.tempdir(change_into=False) as td:
+
+        if cudaver is None:
+            cudaver = '11.2'
+
+        filepath = op.join(td, 'nvidia-smi')
+        contents = tw.dedent("""
+        #!/usr/bin/env bash
+
+        echo "CUDA Version: {}"
+        exit {}
+        """).strip()
+
+        def gen(cudaver, exitcode=0):
+            with open(filepath, 'wt') as f:
+                f.write(contents.format(cudaver, exitcode))
+            os.chmod(filepath, 0o755)
+
+        gen(cudaver, exitcode)
+
+        path = op.pathsep.join((td, os.environ['PATH']))
+        with mock.patch.dict(os.environ, PATH=path):
+            yield gen
+
+
+def mock_miniconda_installer(filename, pyver=None):
+    """Creates a mock miniconda installer which creates a mock $FSLDIR/bin/conda
+    command.
+    """
+
+    if pyver is None:
+        pyver = [str(v) for v in sys.version_info[:2]]
+        pyver = '.'.join(pyver)
+
+    mock_miniconda_sh = """
+    #!/usr/bin/env bash
+
+    #called like <script> -b -p <prefix>
+    prefix=$3
+
+    mkdir -p $prefix/bin/
+    mkdir -p $prefix/etc/
+    mkdir -p $prefix/pkgs/
+
+    prefix=$(cd $prefix && pwd)
+
+    # called like
+    #  - conda env update -p <fsldir> -f <envfile>
+    #  - conda env create -p <fsldir> -f <envfile>
+    #  - conda clean -y --all
+    echo "#!/usr/bin/env bash"                          >> $prefix/bin/conda
+    echo 'if   [ "$1" = "clean" ]; then '               >> $prefix/bin/conda
+    echo "    touch $prefix/cleaned"                    >> $prefix/bin/conda
+    echo 'elif [ "$1" = "env" ]; then '                 >> $prefix/bin/conda
+    echo '    envprefix=$4'                             >> $prefix/bin/conda
+    echo '    mkdir -p $envprefix/bin/'                 >> $prefix/bin/conda
+    echo '    mkdir -p $envprefix/etc/'                 >> $prefix/bin/conda
+    echo '    mkdir -p $envprefix/pkgs/'                >> $prefix/bin/conda
+    echo '    cp "$6" $envprefix/'                      >> $prefix/bin/conda
+    echo '    echo "$2" > $envprefix/env_command'       >> $prefix/bin/conda
+    echo '    echo "python {pyver}" > $envprefix/pyver' >> $prefix/bin/conda
+    echo "fi"                                           >> $prefix/bin/conda
+    chmod a+x $prefix/bin/conda
+    """.strip()
+
+    mock_miniconda_sh = mock_miniconda_sh.format(pyver=pyver)
+
+    with open(filename, 'wt') as f:
+        f.write(mock_miniconda_sh)
+
+    os.chmod(filename, 0o755)
