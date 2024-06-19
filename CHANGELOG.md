@@ -1,10 +1,12 @@
 # FSL installer script release history
 
 
-# 3.13.0 (Monday 17th June 2024)
+# 3.13.0 (Wednesday 19th June 2024)
 
-
- - The `fslinstaller.py` script will now instruct `conda` to install versions of CUDA packages which are compatible with a local GPU, or which are compatible with a CUDA version specified by the new `--cuda X.Y` command-line option.
+ - The `fslinstaller.py` script will now instruct `conda` to install versions
+   of CUDA packages which are compatible with a local GPU, or which are
+   compatible with a CUDA version specified by the new `--cuda X.Y`
+   command-line option.
 
 
 # 3.12.2 (Friday 14th June 2024)
