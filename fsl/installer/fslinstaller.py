@@ -2405,9 +2405,13 @@ def generate_condarc(fsldir,
     # if a pkgsdir was provided
     if pkgsdir is not None:
         condarc += tw.dedent("""
-        # Fix the package cache at $FSLDIR/pkgs/
-        pkgs_dirs: #!final
-        - {} #!top #!bottom
+        # Fix the package cache at $FSLDIR/pkgs/. Conda
+        # will download packages to this directory,
+        # unless it is not writeable, in which case the
+        # user can specify another location in their
+        # ~/.condarc
+        pkgs_dirs:
+        - {} #!top
         """.format(pkgsdir))
 
     if skip_ssl_verify:
