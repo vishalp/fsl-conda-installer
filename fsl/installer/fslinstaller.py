@@ -76,7 +76,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.13.0'
+__version__ = '3.13.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -2645,7 +2645,8 @@ def install_fsl(ctx, **kwargs):
     err_patterns = ['Connection broken',
                     'Download error',
                     'NewConnectionError',
-                    'Downloaded bytes did not match Content-Length']
+                    'Downloaded bytes did not match Content-Length',
+                    'CONNECTION FAILED']
 
     with LogRecordingHandler(err_patterns) as hd:
 

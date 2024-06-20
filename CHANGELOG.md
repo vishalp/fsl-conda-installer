@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.13.1 (Thursday 20th June 2024)
+
+ - Add another network error upon the `fslinstaller.py` script will retry the
+   installation.
+
+
 # 3.13.0 (Wednesday 19th June 2024)
 
  - The `fslinstaller.py` script will now instruct `conda` to install versions
