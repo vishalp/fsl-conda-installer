@@ -6,7 +6,6 @@ import json
 import os.path as op
 import textwrap as tw
 
-import test.test_installer        as ti
 import fsl.installer.fslinstaller as fi
 
 from . import (indir,
@@ -72,7 +71,7 @@ def mock_server(cwd=None, patches=None, extras=None):
         with open('env.yml', 'wt') as f:
             f.write(mock_env_yml)
         for envname, yml in extras.items():
-            with open(f'{envname}.yml', 'wt') as f:
+            with open('{}.yml'.format(envname), 'wt') as f:
                 f.write(yml)
 
         manifest            = copy.deepcopy(mock_manifest)
@@ -94,8 +93,8 @@ def mock_server(cwd=None, patches=None, extras=None):
 
         for envname in extras.keys():
             exenv = {
-                'environment': f'{srv.url}/{envname}.yml',
-                'sha256'     : fi.sha256(f'{envname}.yml')
+                'environment': '{}/{}.yml'.format(srv.url, envname),
+                'sha256'     : fi.sha256('{}.yml'.format(envname))
             }
             if envname not in env['extras']:
                 env['extras'][envname] = {}
@@ -118,9 +117,6 @@ def check_install(fsldir, cudavers=None, extras=None):
     expect = {'default' : mock_env_yml}
     expect.update(extras)
 
-    with open(f'{fsldir}/allcommands', 'rt') as f:
-        print(f.read())
-
     if cudavers is None or isinstance(cudavers, str):
         cudavers = {env : cudavers for env in expect.keys()}
 
@@ -138,10 +134,6 @@ def check_install(fsldir, cudavers=None, extras=None):
             envfile = op.join(fsldir, 'env.yml')
         else:
             envfile = op.join(fsldir, '{}.yml'.format(envname))
-
-        print('CHECK', envname)
-        print('EXPECTED', expect_yml)
-        print('GOTTED', open(envfile, 'rt').read().strip())
 
         assert open(envfile, 'rt').read().strip() == expect_yml
 

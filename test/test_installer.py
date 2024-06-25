@@ -250,10 +250,9 @@ def check_install(homedir, destdir, version,
     shell   = os.environ.get('SHELL', 'sh')
     profile = inst.configure_shell.shell_profiles.get(shell, None)
 
-
     with indir(destdir):
         # added by our mock conda env creeate call
-        with open(op.join(destdir, 'env-{}.yml'.format(envver)), 'rt') as f:
+        with open(op.join(basedir, 'env-{}.yml'.format(envver)), 'rt') as f:
             exp = mock_env_yml_template.format(version=envver,
                                                pyver=pyver)
             assert f.read().strip() == exp
@@ -538,6 +537,9 @@ def test_installer_existing_miniconda():
 
 
 def test_installer_child_env():
+    """Test installing FSL as a child environment, using an existing
+    [mini]conda installation.
+    """
 
     with inst.tempdir() as srvdir, \
          installer_server() as srv, \
