@@ -76,7 +76,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.13.1'
+__version__ = '3.13.2'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1592,12 +1592,14 @@ class Context(object):
         installer manifest) for the target platform.
 
         The returned dictionary has the following elements:
-          - 'version'      FSL version.
-          - 'platform':    Platform identifier (e.g. 'linux-64')
-          - 'environment': Environment file to download
-          - 'sha256':      Checksum of environment file
-          - 'output':      Number of lines of expected output, for reporting
-                           progress
+          - 'version'       FSL version.
+          - 'platform':     Platform identifier (e.g. 'linux-64')
+          - 'environment':  Environment file to download
+          - 'sha256':       Checksum of environment file
+          - 'cuda_enabled': Boolean flag indicating whether any packages in
+                            this build is CUDA-capable.
+          - 'output':       Number of lines of expected output, for reporting
+                            progress
         """
 
         if self.__build is not None:
@@ -1621,6 +1623,9 @@ class Context(object):
                 'platform {}'.format(self.platform))
 
         printmsg('FSL {} selected for installation'.format(build['version']))
+
+        if 'cuda_enabled' not in build:
+            build['cuda_enabled'] = False
 
         self.__build = build
         return build
@@ -1976,6 +1981,10 @@ def add_cuda_packages(ctx):
 
     # User has requested no CUDA
     if ctx.args.cuda == 'none':
+        return {}, None
+
+    # Requested FSL version has no CUDA packages
+    if not ctx.build['cuda_enabled']:
         return {}, None
 
     # If user has requested a specific CUDA/
