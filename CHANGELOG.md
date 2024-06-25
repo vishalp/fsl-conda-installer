@@ -1,5 +1,10 @@
 # FSL installer script release history
 
+# 3.13.2 (Tuesday 25th June 2024)
+
+ - The `fslinstaller.py` script will only instruct `conda` to install CUDA
+   packages for specific FSL releases.
+
 
 # 3.13.1 (Thursday 20th June 2024)
 
