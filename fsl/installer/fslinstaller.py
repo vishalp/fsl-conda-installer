@@ -76,7 +76,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.13.2'
+__version__ = '3.13.3'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1983,10 +1983,6 @@ def add_cuda_packages(ctx):
     if ctx.args.cuda == 'none':
         return {}, None
 
-    # Requested FSL version has no CUDA packages
-    if not ctx.build['cuda_enabled']:
-        return {}, None
-
     # If user has requested a specific CUDA/
     # compute capability, ignore the version
     # supported by the local GPU (if present)
@@ -2127,7 +2123,7 @@ def write_environment_file(filename, name, channels, packages):
             f.write(' - {}{}\n'.format(package, version))
 
 
-def download_fsl_environment_files(ctx, extra_pkgs=None):
+def download_fsl_environment_files(ctx, cuda_pkgs=None):
     """Downloads the environment specification files for the selected FSL
     version.
 
@@ -2140,14 +2136,14 @@ def download_fsl_environment_files(ctx, extra_pkgs=None):
     ${FSLCONDA_PASSWORD}.  If the user has not provided a username+password on
     the command-line, they are prompted for them.
 
-    extra_pkgs may be a dict of {package : version} entries - these will be
+    cuda_pkgs may be a dict of {package : version} entries - these will be
     added to each environment file. This is used to add a CUDA version
     constraint to each environment, in the event that CUDA packages are being
     installed.
     """
 
-    if extra_pkgs is None:
-        extra_pkgs = {}
+    if cuda_pkgs is None:
+        cuda_pkgs = {}
 
     # A FSL release may comprise multiple
     # separate environment files - a "main"
@@ -2246,8 +2242,10 @@ def download_fsl_environment_files(ctx, extra_pkgs=None):
                 log.debug('Excluding package %s', exclude)
                 packages.pop(package)
 
-        # Add extra_pkgs to each environment
-        packages.update(extra_pkgs)
+        # Add cuda_pkgs to each environment, but only
+        # if the build entry has cuda_enabled=True
+        if build.get('cuda_enabled', False):
+            packages.update(cuda_pkgs)
 
         # Re-generate the environment file so it contains
         # the updated package list. We don't need to

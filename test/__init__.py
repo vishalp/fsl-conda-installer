@@ -272,6 +272,7 @@ def mock_miniconda_installer(filename, pyver=None):
     #  - conda env create -p <fsldir> -f <envfile>
     #  - conda clean -y --all
     echo "#!/usr/bin/env bash"                          >> $prefix/bin/conda
+    echo 'echo "$@" >> '"$prefix/allcommands"           >> $prefix/bin/conda
     echo 'if   [ "$1" = "clean" ]; then '               >> $prefix/bin/conda
     echo "    touch $prefix/cleaned"                    >> $prefix/bin/conda
     echo 'elif [ "$1" = "env" ]; then '                 >> $prefix/bin/conda
@@ -279,7 +280,12 @@ def mock_miniconda_installer(filename, pyver=None):
     echo '    mkdir -p $envprefix/bin/'                 >> $prefix/bin/conda
     echo '    mkdir -p $envprefix/etc/'                 >> $prefix/bin/conda
     echo '    mkdir -p $envprefix/pkgs/'                >> $prefix/bin/conda
-    echo '    cp "$6" $envprefix/'                      >> $prefix/bin/conda
+    echo '    # copy env file into $prefix - so we'     >> $prefix/bin/conda
+    echo '    # can check that this conda command'      >> $prefix/bin/conda
+    echo '    # was called. The fslinstaller script'    >> $prefix/bin/conda
+    echo '    # independently copies all env files'     >> $prefix/bin/conda
+    echo '    # into $FSLDIR/etc/'                      >> $prefix/bin/conda
+    echo '    cp "$6" '"$prefix"                        >> $prefix/bin/conda
     echo '    echo "$2" > $envprefix/env_command'       >> $prefix/bin/conda
     echo '    echo "python {pyver}" > $envprefix/pyver' >> $prefix/bin/conda
     echo "fi"                                           >> $prefix/bin/conda
