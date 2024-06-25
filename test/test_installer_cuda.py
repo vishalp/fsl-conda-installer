@@ -24,6 +24,7 @@ def reset_caches(func):
             return func(*args, **kwargs)
         finally:
             fi.identify_cuda.reset()
+    return decorator
 
 
 mock_manifest = {
@@ -40,9 +41,10 @@ mock_manifest = {
         'sha256' : None
     }}},
     'versions' : { 'latest' : '6.1.0', '6.1.0'  : [ {
-        'platform'    : 'linux-64',
-        'environment' : None,  # populated below
-        'sha256'      : None
+        'platform'     : 'linux-64',
+        'environment'  : None,  # populated below
+        'sha256'       : None,
+        'cuda_enabled' : True
     }]}
 }
 
@@ -56,7 +58,7 @@ dependencies:
 
 
 @contextlib.contextmanager
-def mock_server(cwd=None):
+def mock_server(cwd=None, *patches):
     if cwd is None:
         cwd = '.'
     cwd = op.abspath(cwd)
@@ -74,6 +76,14 @@ def mock_server(cwd=None):
         miniconda['sha256']      = fi.sha256('miniconda.sh')
         env['environment']       = '{}/env.yml'.format(srv.url)
         env['sha256']            = fi.sha256('env.yml')
+
+        for patch in patches:
+            keys  = patch[:-1]
+            value = patch[-1]
+            section = manifest
+            for key in keys[:-1]:
+                section = section[key]
+            section[keys[-1]] = value
 
         with open('manifest.json', 'wt') as f:
             f.write(json.dumps(manifest))
@@ -170,3 +180,26 @@ def test_installer_cuda_no_gpu_requested_cuda():
                  '--cuda',    '12.0'))
 
         check_install(destdir, '12.0')
+
+
+
+@reset_caches
+def test_installer_cuda_disabled_for_build():
+    """GPU available/user requested, but the specific FSL version does
+    not have CUDA-capable packages.
+    """
+
+    patch = ['versions', '6.1.0', 0, 'cuda_enabled', False]
+
+    with fi.tempdir()           as td,  \
+         mock_server(td, patch) as srv, \
+         fi.tempdir()           as cwd, \
+         mock_nvidia_smi('11.2'):
+
+        destdir = 'fsl'
+
+        fi.main(('--root_env',
+                 '--homedir', cwd,
+                 '--dest',    destdir))
+
+        check_install(destdir, None)

@@ -692,9 +692,11 @@ def test_add_cuda_packages():
     class Mock(object):
         pass
 
-    ctx           = Mock()
-    ctx.args      = Mock()
-    ctx.args.cuda = None
+    ctx                       = Mock()
+    ctx.args                  = Mock()
+    ctx.args.cuda             = None
+    ctx.build                 = {}
+    ctx.build['cuda_enabled'] = True
 
     # (system CUDA, requested CUDA, expected)
     tests = [
