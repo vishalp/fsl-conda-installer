@@ -108,11 +108,11 @@ def check_install(fsldir, extras=None):
     if extras is None:
         extras = []
 
-    assert open(op.join(fsldir, 'env.yml'), 'rt').read().strip() == mock_env_yml
+    envfile = op.join(fsldir, 'env.yml')
+    assert open(envfile, 'rt').read().strip() == mock_env_yml
 
     for extra in ['extra1', 'extra2']:
-        extradir = op.join(fsldir, 'envs', extra)
-        envfile  = op.join(extradir, 'env_{}.yml'.format(extra))
+        envfile  = op.join(fsldir, 'env_{}.yml'.format(extra))
 
         assert op.exists(envfile) == (extra in extras)
 
