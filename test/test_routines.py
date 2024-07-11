@@ -23,6 +23,14 @@ from . import onpath, server, mock_input, mock_nvidia_smi
 import fsl.installer.fslinstaller as inst
 
 
+def test_str2bool():
+    assert inst.str2bool('true')  is True
+    assert inst.str2bool('TRUe')  is True
+    assert inst.str2bool('false') is False
+    assert inst.str2bool(True)    is True
+    assert inst.str2bool(False)   is False
+
+
 def test_identify_plaform():
     tests = [
         [('linux',  'x86_64'), 'linux-64'],
