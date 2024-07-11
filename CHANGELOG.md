@@ -1,6 +1,11 @@
 # FSL installer script release history
 
 
+# 3.13.4 (Thursday 11th July 2024)
+
+ - Minor internal changes.
+
+
 # 3.13.3 (Tuesday 25th June 2024)
 
  - Further adjustments to installing CUDA packages - they are now only
