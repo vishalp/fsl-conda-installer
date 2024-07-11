@@ -161,6 +161,14 @@ def get_terminal_width(fallback=None):
         return fallback
 
 
+def str2bool(value):
+    """Convert a string containing a boolean into a boolean. Assumes that
+    the value is encoded as "true" or "false" (case insensitive).
+    """
+    if isinstance(value, str): return value.lower() == 'true'
+    else:                      return bool(value)
+
+
 def printmsg(*args, **kwargs):
     """Prints a sequence of strings formatted with ANSI codes. Expects
     positional arguments to be of the form::
@@ -2244,7 +2252,7 @@ def download_fsl_environment_files(ctx, cuda_pkgs=None):
 
         # Add cuda_pkgs to each environment, but only
         # if the build entry has cuda_enabled=True
-        if build.get('cuda_enabled', False):
+        if str2bool(build.get('cuda_enabled', False)):
             packages.update(cuda_pkgs)
 
         # Re-generate the environment file so it contains
@@ -2577,7 +2585,7 @@ def get_install_fsl_progress_reporting_method(ctx, build=None, destdir=None):
         # version 4: progval is a dict
         # containing various quantities
         if progver == 4:
-            progval = sum(progval.values())
+            progval = sum([int(v) for v in progval.values()])
 
         # older versions: progval is an integer
         elif progver:
