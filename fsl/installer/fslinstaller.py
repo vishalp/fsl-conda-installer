@@ -2428,8 +2428,8 @@ def download_miniconda(ctx, **kwargs):
 
 
 def install_miniconda(ctx, **kwargs):
-    """Downloads the miniconda/miniforge installer, and installs it to the
-    destination directory.
+    """Downloads the micromamba/miniconda/miniforge installer, and installs
+    it to the destination directory.
 
     This function assumes that it is run within a temporary/scratch directory.
 
@@ -2443,15 +2443,19 @@ def install_miniconda(ctx, **kwargs):
 
     # Get information about the miniconda installer
     # from the manifest.
-    metadata = ctx.miniconda_metadata
-    output   = metadata.get('output', '')
+    if not ctx.args.miniconda:
+        metadata = ctx.miniconda_metadata
+        output   = metadata.get('output', '')
+    else:
+        output = None
 
     # output may be a string or int
     if isinstance(output, str):
         output = output.strip()
-
-    if output == '': output = None
-    else:            output = int(output)
+    if output == '':
+        output = None
+    if output is not None:
+        output = int(output)
 
     # The download_miniconda function saved
     # the installer to <pwd>/miniconda.sh
@@ -3426,7 +3430,9 @@ def parse_args(argv=None, include=None, parser=None):
         # existing miniconda installation.
         'extras_dir' : argparse.SUPPRESS,
 
-        # Use conda and not mamba
+        # Use conda and not mamba, and install
+        # miniconda and not micromamba if the
+        # latter is an option.
         'conda' : argparse.SUPPRESS,
 
         # Disable SHA256 checksum validation
