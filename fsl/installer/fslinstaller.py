@@ -2800,7 +2800,12 @@ def register_installation(ctx):
         return
 
     system = platform.system().lower()
-    uname  = Process.check_output('uname -a', check=False)
+    uname_full = Process.check_output('uname -a', check=False)
+
+    uname_fields = uname_full.split(' ')
+    uname_fields[1] = 'localhost'
+    uname = ' '.join(uname_fields)
+
     osinfo = ''
 
     # macOS
