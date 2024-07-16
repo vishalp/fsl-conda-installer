@@ -2809,11 +2809,11 @@ def register_installation(ctx):
 
     # Linux
     else:
-        for releasefile in glob.glob(op.join('/etc/*-release')):
-            with open(releasefile, 'rt') as f:
+        if op.exists('/etc/os-release'):
+            with open('/etc/os-release', 'rt') as f:
                 osinfo = f.read().strip()
-            break
-
+        else:
+            osinfo = 'Unknown'
         # WSL
         if 'microsoft' in uname.lower():
             osinfo += '\n\n' + Process.check_output('wsl.exe -v', check=False)
