@@ -36,6 +36,7 @@ import                   getpass
 import                   glob
 import                   hashlib
 import                   json
+import                   locale
 import                   logging
 import                   os
 import                   platform
@@ -65,6 +66,11 @@ except ImportError: import                 urlparse
 try:                import queue
 except ImportError: import Queue as queue
 
+
+try:
+    from html.parser import HTMLParser
+except ImportError:
+    from HTMLParser import HTMLParser
 
 PYVER = sys.version_info[:2]
 
@@ -240,18 +246,50 @@ def prompt(promptmsg, *msgtypes, **kwargs):
     return response
 
 
+class CSRFTokenParser(HTMLParser):
+    def __init__(self):
+        if sys.version_info[0] < 3:
+            HTMLParser.__init__(self)
+        else:
+            super(CSRFTokenParser, self).__init__()
+        self.csrf_token = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == 'input':
+            attr_dict = dict(attrs)
+            if attr_dict.get('name') == 'csrfmiddlewaretoken':
+                self.csrf_token = attr_dict.get('value')
+
+
 def post_request(url, data):
     """Send JSON data to a URL via a HTTP POST request. """
 
-    data                    = json.dumps(data).encode('utf-8')
     headers                 = {}
     headers['Content-Type'] = 'application/json'
     resp                    = None
 
+    # Get empty form
     try:
+        req  = urlrequest.Request(url)
+        resp = urlrequest.urlopen(req)
+
+        if sys.version_info[0] < 3:
+            form = resp.read()
+        else:
+            form = resp.read().decode('utf-8')
+
+        parser = CSRFTokenParser()
+        parser.feed(form)
+        csrf_token = parser.csrf_token
+
+        data['csrfmiddlewaretoken'] = csrf_token
+        data['emailaddress'] = ''
+
+        data_enc = json.dumps(data).encode('utf-8')
+
         req  = urlrequest.Request(url,
                                   headers=headers,
-                                  data=data)
+                                  data=data_enc)
         resp = urlrequest.urlopen(req)
     finally:
         if resp:
@@ -321,16 +359,18 @@ def identify_platform():
     return platforms[key]
 
 
-def timestamp():
-    """Return a string containing the local time, with time zone offset.
-    """
-    now     = datetime.datetime.now()
-    offset  = (now - datetime.datetime.utcnow())
-    offset  = round(offset.total_seconds())
-    hours   = int(offset / 3600)
-    minutes = int((offset % 3600) / 60)
-    now     = now.strftime('%Y-%m-%dT%H:%M:%S')
-    return '{}{:+03d}:{:02d}'.format(now, hours, minutes)
+def getlocale():
+    try:
+        locale_tup = locale.getlocale()  # returns tuple like ('en_US', 'UTF-8')
+        if locale_tup[0] is None:
+            locale_str = locale.setlocale(
+                locale.LC_ALL, ''
+                ).replace('C.UTF-8', 'en_US.UTF-8')
+        else:
+            locale_str = '.'.join(locale_tup)
+    except TypeError:
+        locale_str = 'en_US.UTF-8'
+    return locale_str
 
 
 @funccache
@@ -2823,8 +2863,9 @@ def register_installation(ctx):
         if 'microsoft' in uname.lower():
             osinfo += '\n\n' + Process.check_output('wsl.exe -v', check=False)
 
+    locale_str = getlocale()
+
     info = {
-        'timestamp'      : timestamp(),
         'architecture'   : platform.machine(),
         'os'             : system,
         'os_info'        : osinfo,
@@ -2833,6 +2874,7 @@ def register_installation(ctx):
         'python_info'    : sys.version,
         'fsl_version'    : ctx.build['version'],
         'fsl_platform'   : ctx.build['platform'],
+        'locale'         : locale_str,
     }
 
     printmsg('Registering installation with {}'.format(regurl))
