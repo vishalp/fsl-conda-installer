@@ -2930,13 +2930,13 @@ def configure_shell(shell, homedir, fsldir):
     printmsg('Adding FSL configuration to {}'.format(profile))
 
     patch_file(profile, '# FSL Setup', len(cfg.split('\n')), cfg)
-configure_shell.shell_profiles = {'sh'   : ['.profile'],
-                                  'ksh'  : ['.profile'],
-                                  'bash' : ['.bash_profile', '.profile'],
-                                  'dash' : ['.bash_profile', '.profile'],
-                                  'zsh'  : ['.zprofile'],
-                                  'csh'  : ['.cshrc'],
-                                  'tcsh' : ['.tcshrc']}
+    configure_shell.shell_profiles = {'sh'   : ['.profile'],
+                                      'ksh'  : ['.profile'],
+                                      'bash' : ['.bash_profile', '.profile'],
+                                      'dash' : ['.bash_profile', '.profile'],
+                                      'zsh'  : ['.zprofile'],
+                                      'csh'  : ['.cshrc'],
+                                      'tcsh' : ['.tcshrc']}
 
 
 def configure_matlab(homedir, fsldir):
