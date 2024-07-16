@@ -76,7 +76,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.13.4'
+__version__ = '3.13.5'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1042,7 +1042,7 @@ class Progress(object):
                                          ' ' * remaining,
                                          suffix)
 
-        printmsg(progress, end='', log=False, fill=False)
+        printmsg(progress, end='', fill=False)
         printmsg(' ', end='', log=False, fill=False)
         self.spin(False)
         printmsg(end='\r', log=False, fill=False)
@@ -1632,8 +1632,7 @@ class Context(object):
 
         printmsg('FSL {} selected for installation'.format(build['version']))
 
-        if 'cuda_enabled' not in build:
-            build['cuda_enabled'] = False
+        build['cuda_enabled'] = str2bool(build.get('cuda_enabled', False))
 
         self.__build = build
         return build
@@ -2252,7 +2251,7 @@ def download_fsl_environment_files(ctx, cuda_pkgs=None):
 
         # Add cuda_pkgs to each environment, but only
         # if the build entry has cuda_enabled=True
-        if str2bool(build.get('cuda_enabled', False)):
+        if build['cuda_enabled']:
             packages.update(cuda_pkgs)
 
         # Re-generate the environment file so it contains
@@ -2474,13 +2473,24 @@ def get_install_fsl_progress_reporting_method(ctx, build=None, destdir=None):
     if build   is None: build   = ctx.build
     if destdir is None: destdir = ctx.destdir
 
+    # Installation progress parameters may differ
+    # depending on the target system. If we are
+    # installing CUDA packages, and the FSL /
+    # extra environment is CUDA-capable, the
+    # manifest should contain CUDA-specific
+    # installation parameters.
+    if (ctx.cuda_version is not None) and build['cuda_enabled']:
+        params_key = 'cuda'
+    else:
+        params_key = 'install'
+
     # We calculate installation progress in
     # one of a few ways, as we have changed
     # the mechanism a few times.  The
     # 'output/install' field in the manifest
     # gives us information about how to
     # report installation progress.
-    progparams = build.get('output', {}).get('install', None)
+    progparams = build.get('output', {}).get(params_key, None)
 
     # The first method (version 1) involves
     # progress reporting by monitoring number of
