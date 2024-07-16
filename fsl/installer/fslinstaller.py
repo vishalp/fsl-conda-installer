@@ -1632,7 +1632,12 @@ class Context(object):
 
         printmsg('FSL {} selected for installation'.format(build['version']))
 
+        # Make sure the cuda_enabled flag is present
+        # for all environments specified in the build
+        # entry
         build['cuda_enabled'] = str2bool(build.get('cuda_enabled', False))
+        for extra in build.get('extras', {}).values():
+            extra['cuda_enabled'] = str2bool(extra.get('cuda_enabled', False))
 
         self.__build = build
         return build
