@@ -46,6 +46,7 @@ import                   shlex
 import                   shutil
 import                   ssl
 import                   sys
+import                   tarfile
 import                   tempfile
 import                   threading
 import                   time
@@ -193,6 +194,21 @@ def str2bool(value):
     """
     if isinstance(value, str): return value.lower() == 'true'
     else:                      return bool(value)
+
+
+def is_shell_script(filepath):
+    """Check the given file and return True if it is a shell script, or
+    False otherwise.
+    """
+    try:
+        with open(filepath, 'rt') as f:
+            header = f.read(9)
+
+        return any((header.startswith('#!/bin/'),
+                    header.startswith('#!/usr/bin/')))
+
+    except Exception as e:
+        return False
 
 
 def printmsg(*args, **kwargs):
@@ -1642,17 +1658,23 @@ class Context(object):
 
     @property
     def miniconda_metadata(self):
-        """Returns a dict with information about the miniconda installer
-        to use as the base of the FSL installation. This must not be called
-        until after the download_fsl_environment_files function has been
-        called.
+        """Returns a dict with information about the micromamba/miniconda/
+        miniforge installer to use as the base of the FSL installation. This
+        must not be called until after the download_fsl_environment_files
+        function has been called.
 
         The returned dict has `'url'`, `'sha256'` and `'output'` keys.
         """
         # Get information about the miniconda installer
         # from the manifest.
         metadata = self.manifest['miniconda'][self.platform]
-        pyver    = 'python{}'.format(self.python_version)
+
+        # From FSL 6.0.7.13 and newer, installations
+        # may be based on micromamba. If micromamba is
+        # present in the manifest, use it, unless the
+        # user has requested otherwise via --conda.
+        if 'micromamba' in metadata and (not self.args.conda):
+            return metadata['micromamba']
 
         # From FSL 6.0.7.12 and newer, the manifest
         # contains a separate miniconda installer URL
@@ -1661,17 +1683,19 @@ class Context(object):
         # manifest just contained a single miniconda URL
         # for each platform. This code supports both the
         # old and new manifest formats.
+        pyver = 'python{}'.format(self.python_version)
+
         if pyver in metadata:
-            metadata = metadata[pyver]
+            return metadata[pyver]
 
         # if pyver is not in metadata, we either have an
         # old manifest format which contains info for a
         # single miniconda installer, or the manifest
         # does not contain a miniconda installer entry
         # for the python version to be installed.
-        elif 'url' not in metadata:
+        if 'url' not in metadata:
             raise Exception('Manifest does not contain metadata for a Python '
-                            '{} miniconda installer!'.format(pyver))
+                            '{} conda installer!'.format(pyver))
 
         return metadata
 
@@ -1806,21 +1830,26 @@ class Context(object):
 
     @property
     def conda(self):
-        """Return a path to the ``conda`` or ``mamba`` executable. """
+        """Return a path to the ``conda``, ``mamba``, or ``micromamba``
+        executable. """
         bindir   = op.join(self.basedir, 'bin')
         condabin = op.join(bindir, 'conda')
         mambabin = op.join(bindir, 'mamba')
+        mmbin    = op.join(bindir, 'micromamba')
 
-        # If mamba is present, prefer it over conda, unless
-        # the user requestd otherwise via the --conda flag
-        if not self.args.conda: candidates = [mambabin, condabin]
-        else:                   candidates = [condabin, mambabin]
+        # Prefer, in this order:
+        #  - micromamba
+        #  - mamba
+        #  - conda
+        # unless the user requestd otherwise via the --conda flag
+        if not self.args.conda: candidates = [mmbin, mambabin, condabin]
+        else:                   candidates = [condabin, mambabin, mmbin]
 
         for c in candidates:
             if op.exists(c):
                 return c
 
-        raise RuntimeError('Cannot find conda/mamba '
+        raise RuntimeError('Cannot find conda/mamba/micromamba '
                            'executable in {}'.format(bindir))
 
 
@@ -2387,8 +2416,10 @@ def download_fsl_environment_files(ctx):
 
 
 def download_miniconda(ctx, **kwargs):
-    """Downloads the miniconda/miniforge installer and saves it as
-    "miniconda.sh".
+    """Downloads the miniconda/miniforge/micromamba installer and saves it as
+    a file called "miniconda". Miniconda and miniforge installers are assumed
+    to be executable shell scripts, whereas micromamba installers are assumed
+    to be tarballs.
 
     This function assumes that it is run within a temporary/scratch directory.
 
@@ -2421,10 +2452,10 @@ def download_miniconda(ctx, **kwargs):
                   proglabel='download_miniconda',
                   progfile=ctx.args.progress_file,
                   **kwargs) as prog:
-        download_file(url, 'miniconda.sh', prog.update,
+        download_file(url, 'miniconda', prog.update,
                       ssl_verify=(not ctx.args.skip_ssl_verify))
     if (not ctx.args.no_checksum) and (checksum is not None):
-        sha256('miniconda.sh', checksum)
+        sha256('miniconda', checksum)
 
 
 def install_miniconda(ctx, **kwargs):
@@ -2458,13 +2489,24 @@ def install_miniconda(ctx, **kwargs):
         output = int(output)
 
     # The download_miniconda function saved
-    # the installer to <pwd>/miniconda.sh
-    printmsg('Installing miniconda at {}...'.format(ctx.basedir))
-    cmd = 'bash miniconda.sh -b -p {}'.format(ctx.basedir)
-    ctx.run(Process.monitor_progress, cmd, total=output,
-            proglabel='install_miniconda',
-            progfile=ctx.args.progress_file,
-            **kwargs)
+    # the installer to <pwd>/miniconda. This
+    # is assumed to be either an executable
+    # shell script (miniconda/miniforge), or
+    # a tarball (micromamba).
+    printmsg('Installing conda at {}...'.format(ctx.basedir))
+    if is_shell_script('miniconda'):
+        cmd = 'bash miniconda -b -p {}'.format(ctx.basedir)
+        ctx.run(Process.monitor_progress, cmd, total=output,
+                proglabel='install_miniconda',
+                progfile=ctx.args.progress_file,
+                **kwargs)
+    else:
+        # from 3.12 onwards, we must pass filter='data'
+        # to avoid security/safety warnings/errors
+        if PYVER >= (3, 12): kwargs = {'filter' : 'data'}
+        else:                kwargs = {}
+        with tarfile.open('miniconda') as f:
+            f.extractall(ctx.basedir, **kwargs)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
@@ -3402,6 +3444,13 @@ def parse_args(argv=None, include=None, parser=None):
         #
         #   fslinstaller.py --miniconda https://path/to/miniconda.sh
         #   fslinstaller.py --miniconda ~/Downloads/miniconda.sh
+        #
+        # URLs to a micromamba installer are
+        # also accepted - if the file is an
+        # executable shell script, the
+        # installer assumes it is miniconda,
+        # otherwise the installer assumes it
+        # is micromamba.
         #
         # Alternatively, pass the directory of
         # an existing [mini]conda installation
