@@ -76,7 +76,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.13.5'
+__version__ = '3.13.6'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -832,7 +832,9 @@ def download_dev_releases(url, workdir=None, **kwargs):
     def parse_devrelease_name(url):
         name = urlparse.urlparse(url).path
         name = op.basename(name)
-        name = name.lstrip('manifest-').rstrip('.json')
+
+        # strip "manifest-" and ".json"
+        name = name[9:-5]
 
         # The devrelease list may contain public
         # releases too - sniff the commit, and if
