@@ -1,7 +1,7 @@
 # FSL installer script release history
 
 
-# 3.13.6 (Wednesday 24th July 2024)
+# 3.14.0 (Wednesday 24th July 2024)
 
  - Minor internal changes.
 
