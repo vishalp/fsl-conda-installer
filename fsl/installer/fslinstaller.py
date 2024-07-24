@@ -2159,8 +2159,8 @@ def download_fsl_environment_files(ctx):
     # appropriate versions of CUDA packges to
     # the package list for each conda
     # environment to be installed.
-    cudapkgs, cudaver = add_cuda_packages(ctx)
-    ctx.cuda_version  = cudaver
+    cuda_pkgs, cuda_ver = add_cuda_packages(ctx)
+    ctx.cuda_version    = cuda_ver
 
     # A FSL release may comprise multiple
     # separate environment files - a "main"
