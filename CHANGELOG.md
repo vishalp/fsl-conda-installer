@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.14.1 (Thursday 25th July 2024)
+
+ - The `--listversions` option will print out available extra/optional
+   components for each FSL release.
+
+
 # 3.14.0 (Wednesday 24th July 2024)
 
  - Minor internal changes.
