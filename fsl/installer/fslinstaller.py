@@ -76,7 +76,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.14.0'
+__version__ = '3.14.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1921,13 +1921,18 @@ def check_rosetta_status(ctx):
 def list_available_versions(manifest):
     """Lists available FSL versions. """
     printmsg('Available FSL versions:', EMPHASIS)
-    for version in manifest['versions']:
-        if version == 'latest':
+    versions = list(manifest['versions'].keys())
+    versions = reversed(sorted([Version(v) for v in versions]))
+    for version in versions:
+        if str(version) == 'latest':
             continue
-        printmsg(version, IMPORTANT, EMPHASIS)
-        for build in manifest['versions'][version]:
+        printmsg(str(version), IMPORTANT, EMPHASIS)
+        for build in manifest['versions'][str(version)]:
             printmsg('  {}'.format(build['platform']), EMPHASIS, end=' ')
             printmsg(build['environment'], INFO)
+            if len(build.get('extras', [])) > 0:
+                extras = ', '.join(build['extras'])
+                printmsg('  Extras: {}'.format(extras), INFO)
 
 
 def prompt_dev_release(devreleases, latest):
