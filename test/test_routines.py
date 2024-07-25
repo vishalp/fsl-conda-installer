@@ -551,6 +551,9 @@ def test_register_installation():
     assert 'python_info'    in got
     assert got['fsl_version']  == '6.7.0'
     assert got['fsl_platform'] == 'linux-64'
+    assert 'locale'         in got
+    assert 'emailaddress'   == ''
+    assert 'csrfmiddlewaretoken' in got
 
 
 def test_agree_to_license():

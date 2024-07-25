@@ -72,6 +72,11 @@ try:
 except ImportError:
     from HTMLParser import HTMLParser
 
+try:
+    from http.cookiejar import CookieJar
+except ImportError:
+    from cookielib import CookieJar
+
 PYVER = sys.version_info[:2]
 
 
@@ -263,15 +268,19 @@ class CSRFTokenParser(HTMLParser):
 
 def post_request(url, data):
     """Send JSON data to a URL via a HTTP POST request. """
-
+    lgr                     = logging.getLogger(__name__)
     headers                 = {}
-    headers['Content-Type'] = 'application/json'
+    headers['Content-Type'] = 'application/x-www-form-urlencoded'
+    headers['Referer']      = url
     resp                    = None
 
     # Get empty form
     try:
-        req  = urlrequest.Request(url)
-        resp = urlrequest.urlopen(req)
+        # Build cookie jar
+        cj     = CookieJar()
+        opener = urlrequest.build_opener(urlrequest.HTTPCookieProcessor(cj))
+
+        resp   = opener.open(url)
 
         if sys.version_info[0] < 3:
             form = resp.read()
@@ -285,12 +294,20 @@ def post_request(url, data):
         data['csrfmiddlewaretoken'] = csrf_token
         data['emailaddress'] = ''
 
-        data_enc = json.dumps(data).encode('utf-8')
+        data_enc = urlparse.urlencode(data).encode('utf-8')
 
         req  = urlrequest.Request(url,
                                   headers=headers,
                                   data=data_enc)
-        resp = urlrequest.urlopen(req)
+        resp = opener.open(req)
+        if sys.version_info[0] < 3:
+            msg = resp.read()
+        else:
+            msg = resp.read().decode('utf-8')
+        if 'Registered' in msg:
+            lgr.debug("Registration with {0} successful".format(url))
+        else:
+            lgr.debug("Registration with {0} failed".format(url))
     finally:
         if resp:
             resp.close()
@@ -1542,6 +1559,7 @@ class Context(object):
         """Return the FSL registration URL from the manifest, or None if it is
         not present.
         """
+        return 'https://fsl.fmrib.ox.ac.uk/fslregistration/'
         return self.manifest['installer'].get('registration_url')
 
 
@@ -2977,13 +2995,14 @@ def configure_shell(shell, homedir, fsldir):
     printmsg('Adding FSL configuration to {}'.format(profile))
 
     patch_file(profile, '# FSL Setup', len(cfg.split('\n')), cfg)
-    configure_shell.shell_profiles = {'sh'   : ['.profile'],
-                                      'ksh'  : ['.profile'],
-                                      'bash' : ['.bash_profile', '.profile'],
-                                      'dash' : ['.bash_profile', '.profile'],
-                                      'zsh'  : ['.zprofile'],
-                                      'csh'  : ['.cshrc'],
-                                      'tcsh' : ['.tcshrc']}
+
+configure_shell.shell_profiles = {'sh'   : ['.profile'],
+                                    'ksh'  : ['.profile'],
+                                    'bash' : ['.bash_profile', '.profile'],
+                                    'dash' : ['.bash_profile', '.profile'],
+                                    'zsh'  : ['.zprofile'],
+                                    'csh'  : ['.cshrc'],
+                                    'tcsh' : ['.tcshrc']}
 
 
 def configure_matlab(homedir, fsldir):
