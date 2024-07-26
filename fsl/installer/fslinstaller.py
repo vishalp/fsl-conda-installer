@@ -266,8 +266,8 @@ class CSRFTokenParser(HTMLParser):
                 self.csrf_token = attr_dict.get('value')
 
 
-def post_request(url, data):
-    """Send JSON data to a URL via a HTTP POST request. """
+def post_registration(url, data):
+    """Interact with FSL Registration server. """
     lgr                     = logging.getLogger(__name__)
     headers                 = {}
     headers['Content-Type'] = 'application/x-www-form-urlencoded'
@@ -294,7 +294,10 @@ def post_request(url, data):
         data['csrfmiddlewaretoken'] = csrf_token
         data['emailaddress'] = ''
 
-        data_enc = urlparse.urlencode(data).encode('utf-8')
+        if sys.version_info[0] < 3:
+            data_enc = urllib.urlencode(data)
+        else:
+            data_enc = urlparse.urlencode(data).encode('utf-8')
 
         req  = urlrequest.Request(url,
                                   headers=headers,
@@ -2897,7 +2900,7 @@ def register_installation(ctx):
 
     printmsg('Registering installation with {}'.format(regurl))
 
-    post_request(regurl, data=info)
+    post_registration(regurl, data=info)
 
 
 def patch_file(filename, searchline, numlines, content):

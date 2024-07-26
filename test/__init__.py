@@ -35,6 +35,11 @@ except ImportError:
     http.SimpleHTTPRequestHandler.protocol_version = 'HTTP/1.0'
     import mock
 
+try:
+    from urllib.parse import unquote  # Python 3
+except ImportError:
+    from urllib import unquote  # Python 2
+
 
 @contextlib.contextmanager
 def onpath(dir):
@@ -78,8 +83,10 @@ class HTTPServer(mp.Process):
         def do_POST(self):
 
             nbytes = int(self.headers['Content-Length'])
-            data   = json.loads(self.rfile.read(nbytes).decode())
-
+            if self.headers['Content-Type'] == 'application/json':
+                data = json.loads(self.rfile.read(nbytes).decode())
+            elif self.headers['Content-Type'] == 'application/x-www-form-urlencoded':
+                data = self.rfile.read(nbytes).decode().unquote()
             self.posts.put(data)
             self.send_response(200)
             self.send_header('Content-type', 'text/html')

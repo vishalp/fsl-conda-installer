@@ -488,9 +488,9 @@ def test_self_update():
             assert got.decode('utf-8').strip() == 'old version'
 
 
-def test_post_request(tmp_path):
+def test_post_registration(tmp_path):
     csrf_token = 'ABCDEF123456'
-    with open(tmp_path / 'form.html', 'w') as temp_form:
+    with open(str(tmp_path / 'form.html'), 'w') as temp_form:
         temp_form.write(
             '''<html><header></header><body>
             <input name='csrfmiddlewaretoken' value='{0}'>
@@ -499,7 +499,7 @@ def test_post_request(tmp_path):
             '''.format(csrf_token))
 
     with server(tmp_path) as srv:
-        inst.post_request(
+        inst.post_registration(
             "/".join((srv.url, 'form.html')),
             {'key' : 'value'})
     assert srv.posts == [{
