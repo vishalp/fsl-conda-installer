@@ -109,7 +109,7 @@ def test_download_file():
             inst.download_file(url, 'copy')
 
             with open('copy', 'rt') as f:
-                 assert f.read() == 'hello\n'
+                assert f.read() == 'hello\n'
 
         # download_file should also work
         # with a path to a local file
