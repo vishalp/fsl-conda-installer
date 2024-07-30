@@ -248,7 +248,8 @@ def prompt(promptmsg, *msgtypes, **kwargs):
 
 def send_registration_info(url, data):
     """Called by register_installation. Sends information about the
-    installation to the FSL registration server.
+    installation to the FSL registration server. The data is assumed
+    to be a dictionary of key-value pairs to be sent.
     """
 
     class CSRFTokenParser(HTMLParser):
