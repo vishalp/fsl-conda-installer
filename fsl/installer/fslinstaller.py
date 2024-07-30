@@ -33,7 +33,6 @@ import                   contextlib
 import                   datetime
 import                   fnmatch
 import                   getpass
-import                   glob
 import                   hashlib
 import                   json
 import                   locale
@@ -66,16 +65,12 @@ except ImportError: import                 urlparse
 try:                import queue
 except ImportError: import Queue as queue
 
+try:                from html.parser import HTMLParser
+except ImportError: from HTMLParser  import HTMLParser
 
-try:
-    from html.parser import HTMLParser
-except ImportError:
-    from HTMLParser import HTMLParser
+try:                from http.cookiejar import CookieJar
+except ImportError: from cookielib      import CookieJar
 
-try:
-    from http.cookiejar import CookieJar
-except ImportError:
-    from cookielib import CookieJar
 
 PYVER = sys.version_info[:2]
 
@@ -251,66 +246,74 @@ def prompt(promptmsg, *msgtypes, **kwargs):
     return response
 
 
-class CSRFTokenParser(HTMLParser):
-    def __init__(self):
-        if sys.version_info[0] < 3:
-            HTMLParser.__init__(self)
-        else:
-            super(CSRFTokenParser, self).__init__()
-        self.csrf_token = None
+def send_registration_info(url, data):
+    """Called by register_installation. Sends information about the
+    installation to the FSL registration server.
+    """
 
-    def handle_starttag(self, tag, attrs):
-        if tag == 'input':
-            attr_dict = dict(attrs)
-            if attr_dict.get('name') == 'csrfmiddlewaretoken':
-                self.csrf_token = attr_dict.get('value')
+    class CSRFTokenParser(HTMLParser):
+        """HTML parser which extracts a CSRF token.
 
+        https://docs.djangoproject.com/en/5.0/ref/csrf/
+        """
+        def __init__(self):
+            if sys.version_info[0] < 3:
+                HTMLParser.__init__(self)
+            else:
+                super(CSRFTokenParser, self).__init__()
+            self.csrf_token = None
 
-def post_registration(url, data):
-    """Interact with FSL Registration server. """
-    lgr                     = logging.getLogger(__name__)
+        def handle_starttag(self, tag, attrs):
+            if tag == 'input':
+                attr_dict = dict(attrs)
+                if attr_dict.get('name') == 'csrfmiddlewaretoken':
+                    self.csrf_token = attr_dict.get('value')
+
     headers                 = {}
     headers['Content-Type'] = 'application/x-www-form-urlencoded'
     headers['Referer']      = url
     resp                    = None
 
-    # Get empty form
     try:
-        # Build cookie jar
-        cj     = CookieJar()
-        opener = urlrequest.build_opener(urlrequest.HTTPCookieProcessor(cj))
+        # Use cookie jar to store CSRF token
+        cj = CookieJar()
 
+        # Download the HTML form (which will
+        # contain the CSRF token)
+        opener = urlrequest.build_opener(urlrequest.HTTPCookieProcessor(cj))
         resp   = opener.open(url)
 
-        if sys.version_info[0] < 3:
-            form = resp.read()
-        else:
-            form = resp.read().decode('utf-8')
+        if PYVER[0] == 2: form = resp.read()
+        else:             form = resp.read().decode('utf-8')
 
+        # extract CSRF token
         parser = CSRFTokenParser()
         parser.feed(form)
         csrf_token = parser.csrf_token
 
+        # Send installation data to
+        # server via POST request
         data['csrfmiddlewaretoken'] = csrf_token
-        data['emailaddress'] = ''
+        data['emailaddress']        = ''
 
-        if sys.version_info[0] < 3:
-            data_enc = urllib.urlencode(data)
-        else:
-            data_enc = urlparse.urlencode(data).encode('utf-8')
+        if PYVER[0] == 2: data_enc = urllib.urlencode(data)
+        else:             data_enc = urlparse.urlencode(data).encode('utf-8')
 
         req  = urlrequest.Request(url,
                                   headers=headers,
                                   data=data_enc)
         resp = opener.open(req)
-        if sys.version_info[0] < 3:
-            msg = resp.read()
-        else:
-            msg = resp.read().decode('utf-8')
+
+        if PYVER[0] == 2: msg = resp.read()
+        else:             msg = resp.read().decode('utf-8')
+
+        log.debug(msg)
+
         if 'Registered' in msg:
-            lgr.debug("Registration with {0} successful".format(url))
+            log.debug("Registration with %s successful", url)
         else:
-            lgr.debug("Registration with {0} failed".format(url))
+            log.debug("Registration with %s failed", url)
+
     finally:
         if resp:
             resp.close()
@@ -380,12 +383,15 @@ def identify_platform():
 
 
 def getlocale():
+    """Returns an ID describing the user locale. This is sent to the FSL
+    regstration server to give information about the host language.
+    """
     try:
-        locale_tup = locale.getlocale()  # returns tuple like ('en_US', 'UTF-8')
+        # returns a tuple like ('en_US', 'UTF-8')
+        locale_tup = locale.getlocale()
         if locale_tup[0] is None:
-            locale_str = locale.setlocale(
-                locale.LC_ALL, ''
-                ).replace('C.UTF-8', 'en_US.UTF-8')
+            locale_str = locale.setlocale(locale.LC_ALL, '')
+            locale_str = locale_str.replace('C.UTF-8', 'en_US.UTF-8')
         else:
             locale_str = '.'.join(locale_tup)
     except TypeError:
@@ -1562,7 +1568,6 @@ class Context(object):
         """Return the FSL registration URL from the manifest, or None if it is
         not present.
         """
-        return 'https://fsl.fmrib.ox.ac.uk/fslregistration/'
         return self.manifest['installer'].get('registration_url')
 
 
@@ -2860,13 +2865,10 @@ def register_installation(ctx):
     if regurl is None:
         return
 
+    # Exclude hostname from uname output, as
+    # it may contain identifying information
+    uname  = Process.check_output('uname -msrv', check=False)
     system = platform.system().lower()
-    uname_full = Process.check_output('uname -a', check=False)
-
-    uname_fields = uname_full.split(' ')
-    uname_fields[1] = 'localhost'
-    uname = ' '.join(uname_fields)
-
     osinfo = ''
 
     # macOS
@@ -2883,9 +2885,6 @@ def register_installation(ctx):
         # WSL
         if 'microsoft' in uname.lower():
             osinfo += '\n\n' + Process.check_output('wsl.exe -v', check=False)
-
-    locale_str = getlocale()
-
     info = {
         'architecture'   : platform.machine(),
         'os'             : system,
@@ -2895,12 +2894,12 @@ def register_installation(ctx):
         'python_info'    : sys.version,
         'fsl_version'    : ctx.build['version'],
         'fsl_platform'   : ctx.build['platform'],
-        'locale'         : locale_str,
+        'locale'         : getlocale(),
     }
 
     printmsg('Registering installation with {}'.format(regurl))
 
-    post_registration(regurl, data=info)
+    send_registration_info(regurl, data=info)
 
 
 def patch_file(filename, searchline, numlines, content):
@@ -3000,12 +2999,12 @@ def configure_shell(shell, homedir, fsldir):
     patch_file(profile, '# FSL Setup', len(cfg.split('\n')), cfg)
 
 configure_shell.shell_profiles = {'sh'   : ['.profile'],
-                                    'ksh'  : ['.profile'],
-                                    'bash' : ['.bash_profile', '.profile'],
-                                    'dash' : ['.bash_profile', '.profile'],
-                                    'zsh'  : ['.zprofile'],
-                                    'csh'  : ['.cshrc'],
-                                    'tcsh' : ['.tcshrc']}
+                                  'ksh'  : ['.profile'],
+                                  'bash' : ['.bash_profile', '.profile'],
+                                  'dash' : ['.bash_profile', '.profile'],
+                                  'zsh'  : ['.zprofile'],
+                                  'csh'  : ['.cshrc'],
+                                  'tcsh' : ['.tcshrc']}
 
 
 def configure_matlab(homedir, fsldir):
