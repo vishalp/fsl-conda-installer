@@ -523,7 +523,6 @@ def test_register_installation():
     # registration url is down
     inst.register_installation(ctx)
 
-
     # user asked to skip_regisistration
     # expect zero HTTP posts sent to the
     # registration url
@@ -543,16 +542,16 @@ def test_register_installation():
     assert len(srv.posts) == 1
     got = srv.posts[0]
 
-    assert 'architecture'   in got
-    assert 'os'             in got
-    assert 'os_info'        in got
-    assert 'uname'          in got
-    assert 'python_version' in got
-    assert 'python_info'    in got
-    assert got['fsl_version']  == '6.7.0'
-    assert got['fsl_platform'] == 'linux-64'
-    assert 'locale'         in got
-    assert 'emailaddress'   == ''
+    assert 'architecture'        in got
+    assert 'os'                  in got
+    assert 'os_info'             in got
+    assert 'uname'               in got
+    assert 'python_version'      in got
+    assert 'python_info'         in got
+    assert got['fsl_version']    == '6.7.0'
+    assert got['fsl_platform']   == 'linux-64'
+    assert 'locale'              in got
+    assert 'emailaddress'        == ''
     assert 'csrfmiddlewaretoken' in got
 
 
