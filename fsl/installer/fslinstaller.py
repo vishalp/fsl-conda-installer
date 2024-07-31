@@ -270,6 +270,7 @@ def send_registration_info(url, data):
                 if attr_dict.get('name') == 'csrfmiddlewaretoken':
                     self.csrf_token = attr_dict.get('value')
 
+    data                    = dict(data)
     headers                 = {}
     headers['Content-Type'] = 'application/x-www-form-urlencoded'
     headers['Referer']      = url
