@@ -488,24 +488,26 @@ def test_self_update():
             assert got.decode('utf-8').strip() == 'old version'
 
 
-def test_post_registration(tmp_path):
+def test_send_registration_info():
     csrf_token = 'ABCDEF123456'
-    with open(str(tmp_path / 'form.html'), 'w') as temp_form:
-        temp_form.write(
-            '''<html><header></header><body>
-            <input name='csrfmiddlewaretoken' value='{0}'>
-            </input>
-            </body></html>
-            '''.format(csrf_token))
+    with inst.tempdir():
+        with open('form.html','wt') as temp_form:
+            temp_form.write(
+                '''<html><header></header><body>
+                <input name='csrfmiddlewaretoken' value='{0}'>
+                </input>
+                </body></html>
+                '''.format(csrf_token))
 
-    with server(tmp_path) as srv:
-        inst.post_registration(
-            "/".join((srv.url, 'form.html')),
-            {'key' : 'value'})
+        with server() as srv:
+            inst.send_registration_info(
+                "/".join((srv.url, 'form.html')),
+                {'key' : 'value'})
+
     assert srv.posts == [{
-        'key' : 'value',
+        'key'                 : 'value',
         'csrfmiddlewaretoken' : csrf_token,
-        'emailaddress' : ''}]
+        'emailaddress'        : ''}]
 
 
 def test_register_installation():
@@ -542,17 +544,19 @@ def test_register_installation():
     assert len(srv.posts) == 1
     got = srv.posts[0]
 
+    print(got)
+
     assert 'architecture'        in got
     assert 'os'                  in got
     assert 'os_info'             in got
     assert 'uname'               in got
     assert 'python_version'      in got
     assert 'python_info'         in got
+    assert 'locale'              in got
+    assert 'csrfmiddlewaretoken' in got
     assert got['fsl_version']    == '6.7.0'
     assert got['fsl_platform']   == 'linux-64'
-    assert 'locale'              in got
-    assert 'emailaddress'        == ''
-    assert 'csrfmiddlewaretoken' in got
+    assert got['emailaddress']   == ''
 
 
 def test_agree_to_license():
