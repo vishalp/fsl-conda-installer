@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.15.0 (Wednesday 31st July 2024)
+
+ - Update the process used to send installation information to the FSL
+   development team.
+
+
 # 3.14.1 (Thursday 25th July 2024)
 
  - The `--listversions` option will print out available extra/optional
