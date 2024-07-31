@@ -109,7 +109,7 @@ def test_download_file():
             inst.download_file(url, 'copy')
 
             with open('copy', 'rt') as f:
-                 assert f.read() == 'hello\n'
+                assert f.read() == 'hello\n'
 
         # download_file should also work
         # with a path to a local file
@@ -488,50 +488,26 @@ def test_self_update():
             assert got.decode('utf-8').strip() == 'old version'
 
 
-def test_timestamp():
+def test_send_registration_info():
+    csrf_token = 'ABCDEF123456'
+    with inst.tempdir():
+        with open('form.html','wt') as temp_form:
+            temp_form.write(
+                '''<html><header></header><body>
+                <input name='csrfmiddlewaretoken' value='{0}'>
+                </input>
+                </body></html>
+                '''.format(csrf_token))
 
-    nowval    = None
-    utcnowval = None
-    dt        = datetime.datetime
+        with server() as srv:
+            inst.send_registration_info(
+                "/".join((srv.url, 'form.html')),
+                {'key' : 'value'})
 
-    class mock_datetime(object):
-        @staticmethod
-        def now():
-            return nowval
-        @staticmethod
-        def utcnow():
-            return utcnowval
-
-    # (nowval, utcnowval, expected result)
-    tests = [
-        (dt(2020, 12, 1, 12, 0, 0),
-         dt(2020, 12, 1, 12, 0, 0),
-         '2020-12-01T12:00:00+00:00'),
-        (dt(2020, 12, 1, 14, 0, 0),
-         dt(2020, 12, 1, 12, 0, 0),
-         '2020-12-01T14:00:00+02:00'),
-        (dt(2020, 12, 1, 10, 0, 0),
-         dt(2020, 12, 1, 12, 0, 0),
-         '2020-12-01T10:00:00-02:00'),
-        (dt(2020, 12, 1, 1, 0, 0),
-         dt(2020, 12, 1, 12, 0, 0),
-         '2020-12-01T01:00:00-11:00'),
-        (dt(2020, 12, 1, 22, 0, 0),
-         dt(2020, 12, 1, 12, 0, 0),
-         '2020-12-01T22:00:00+10:00'),
-    ]
-
-    with mock.patch('datetime.datetime', mock_datetime):
-        for nv, unv, exp in tests:
-            nowval    = nv
-            utcnowval = unv
-            assert inst.timestamp() == exp
-
-
-def test_post_request():
-    with server() as srv:
-        inst.post_request(srv.url, {'key' : 'value'})
-    assert srv.posts == [{'key' : 'value'}]
+    assert srv.posts == [{
+        'key'                 : 'value',
+        'csrfmiddlewaretoken' : csrf_token,
+        'emailaddress'        : ''}]
 
 
 def test_register_installation():
@@ -548,7 +524,6 @@ def test_register_installation():
     # should fail silently if
     # registration url is down
     inst.register_installation(ctx)
-
 
     # user asked to skip_regisistration
     # expect zero HTTP posts sent to the
@@ -569,15 +544,19 @@ def test_register_installation():
     assert len(srv.posts) == 1
     got = srv.posts[0]
 
-    assert 'timestamp'      in got
-    assert 'architecture'   in got
-    assert 'os'             in got
-    assert 'os_info'        in got
-    assert 'uname'          in got
-    assert 'python_version' in got
-    assert 'python_info'    in got
-    assert got['fsl_version']  == '6.7.0'
-    assert got['fsl_platform'] == 'linux-64'
+    print(got)
+
+    assert 'architecture'        in got
+    assert 'os'                  in got
+    assert 'os_info'             in got
+    assert 'uname'               in got
+    assert 'python_version'      in got
+    assert 'python_info'         in got
+    assert 'locale'              in got
+    assert 'csrfmiddlewaretoken' in got
+    assert got['fsl_version']    == '6.7.0'
+    assert got['fsl_platform']   == 'linux-64'
+    assert got['emailaddress']   == ''
 
 
 def test_agree_to_license():
@@ -667,6 +646,21 @@ def test_funccache():
     assert func(1)    == 2
     assert func(2)    == 4
     assert ncalled[0] == 4
+
+
+def test_getlocale():
+    with mock.patch('fsl.installer.fslinstaller.locale.getlocale') as mock_gl:
+        with mock.patch('fsl.installer.fslinstaller.locale.setlocale') as mock_sl:
+
+            mock_gl.return_value = (None, None)
+            mock_sl.return_value = 'C.UTF-8'
+            assert inst.getlocale() == 'en_US.UTF-8'
+            mock_sl.return_value = 'en_GB.UTF-8'
+            assert inst.getlocale() == 'en_GB.UTF-8'
+            mock_gl.return_value = ('fr_FR', 'UTF-8')
+            assert inst.getlocale() == 'fr_FR.UTF-8'
+            mock_gl.return_value = ('fr_FR', None)
+            assert inst.getlocale() == 'en_US.UTF-8'
 
 
 def test_identify_cuda():

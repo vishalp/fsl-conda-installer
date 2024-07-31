@@ -25,6 +25,7 @@ try:
     import http.server as http
     from io import StringIO
     from unittest import mock
+    import urllib.parse as urlparse
 
 # py2
 except ImportError:
@@ -34,6 +35,7 @@ except ImportError:
     http.HTTPServer = http.BaseHTTPServer.HTTPServer
     http.SimpleHTTPRequestHandler.protocol_version = 'HTTP/1.0'
     import mock
+    import urlparse
 
 
 @contextlib.contextmanager
@@ -78,7 +80,12 @@ class HTTPServer(mp.Process):
         def do_POST(self):
 
             nbytes = int(self.headers['Content-Length'])
-            data   = json.loads(self.rfile.read(nbytes).decode())
+            data = self.rfile.read(nbytes).decode()
+
+            if self.headers['Content-Type'] == 'application/json':
+                data = json.loads(data)
+            elif self.headers['Content-Type'] == 'application/x-www-form-urlencoded':
+                data = dict(urlparse.parse_qsl(data, keep_blank_values=True))
 
             self.posts.put(data)
             self.send_response(200)
