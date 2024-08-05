@@ -737,7 +737,7 @@ def install_environ(fsldir, username=None, password=None, cuda_version=None):
     # Some versions of miniconda seem to have trouble on
     # some versions of macOS, where macOS reports its
     # version as being 10.16 (which for some reason is
-    # equivalent to macOS 11.0, which causes errors with
+    # equivalent to macOS 11.0), which causes errors with
     # "__osx >= 11.0" constraints.
     #
     # https://eclecticlight.co/2020/08/13/macos-version-numbering-isnt-so-simple/
