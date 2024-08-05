@@ -1,6 +1,14 @@
 # FSL installer script release history
 
 
+
+# 3.15.1 (Monday 5th August 2024)
+
+ - Set the `SYSTEM_VERSION_COMPAT=0` environment variable when installing on
+   macOS to work around an issue with conda incorrectly detecting the macOS
+   version.
+
+
 # 3.15.0 (Wednesday 31st July 2024)
 
  - Update the process used to send installation information to the FSL
