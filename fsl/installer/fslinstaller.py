@@ -82,7 +82,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.15.0'
+__version__ = '3.15.1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -733,6 +733,17 @@ def install_environ(fsldir, username=None, password=None, cuda_version=None):
     # so we need to set those variables
     if username: env['FSLCONDA_USERNAME'] = username
     if password: env['FSLCONDA_PASSWORD'] = password
+
+    # Some versions of miniconda seem to have trouble on
+    # some versions of macOS, where macOS reports its
+    # version as being 10.16 (which for some reason is
+    # equivalent to macOS 11.0, which causes errors with
+    # "__osx >= 11.0" constraints.
+    #
+    # https://eclecticlight.co/2020/08/13/macos-version-numbering-isnt-so-simple/
+    # https://github.com/conda/conda/issues/13832
+    if platform.system().lower() == 'darwin':
+        env['SYSTEM_VERSION_COMPAT'] = '0'
 
     # Trick conda into thinking that CUDA is
     # available on this platform if it is, or if
