@@ -8,6 +8,7 @@ import os
 import os.path as op
 import contextlib
 import threading
+import random
 import multiprocessing as mp
 import functools as ft
 import sys
@@ -137,12 +138,13 @@ def server(rootdir=None):
     # resources (in case we are calling
     # server() multiple times in quick
     # succession)
-    time.sleep(3)
+    time.sleep(2.5 + random.random())
 
     if rootdir is None:
         rootdir = os.getcwd()
     srv = HTTPServer(rootdir)
     srv.start()
+    time.sleep(0.5 + random.random())
     srv.url = 'http://localhost:{}'.format(srv.port)
     try:
         yield srv
