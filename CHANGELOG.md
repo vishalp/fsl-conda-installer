@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.15.2 (Wednesday 9th October 2024)
+
+
+ - Clear any environment variables with names matching the pattern `*PYVENV*`,
+   to avoid issues on macOS with the `__PYVENV_LAUNCHER__` environment variable.
+
 
 # 3.15.1 (Monday 5th August 2024)
 
