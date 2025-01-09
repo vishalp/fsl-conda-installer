@@ -202,7 +202,7 @@ def is_shell_script(filepath):
     """
     try:
         with open(filepath, 'rt') as f:
-            header = f.read(9)
+            header = f.read(20)
 
         return any((header.startswith('#!/bin/'),
                     header.startswith('#!/usr/bin/')))
@@ -1669,7 +1669,7 @@ class Context(object):
         # from the manifest.
         metadata = self.manifest['miniconda'][self.platform]
 
-        # From FSL 6.0.7.13 and newer, installations
+        # From FSL 6.0.7.17 and newer, installations
         # may be based on micromamba. If micromamba is
         # present in the manifest, use it, unless the
         # user has requested otherwise via --conda.
@@ -2417,9 +2417,9 @@ def download_fsl_environment_files(ctx):
 
 def download_miniconda(ctx, **kwargs):
     """Downloads the miniconda/miniforge/micromamba installer and saves it as
-    a file called "miniconda". Miniconda and miniforge installers are assumed
-    to be executable shell scripts, whereas micromamba installers are assumed
-    to be tarballs.
+    a file called "miniconda.sh". Miniconda and miniforge installers are
+    assumed to be executable shell scripts, whereas micromamba installers are
+    assumed to be tarballs. The file is saved as "miniconda.sh" in either case.
 
     This function assumes that it is run within a temporary/scratch directory.
 
@@ -2452,17 +2452,19 @@ def download_miniconda(ctx, **kwargs):
                   proglabel='download_miniconda',
                   progfile=ctx.args.progress_file,
                   **kwargs) as prog:
-        download_file(url, 'miniconda', prog.update,
+        download_file(url, 'miniconda.sh', prog.update,
                       ssl_verify=(not ctx.args.skip_ssl_verify))
     if (not ctx.args.no_checksum) and (checksum is not None):
-        sha256('miniconda', checksum)
+        sha256('miniconda.sh', checksum)
 
 
 def install_miniconda(ctx, **kwargs):
-    """Downloads the micromamba/miniconda/miniforge installer, and installs
-    it to the destination directory.
+    """Runs the micromamba/miniconda/miniforge installer, installing it to
+    the destination directory.
 
-    This function assumes that it is run within a temporary/scratch directory.
+    This function assumes that it is run within a temporary/scratch directory,
+    which contains the installer file called "miniconda.sh". This file is
+    created by the download_miniconda function.
 
     Keyword arguments are passed through to the Progress bar constructor.
     """
@@ -2494,8 +2496,8 @@ def install_miniconda(ctx, **kwargs):
     # shell script (miniconda/miniforge), or
     # a tarball (micromamba).
     printmsg('Installing conda at {}...'.format(ctx.basedir))
-    if is_shell_script('miniconda'):
-        cmd = 'bash miniconda -b -p {}'.format(ctx.basedir)
+    if is_shell_script('miniconda.sh'):
+        cmd = 'bash miniconda.sh -b -p {}'.format(ctx.basedir)
         ctx.run(Process.monitor_progress, cmd, total=output,
                 proglabel='install_miniconda',
                 progfile=ctx.args.progress_file,
@@ -2505,7 +2507,7 @@ def install_miniconda(ctx, **kwargs):
         # to avoid security/safety warnings/errors
         if PYVER >= (3, 12): kwargs = {'filter' : 'data'}
         else:                kwargs = {}
-        with tarfile.open('miniconda') as f:
+        with tarfile.open('miniconda.sh') as f:
             f.extractall(ctx.basedir, **kwargs)
 
     # Avoid WSL filesystem issue
