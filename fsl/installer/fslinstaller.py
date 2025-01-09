@@ -861,22 +861,30 @@ def download_file(url,
             sslctx.verify_mode    = ssl.CERT_NONE
             kwargs['context']     = sslctx
 
-    req = None
+    # py2: urlopen result cannot be used as a
+    # context manager, so we use try-finally
+    # to ensure that the connection is closed
+    # cleanly
+    resp = None
 
     try:
-        # py2: urlopen result cannot be
-        # used as a context manager
-        req = urlrequest.urlopen(url, **kwargs)
+
+        # Some servers reject requests originating
+        # from urllib, so we pretend to be firefox
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        req     = urlrequest.Request(url, headers=headers)
+        resp    = urlrequest.urlopen(req, **kwargs)
+
         with open(destination, 'wb') as outf:
 
-            try:             total = int(req.headers['content-length'])
+            try:             total = int(resp.headers['content-length'])
             except KeyError: total = None
 
             downloaded = 0
 
             progress(downloaded, total)
             while True:
-                block = req.read(blocksize)
+                block = resp.read(blocksize)
                 if len(block) == 0:
                     break
                 downloaded += len(block)
@@ -884,8 +892,8 @@ def download_file(url,
                 progress(downloaded, total)
 
     finally:
-        if req:
-            req.close()
+        if resp:
+            resp.close()
 
 
 def download_manifest(url, workdir=None, **kwargs):
