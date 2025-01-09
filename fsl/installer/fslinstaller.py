@@ -804,6 +804,10 @@ def install_environ(fsldir, username=None, password=None, cuda_version=None):
     if cuda_version is not None: env['CONDA_OVERRIDE_CUDA'] = cuda_version
     else:                        env['CONDA_OVERRIDE_CUDA'] = ''
 
+    # Don't prompt for confirmation
+    env['MAMBA_ALWAYS_YES'] = 'true'
+    env['CONDA_ALWAYS_YES'] = 'true'
+
     return env
 
 
@@ -2869,6 +2873,16 @@ def install_fsl(ctx, **kwargs):
     if ctx.destdir == ctx.basedir: cmd = 'update'
     else:                          cmd = 'create'
 
+    # If we are installing FSL with micromamba, we
+    # need to set the MAMBA_ROOT_PREFIX variable.
+    # This only needs to be done once, before the
+    # root prefix environment has been created.
+    # After it has been created, MAMBA_ROOT_PREFIX
+    # no longer needs to be set.
+    env = {}
+    if ctx.conda.endswith('micromamba') and cmd == 'update':
+        env['MAMBA_ROOT_PREFIX'] = ctx.destdir
+
     # We install FSL simply by running conda
     # env [update|create] -f env.yml.
     envfile = ctx.environment_file
@@ -2913,7 +2927,7 @@ def install_fsl(ctx, **kwargs):
             return len(logmsgs) > 0
 
         retry_on_error(ctx.run, ctx.args.num_retries, Process.monitor_progress,
-                       cmd, timeout=2, total=progval, progfunc=progfunc,
+                       cmd, env=env, timeout=2, total=progval, progfunc=progfunc,
                        proglabel='install_fsl', progfile=ctx.args.progress_file,
                        retry_error_message=err_message,
                        retry_condition=retry_install, **kwargs)
