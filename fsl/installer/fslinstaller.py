@@ -2486,15 +2486,16 @@ def install_miniconda(ctx, **kwargs):
     if ctx.use_existing_base:
         return
 
-    # Get information about the miniconda installer
-    # from the manifest.
+    # Get progress reporting information about
+    # the miniconda installer from the manifest.
     if not ctx.args.miniconda:
         metadata = ctx.miniconda_metadata
         output   = metadata.get('output', '')
     else:
         output = None
 
-    # output may be a string or int
+    # output should be an int (or
+    # string containing an int)
     if isinstance(output, str):
         output = output.strip()
     if output == '':
@@ -2884,9 +2885,9 @@ def install_fsl(ctx, **kwargs):
     # If we are installing FSL with micromamba, we
     # need to set the MAMBA_ROOT_PREFIX variable.
     # This only needs to be done once, before the
-    # root prefix environment has been created.
-    # After it has been created, MAMBA_ROOT_PREFIX
-    # no longer needs to be set.
+    # root/base environment has been created.
+    # After the base environment has been created,
+    # MAMBA_ROOT_PREFIX no longer needs to be set.
     env = {}
     if ctx.conda.endswith('micromamba') and cmd == 'update':
         env['MAMBA_ROOT_PREFIX'] = ctx.destdir
@@ -2935,8 +2936,9 @@ def install_fsl(ctx, **kwargs):
             return len(logmsgs) > 0
 
         retry_on_error(ctx.run, ctx.args.num_retries, Process.monitor_progress,
-                       cmd, env=env, timeout=2, total=progval, progfunc=progfunc,
-                       proglabel='install_fsl', progfile=ctx.args.progress_file,
+                       cmd, append_env=env, timeout=2, total=progval,
+                       progfunc=progfunc, proglabel='install_fsl',
+                       progfile=ctx.args.progress_file,
                        retry_error_message=err_message,
                        retry_condition=retry_install, **kwargs)
 
