@@ -1,6 +1,10 @@
 # FSL installer script release history
 
 
+# 3.16.1 (Friday 10th January 2025)
+
+ - Bug fix to the CI deployment job.
+
 # 3.16.0 (Friday 10th January 2025)
 
  - FSL installations can now be based on [`micromamba`](https://mamba.readthedocs.io/en/latest/user_guide/micromamba.html).
