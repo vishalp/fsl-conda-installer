@@ -3,6 +3,7 @@
 
 # 3.16.0 (Friday 10th January 2025)
 
+ - FSL installations can now be based on [`micromamba`](https://mamba.readthedocs.io/en/latest/user_guide/micromamba.html).
  - The `${FSLDIR}/share/fsl/sbin/createFSLWrapper` and `${FSLDIR}/share/fsl/sbin/removeFSLWrapper` scripts are now created by the `fslinstaller.py` script.
  - The in-source `fsl/installer/fslinstaller.py` script is no longer a standalone script. The standalone version that is released must be generated with the `.ci/new_release.py` script.
 
