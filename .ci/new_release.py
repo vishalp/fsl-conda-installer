@@ -43,9 +43,9 @@ def main():
     if len(sys.argv) != 4:
         raise RuntimeError('Usage: new_release.py srcfile destfile tag')
 
-    srcfile  = sys.argv[1]
-    destfile = sys.argv[2]
-    tag      = sys.argv[3]
+    srcfile  = sys.argv[1].strip()
+    destfile = sys.argv[2].strip()
+    tag      = sys.argv[3].strip()
 
     version  = read_attr(srcfile, '__version__')
 
