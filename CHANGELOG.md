@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.16.0 (Friday 10th January 2025)
+
+ - The `${FSLDIR}/share/fsl/sbin/createFSLWrapper` and `${FSLDIR}/share/fsl/sbin/removeFSLWrapper` scripts are now created by the `fslinstaller.py` script.
+ - The in-source `fsl/installer/fslinstaller.py` script is no longer a standalone script. The standalone version that is released must be generated with the `.ci/new_release.py` script.
+
+
 # 3.15.2 (Wednesday 9th October 2024)
 
 
