@@ -2491,7 +2491,7 @@ def install_wrapper_scripts(ctx, **kwargs):
     # This is obviously a super quick operation, but we
     # use a progress bar so that the terminal output
     # is consistent with the other installation steps
-    printmsg('Creating FSL wrapper management scripts')
+    printmsg('Creating FSL wrapper management scripts...')
     with Progress(label='%',
                   fmt='{:.0f}',
                   total=1,

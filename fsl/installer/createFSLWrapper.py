@@ -115,6 +115,48 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def get_python_interpreter(target):
+    '''Attempts to determine whether the given target appears to be a
+    Python executable. If it is, returns the path to the Python interpreter
+    in the she-bang line. Otherwise returns None.
+    '''
+
+    with open(target, 'rb') as f:
+        header = f.read(2048).split(b'\n')
+
+    # Python entry points created by pip have two forms, and are
+    # generated with distlib:
+    #
+    # https://github.com/pypa/pip/blob/ffbf6f0ce61170d6437ad5ff3a90086200ba9e2a/\
+    # src/pip/_vendor/distlib/scripts.py#L147
+    #
+    #  - "Simple shebang": a python script of the form:
+    #
+    #        #!/path/to/python
+    #        ...
+    if len(header) >= 1:
+        h0 = header[0].strip()
+        if h0.startswith(b'#!') and (b'python' in h0):
+            return h0[2:].decode('utf-8')
+
+    #  - "Contrived shebang": A script which can be executed with either
+    #    python or sh, of the form:
+    #
+    #        #!/bin/sh
+    #        '''exec' /path/to/python "$0" "$@"
+    #        ' '''
+    #        ...
+    if len(header) >= 2:
+        h0 = header[0].strip()
+        h1 = header[1].strip()
+        if (h0 == b'#!/bin/sh')        and \
+           h1.startswith(b"'''exec' ") and \
+           (b'python' in h1):
+            return h1.split()[1].decode('utf-8')
+
+    return None
+
+
 def generate_wrapper(target, fsldir, extra_args, resolve):
     '''Generate the contents of a wrapper script for the given target.'''
 
@@ -139,22 +181,12 @@ def generate_wrapper(target, fsldir, extra_args, resolve):
     interp   = None
     template = OTHER_TEMPLATE
 
-
-    # TODO support /bin/sh exec style entry points
-    # https://github.com/pypa/pip/blob/main/src/pip/_vendor/distlib/scripts.py#L147
-
     # Check if this the target is a python script.
     # If the target doesn't exist (--force was used),
     # we assume that it is a non-python executable
     if op.exists(target):
-        with open(target, 'rb') as f:
-            header = f.read(1024).split(b'\n')[0]
-
-        # Figure out whether this is a python
-        # executable or some other type of
-        # executable.
-        if header.startswith(b'#!') and (b'python' in header):
-            interp   = header[2:].decode('utf-8')
+        interp = get_python_interpreter(target)
+        if interp is not None:
             template = PYTHON_TEMPLATE
 
     wrapper = template.format(interp=interp,
