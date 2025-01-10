@@ -2520,8 +2520,15 @@ def install_miniconda(ctx, **kwargs):
         # to avoid security/safety warnings/errors
         if PYVER >= (3, 12): kwargs = {'filter' : 'data'}
         else:                kwargs = {}
-        with tarfile.open('miniconda.sh') as f:
-            f.extractall(ctx.basedir, **kwargs)
+
+        with Progress(label='%',
+                      fmt='{:.0f}',
+                      total=1,
+                      transform=Progress.percent,
+                      **kwargs) as prog:
+            with tarfile.open('miniconda.sh') as f:
+                f.extractall(ctx.basedir, **kwargs)
+            prog.update(1)
 
     # Avoid WSL filesystem issue
     # https://github.com/conda/conda/issues/9948
