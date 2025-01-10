@@ -1,18 +1,19 @@
 #!/usr/bin/env python
-"""
-Remove wrapper script/links in $FSLDIR/share/fsl/bin/ which invoke commands
-that are installed in $FSLDIR/bin/. See createFSLWrapper for more
-information.
-
-This script is intended to be called by the pre-unlink.sh script of the
-conda recipe for each FSL project that provides executable commands.
-
-Note that we don't check the FSL_CREATE_WRAPPER_SCRIPTS environment variable
-here. Wrapper scripts in $FSLDIR/share/fsl/bin/ will exist only if a
-FSL conda packages was installed in an environment where thenb
-FSL_CREATE_WRAPPER_SCRIPTS variable was set, so this script will simply
-delete any wrapper scripts that exist.
-"""
+#
+# IMPORTANT: Do not use triple-double-quotes anywhere in this file!
+#
+# Remove wrapper script/links in $FSLDIR/share/fsl/bin/ which invoke commands
+# that are installed in $FSLDIR/bin/. See createFSLWrapper for more
+# information.
+#
+# This script is intended to be called by the pre-unlink.sh script of the
+# conda recipe for each FSL project that provides executable commands.
+#
+# Note that we don't check the FSL_CREATE_WRAPPER_SCRIPTS environment variable
+# here. Wrapper scripts in $FSLDIR/share/fsl/bin/ will exist only if a
+# FSL conda packages was installed in an environment where thenb
+# FSL_CREATE_WRAPPER_SCRIPTS variable was set, so this script will simply
+# delete any wrapper scripts that exist.
 
 
 import os

@@ -117,6 +117,26 @@ internal/development FSL releases. See the download_dev_releases function
 for more details.
 """
 
+TEMPLATE_IDENTIFIER = '%%%%%%%%%%%%%'
+"""String used when generating the standalone fslinstaler.py script to identify
+content that is to be inserted. See the .ci/new_release.py script.
+"""
+
+FSL_CREATE_WRAPPER_SCRIPT = """
+%%%%%%%%%%%%%fsl/installer/createFSLWrapper.py
+""".strip()
+"""Contents of the fsl.installer.createFSLWrapper.py script. This is populated
+when the standalone fslinstaller.py script is generated.
+"""
+
+FSL_REMOVE_WRAPPER_SCRIPT = """
+%%%%%%%%%%%%%fsl/installer/removeFSLWrapper.py
+""".strip()
+"""Contents of the fsl.installer.removeFSLWrapper.py script. This is populated
+when the standalone fslinstaller.py script is generated.
+"""
+
+
 
 # List of modifiers which can be used to change how
 # a message is printed by the printmsg function.
@@ -2448,12 +2468,62 @@ def install_miniconda(ctx, **kwargs):
     ctx.run(Process.check_call, cmd)
 
 
+@warn_on_error('WARNING: An error occurred while generating the FSL wrapper '
+               'management scripts! Installation will proceed, but you may '
+               'encounter problems with your FSL installation.',
+               WARNING, EMPHASIS)
+def install_wrapper_scripts(ctx, **kwargs):
+    """Creates the ${FSLDIR}/shrae/fsl/sbin/createFSLWrapper and
+    ${FSLDIR}/shrae/fsl/sbin/removeFSLWrapper scripts. These scripts are used by
+    FSL package post-link.sh scripts to create "wrappers" for FSL tools in
+    ${FSLDIR}/share/fsl/bin/. These wrapper scripts are created so that FSL commands
+    can be isolated from the other executables in ${FSLDIR}/bin/.
+    """
+    thisdir              = op.dirname(__file__)
+    destdir              = op.join(ctx.destdir, 'share', 'fsl', 'sbin')
+    createFSLWrapperDest = op.join(destdir, 'createFSLWrapper')
+    removeFSLWrapperDest = op.join(destdir, 'removeFSLWrapper')
+    createFSLWrapperSrc  = op.join(thisdir, 'createFSLWrapper.py')
+    removeFSLWrapperSrc  = op.join(thisdir, 'removeFSLWrapper.py')
+    createFSLWrapperText = FSL_CREATE_WRAPPER_SCRIPT
+    removeFSLWrapperText = FSL_REMOVE_WRAPPER_SCRIPT
+
+    # This is obviously a super quick operation, but we
+    # use a progress bar so that the terminal output
+    # is consistent with the other installation steps
+    printmsg('Creating FSL wrapper management scripts')
+    with Progress(label='%',
+                  fmt='{:.0f}',
+                  total=1,
+                  transform=Progress.percent,
+                  **kwargs) as prog:
+
+        # Running from source code - load wrapper
+        # script contents from source files
+        if createFSLWrapperText.startswith(TEMPLATE_IDENTIFIER):
+            with open(createFSLWrapperSrc, 'rt') as f:
+                createFSLWrapperText = f.read().strip()
+        if removeFSLWrapperText.startswith(TEMPLATE_IDENTIFIER):
+            with open(removeFSLWrapperSrc, 'rt') as f:
+                removeFSLWrapperText = f.read().strip()
+
+        os.makedirs(destdir, exist_ok=True)
+        with open(createFSLWrapperDest, 'wt') as f:
+            f.write(createFSLWrapperText)
+        with open(removeFSLWrapperDest, 'wt') as f:
+            f.write(removeFSLWrapperText)
+
+        os.chmod(createFSLWrapperDest, 0o755)
+        os.chmod(removeFSLWrapperDest, 0o755)
+        prog.update(1)
+
+
 def generate_condarc(fsldir,
                      channels,
                      skip_ssl_verify=False,
                      throttle_downloads=False,
                      pkgsdir=None):
-    """Called by install_miniconda. Generates content for a .condarc file to
+    """Called by install_fsl. Generates content for a .condarc file to
     be saved in $FSLDIR/.condarc. This file contains some default values, and
     also enforces some settings so that they cannot be overridden by the
     user. For example. the list of conda channels is configured so that it
@@ -3659,9 +3729,10 @@ def main(argv=None):
             # We iterate over them so we can show the user
             # a step number and a total, e.g. "Step 2 of 4".
             steps = [
-                (download_miniconda, ctx),
-                (install_miniconda,  ctx),
-                (install_fsl,        ctx)]
+                (download_miniconda,      ctx),
+                (install_miniconda,       ctx),
+                (install_wrapper_scripts, ctx),
+                (install_fsl,             ctx)]
 
             for name in args.extra:
                 if name not in ctx.extra_environment_files:

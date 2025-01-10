@@ -1,73 +1,74 @@
 #!/usr/bin/env python
-"""
-Create wrapper scripts in $FSLDIR/share/fsl/bin/ which invoke commands that
-are installed in $FSLDIR/bin/. Calling this script like:
-
-  createFSLWrapper command1 command2 command3
-
-will cause wrapper scripts to be created in $FSLDIR/share/fsl/bin/, which
-call the commands of the same name in $FSLDIR/bin/, i.e.:
-
-   $FSLDIR/share/fsl/bin/command1 calls $FSLDIR/bin/command1
-   $FSLDIR/share/fsl/bin/command2 calls $FSLDIR/bin/command2
-
-This script is used to create isolated versions of all executables provided
-by FSL projects, so they can be added to the user $PATH without any other
-executables that are installed into the FSL conda environment (for example,
-python, pip, tcl, etc).
-
-This script is intended to be called by the post-link.sh script of the conda
-recipe for each FSL project that provides executable commands.  This script
-should only be invoked when FSL is being installed via the fslinstaller
-script - it is not intended to be used when individual FSL projects are
-explicitly installed into a custom conda environment.
-
-The fslinstaller script should ensure that the FSLDIR and
-FSL_CREATE_WRAPPER_SCRIPTS variables are set appropriately before creating
-the FSL conda environment.
-
-Wrapper scripts will only be created if the following conditions are met:
-
- - The $FSLDIR and $PREFIX environment variables are set, and
-   $PREFIX is equal to, or contained within, $FSLDIR.
- - The $FSL_CREATE_WRAPPER_SCRIPTS environment variable is set and is not
-   empty.
-
-Wrapper scripts, and not sym-links, are used to avoid a couple of potential
-problems:
-
- - We need python executables to exclusively use the libraries installed in
-   the FSL conda environment. Users may have other Python environments
-   activated, and/or libraries installed into a local site-packages
-   directory. So we need to invoke the python interpreter in isolated mode,
-   with the -I flag:
-
-       https://docs.python.org/3/using/cmdline.html#id2
-
- - There is no guarantee that a shell supports shebang lines longer than 127
-   characters. Depending on where FSL is installed, it may not be possible
-   to have a shebang line pointing to $FSLDIR/bin/python which does not
-   exceed 127 characters.
-
-Wrapper scripts are created for *all* FSL commands, including FSL TCL GUI
-commands (e.g. "fsl", "Flirt", "Flirt_gui", etc).  FSL TCL GUIs are called
-(e.g.) "<Command>" om Linux, but "<Command>_gui" on macOS, because macOS
-file systems are usually case-sensitive.
-
-To work around this, and to not accidentally create a link called <Command>
-to <command>, the FSL package post link scripts must only specify
-"<Command>_gui", and *not* "<Command>".  This script will create a wrapper
-script for the appropriate variant ("<Command>_gui" on macOS, or "<Command>"
-on Linux).
-
-Wrapper scripts with a different name to the target command can be created
-by passing "<command>=<wrapper-name>" to this script. For example, the
-FSL cluster command is called "fsl-cluster" to avoid naming conflicts with
-third-party packages (graphviz). A wrapper script called "cluster", which
-invokes "fsl-cluster", can be created like so:
-
-  createFSLWrapper fsl-cluster=cluster
-"""
+#
+# IMPORTANT: Do not use triple-double-quotes anywhere in this file!
+#
+# Create wrapper scripts in $FSLDIR/share/fsl/bin/ which invoke commands that
+# are installed in $FSLDIR/bin/. Calling this script like:
+#
+#   createFSLWrapper command1 command2 command3
+#
+# will cause wrapper scripts to be created in $FSLDIR/share/fsl/bin/, which
+# call the commands of the same name in $FSLDIR/bin/, i.e.:
+#
+#    $FSLDIR/share/fsl/bin/command1 calls $FSLDIR/bin/command1
+#    $FSLDIR/share/fsl/bin/command2 calls $FSLDIR/bin/command2
+#
+# This script is used to create isolated versions of all executables provided
+# by FSL projects, so they can be added to the user $PATH without any other
+# executables that are installed into the FSL conda environment (for example,
+# python, pip, tcl, etc).
+#
+# This script is intended to be called by the post-link.sh script of the conda
+# recipe for each FSL project that provides executable commands.  This script
+# should only be invoked when FSL is being installed via the fslinstaller
+# script - it is not intended to be used when individual FSL projects are
+# explicitly installed into a custom conda environment.
+#
+# The fslinstaller script should ensure that the FSLDIR and
+# FSL_CREATE_WRAPPER_SCRIPTS variables are set appropriately before creating
+# the FSL conda environment.
+#
+# Wrapper scripts will only be created if the following conditions are met:
+#
+#  - The $FSLDIR and $PREFIX environment variables are set, and
+#    $PREFIX is equal to, or contained within, $FSLDIR.
+#  - The $FSL_CREATE_WRAPPER_SCRIPTS environment variable is set and is not
+#    empty.
+#
+# Wrapper scripts, and not sym-links, are used to avoid a couple of potential
+# problems:
+#
+#  - We need python executables to exclusively use the libraries installed in
+#    the FSL conda environment. Users may have other Python environments
+#    activated, and/or libraries installed into a local site-packages
+#    directory. So we need to invoke the python interpreter in isolated mode,
+#    with the -I flag:
+#
+#        https://docs.python.org/3/using/cmdline.html#id2
+#
+#  - There is no guarantee that a shell supports shebang lines longer than 127
+#    characters. Depending on where FSL is installed, it may not be possible
+#    to have a shebang line pointing to $FSLDIR/bin/python which does not
+#    exceed 127 characters.
+#
+# Wrapper scripts are created for *all* FSL commands, including FSL TCL GUI
+# commands (e.g. "fsl", "Flirt", "Flirt_gui", etc).  FSL TCL GUIs are called
+# (e.g.) "<Command>" om Linux, but "<Command>_gui" on macOS, because macOS
+# file systems are usually case-sensitive.
+#
+# To work around this, and to not accidentally create a link called <Command>
+# to <command>, the FSL package post link scripts must only specify
+# "<Command>_gui", and *not* "<Command>".  This script will create a wrapper
+# script for the appropriate variant ("<Command>_gui" on macOS, or "<Command>"
+# on Linux).
+#
+# Wrapper scripts with a different name to the target command can be created
+# by passing "<command>=<wrapper-name>" to this script. For example, the
+# FSL cluster command is called "fsl-cluster" to avoid naming conflicts with
+# third-party packages (graphviz). A wrapper script called "cluster", which
+# invokes "fsl-cluster", can be created like so:
+#
+#   createFSLWrapper fsl-cluster=cluster
 
 
 import argparse
@@ -115,22 +116,22 @@ def parse_args(argv=None):
 
 
 def generate_wrapper(target, fsldir, extra_args, resolve):
-    """Generate the contents of a wrapper script for the given target."""
+    '''Generate the contents of a wrapper script for the given target.'''
 
     # Python executable - run it via the
     # specified python interpreter in
     # isolated mode (strip leading '#!')
-    PYTHON_TEMPLATE = tw.dedent("""
+    PYTHON_TEMPLATE = tw.dedent('''
     #!/usr/bin/env bash
     {interp} -I {target}{args} "$@"
-    """).strip()
+    ''').strip()
 
     # Non-python executable - use
     # a pass-through script
-    OTHER_TEMPLATE = tw.dedent("""
+    OTHER_TEMPLATE = tw.dedent('''
     #!/usr/bin/env bash
     {target}{args} "$@"
-    """).strip()
+    ''').strip()
 
     if extra_args is None: extra_args = ''
     else:                  extra_args = ' ' + extra_args.strip()
