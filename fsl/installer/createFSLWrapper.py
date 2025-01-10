@@ -72,7 +72,6 @@
 
 
 import argparse
-import itertools as it
 import os
 import os.path as op
 import sys
@@ -275,9 +274,9 @@ def create_wrapper(target, srcdir, destdir, fsldir,
         os.chmod(wrapper, perms)
 
 
-def main():
+def main(argv=None):
 
-    args   = parse_args()
+    args   = parse_args(argv)
     fsldir = os.environ.get('FSLDIR', None)
     prefix = os.environ.get('PREFIX', None)
 
@@ -288,7 +287,7 @@ def main():
     # environment variable is set
     if not args.force:
         if 'FSL_CREATE_WRAPPER_SCRIPTS' not in os.environ:
-            sys.exit(0)
+            return 0
 
     # Only create wrappers if FSLDIR
     # exists and if PREFIX is equal to
@@ -297,7 +296,7 @@ def main():
        prefix is None                or \
        not op.exists(fsldir)         or \
        not prefix.startswith(fsldir):
-        sys.exit(0)
+        return 0
 
     # Names of all executables for which wrapper
     # scripts are to be created are passed as
@@ -317,7 +316,7 @@ def main():
     # Source and destination directories
     # must be located inside $FSLDIR
     if not (destdir.startswith(fsldir) and srcdir.startswith(fsldir)):
-        sys.exit(1)
+        return 1
 
     os.makedirs(destdir, exist_ok=True)
 
@@ -325,6 +324,8 @@ def main():
         create_wrapper(target, srcdir, destdir, fsldir, args.platform,
                        args.args, not args.no_resolve, args.force)
 
+    return 0
+
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

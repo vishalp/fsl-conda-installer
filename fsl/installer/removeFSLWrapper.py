@@ -21,11 +21,14 @@ import os.path as op
 import sys
 
 
-def main():
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+
     # Names of all executables for which wrapper
     # scripts are to be removed are passed as
     # arguments
-    targets = sys.argv[1:]
+    targets = argv
     fsldir  = os.environ.get('FSLDIR', None)
     prefix  = os.environ.get('PREFIX', None)
 
@@ -38,7 +41,7 @@ def main():
     if (fsldir is None) or \
        (prefix is None) or \
        not prefix.startswith(fsldir):
-        sys.exit(0)
+        return 0
 
     for target in targets:
 
@@ -68,6 +71,8 @@ def main():
             if op.exists(wrapper):
                 os.remove(wrapper)
 
+    return 0
+
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
