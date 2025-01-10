@@ -103,6 +103,10 @@ test:py312:
   extends: .test-template
   image:    python:3.12
 
+test:py313:
+  extends: .test-template
+  image:    python:3.13
+
 check-version:
   stage: fsl-ci-test
   image: python:3.9
@@ -123,9 +127,9 @@ release-new-version:
     - if: '$CI_COMMIT_TAG != null'
       when: manual
   script:
-    - python3 ./.ci/new_release.py                              \
-              fsl/installer/fslinstaller.py                     \
-              ${FSLINSTALLER_DEPLOY_DIRECTORY}/fslinstaller..py \
+    - python3 ./.ci/new_release.py                             \
+              fsl/installer/fslinstaller.py                    \
+              ${FSLINSTALLER_DEPLOY_DIRECTORY}/fslinstaller.py \
               ${CI_COMMIT_TAG}
 
 

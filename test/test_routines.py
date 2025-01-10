@@ -317,7 +317,7 @@ def test_download_install_miniconda():
     # is run like <miniconda.sh> -b -p <prefix>
     mkdir -p $3
     touch $3/installed
-    """)
+    """).strip()
 
     def gen_manifest(platform, port, sha256, pyver=None):
 

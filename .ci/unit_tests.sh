@@ -23,4 +23,4 @@ if python -c 'import sys; sys.exit(sys.version_info[:2] < (3, 9))'; then
 fi
 
 # Run all other tests
-pytest -m "not noroottest" --ignore=test/test_create_remove_wrapper.py
+pytest -m "not noroottest" --cov-append --ignore=test/test_create_remove_wrapper.py
