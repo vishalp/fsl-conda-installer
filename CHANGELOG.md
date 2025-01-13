@@ -1,9 +1,15 @@
 # FSL installer script release history
 
 
+# 3.16.2 (Monday 13th January 2025)
+
+ - Fixed a bug when installing miniconda/micromamba.
+
+
 # 3.16.1 (Friday 10th January 2025)
 
  - Bug fix to the CI deployment job.
+
 
 # 3.16.0 (Friday 10th January 2025)
 
