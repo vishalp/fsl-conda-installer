@@ -83,7 +83,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.16.1'
+__version__ = '3.16.2'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -2516,18 +2516,17 @@ def install_miniconda(ctx, **kwargs):
                 progfile=ctx.args.progress_file,
                 **kwargs)
     else:
-        # from 3.12 onwards, we must pass filter='data'
-        # to avoid security/safety warnings/errors
-        if PYVER >= (3, 12): kwargs = {'filter' : 'data'}
-        else:                kwargs = {}
-
         with Progress(label='%',
                       fmt='{:.0f}',
                       total=1,
                       transform=Progress.percent,
                       **kwargs) as prog:
+
             with tarfile.open('miniconda.sh') as f:
-                f.extractall(ctx.basedir, **kwargs)
+                # from 3.12 onwards, we must pass filter='data'
+                # to avoid security/safety warnings/errors
+                if PYVER >= (3, 12): f.extractall(ctx.basedir, filter='data')
+                else:                f.extractall(ctx.basedir)
             prog.update(1)
 
     # Avoid WSL filesystem issue
