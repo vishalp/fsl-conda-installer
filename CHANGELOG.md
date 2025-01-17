@@ -1,5 +1,9 @@
 # FSL installer script release history
 
+# 3.16.3 (Friday 17th January 2025)
+
+ - Prevent conda from installing CUDA packages during main FSL  installation.
+
 
 # 3.16.2 (Monday 13th January 2025)
 
