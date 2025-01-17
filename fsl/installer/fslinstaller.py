@@ -83,7 +83,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.16.2'
+__version__ = '3.16.3'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -1993,9 +1993,13 @@ class Context(object):
             ctx.run(Process.monitor_progress, 'my_command', total=100)
         """
 
-        env          = kwargs.pop('env',        {})
-        append_env   = kwargs.pop('append_env', {})
         process_func = ft.partial(process_func, *args, **kwargs)
+        env          = dict(kwargs.pop('env',        {}))
+        append_env   = dict(kwargs.pop('append_env', {}))
+        install_env  = install_environ(self.destdir,
+                                       self.args.username,
+                                       self.args.password,
+                                       self.cuda_version)
 
         # Clear any environment variables that refer to
         # existing FSL or conda installations, and ensure
@@ -2005,15 +2009,12 @@ class Context(object):
         # details, and see Process.sudo_popen regarding
         # append_env.
         env.update(clean_environ())
-        append_env.update(install_environ(self.destdir,
-                                          self.args.username,
-                                          self.args.password,
-                                          self.cuda_version))
+        install_env.update(append_env)
 
         return process_func(admin=self.need_admin,
                             password=self.admin_password,
                             env=env,
-                            append_env=append_env)
+                            append_env=install_env)
 
 
 def agree_to_license(ctx):
@@ -2897,6 +2898,12 @@ def install_fsl(ctx, **kwargs):
     env = {}
     if ctx.conda.endswith('micromamba') and cmd == 'update':
         env['MAMBA_ROOT_PREFIX'] = ctx.destdir
+
+    # For the main FSL installation, we do not
+    # want conda to install any CUDA-related
+    # packages. Set this var so that conda
+    # ignores any installed GPU
+    env['CONDA_OVERRIDE_CUDA'] = ''
 
     # We install FSL simply by running conda
     # env [update|create] -f env.yml.
