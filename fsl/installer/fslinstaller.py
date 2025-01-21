@@ -83,7 +83,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.16.4'
+__version__ = '3.16.5'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -2580,7 +2580,10 @@ def install_wrapper_scripts(ctx, **kwargs):
             with open(removeFSLWrapperSrc, 'rt') as f:
                 removeFSLWrapperText = f.read().strip()
 
-        os.makedirs(destdir, exist_ok=True)
+        # os.makedirs(exist_ok) argument isn't available in py27
+        if not op.exists(destdir):
+            os.makedirs(destdir)
+
         with open(createFSLWrapperDest, 'wt') as f:
             f.write(createFSLWrapperText)
         with open(removeFSLWrapperDest, 'wt') as f:
