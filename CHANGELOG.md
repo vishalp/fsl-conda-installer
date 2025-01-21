@@ -1,6 +1,11 @@
 # FSL installer script release history
 
 
+# 3.16.5 (Tuesday 21st January 2025)
+
+ - Fix a Python 2.7 compatibility issue.
+
+
 # 3.16.4 (Tuesday 21st January 2025)
 
  - Fix an issue installing extra environments (e.g. `truenet`) in `micromamba`-based installations.
