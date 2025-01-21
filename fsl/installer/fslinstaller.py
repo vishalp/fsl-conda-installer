@@ -83,7 +83,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.16.3'
+__version__ = '3.16.4'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -769,6 +769,11 @@ def install_environ(fsldir, username=None, password=None, cuda_version=None):
     # Tell mamba not to abort if the download is taking time
     # https://github.com/mamba-org/mamba/issues/1941
     env['MAMBA_NO_LOW_SPEED_LIMIT'] = '1'
+
+    # If we are installing FSL with micromamba, we
+    # need to set the MAMBA_ROOT_PREFIX variable.
+    if op.exists(op.join(fsldir, 'bin', 'micromamba')):
+        env['MAMBA_ROOT_PREFIX'] = fsldir
 
     # FSL environments which source packages from the internal
     # FSL conda channel will refer to the channel as:
@@ -2889,15 +2894,7 @@ def install_fsl(ctx, **kwargs):
     if ctx.destdir == ctx.basedir: cmd = 'update'
     else:                          cmd = 'create'
 
-    # If we are installing FSL with micromamba, we
-    # need to set the MAMBA_ROOT_PREFIX variable.
-    # This only needs to be done once, before the
-    # root/base environment has been created.
-    # After the base environment has been created,
-    # MAMBA_ROOT_PREFIX no longer needs to be set.
     env = {}
-    if ctx.conda.endswith('micromamba') and cmd == 'update':
-        env['MAMBA_ROOT_PREFIX'] = ctx.destdir
 
     # For the main FSL installation, we do not
     # want conda to install any CUDA-related
