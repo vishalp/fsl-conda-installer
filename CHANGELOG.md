@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.16.6 (Friday 28th February 2025)
+
+ - Use the `--rc-file` option to `conda` commands to try and convince it
+   to ignore all `.condarc` files except for `${FSLDIR}/.condarc`
+
+
 # 3.16.5 (Tuesday 21st January 2025)
 
  - Fix a Python 2.7 compatibility issue.
