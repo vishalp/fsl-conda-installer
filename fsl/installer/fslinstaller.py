@@ -83,7 +83,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.16.5'
+__version__ = '3.16.6'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -2887,8 +2887,10 @@ def install_fsl(ctx, **kwargs):
     with open('.condarc', 'wt') as f:
         f.write(condarc_contents)
 
-    cmds = ['mkdir -p {}'.format(ctx.destdir),
-            'cp -f .condarc {}'.format(ctx.destdir)]
+    condarc = op.join(ctx.destdir, '.condarc')
+    cmds    = ['mkdir -p ' + ctx.destdir,
+               'cp -f .condarc ' + condarc]
+
     for cmd in cmds:
         ctx.run(Process.check_call, cmd)
 
@@ -2905,12 +2907,23 @@ def install_fsl(ctx, **kwargs):
     # ignores any installed GPU
     env['CONDA_OVERRIDE_CUDA'] = ''
 
+    # One of several methods employed to try and
+    # convince conda to only use settings from
+    # ${FSLDIR}/.condarc
+    env['CONDARC'] = condarc
+
     # We install FSL simply by running conda
     # env [update|create] -f env.yml.
     envfile = ctx.environment_file
     cmd     = (ctx.conda + ' env ' + cmd +
                ' -p ' + ctx.destdir      +
                ' -f ' + envfile)
+
+    # Another method employed to try and persuade
+    # conda to ignore other .condarc files. The --rc-file
+    # flag is only supported by mamba/micromamba
+    if op.basename(ctx.conda) in ('mamba', 'micromamba'):
+        cmd += ' --rc-file ' + condarc
 
     # Make conda/mamba super verbose if the
     # hidden --debug option was specified.
@@ -2975,6 +2988,16 @@ def install_extra(ctx, name, **kwargs):
     cmd = (ctx.conda + ' env ' + action +
                ' -p ' + destdir +
                ' -f ' + envfile)
+
+    env     = {}
+    condarc = op.join(ctx.destdir, '.condarc')
+
+    # Try to convince conda to only use our settings
+    if op.exists(condarc):
+        env['CONDARC'] = condarc
+
+        if op.basename(ctx.conda) in ('mamba', 'micromamba'):
+            cmd += ' --rc-file ' + condarc
 
     if ctx.args.debug:
         cmd += ' -v -v -v'
