@@ -2522,8 +2522,8 @@ def install_miniconda(ctx, **kwargs):
                 progfile=ctx.args.progress_file,
                 **kwargs)
     else:
-        cmds = ['mkdir {}'                  .format(ctx.basedir),
-                'tar xjf miniconda.sh -C {}'.format(ctx.basedir)]
+        cmds = ['mkdir {}'                    .format(ctx.basedir),
+                'tar -x -f miniconda.sh -C {}'.format(ctx.basedir)]
         with Progress(label='%',
                       fmt='{:.0f}',
                       total=1,
