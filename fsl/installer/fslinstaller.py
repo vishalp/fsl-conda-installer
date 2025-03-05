@@ -2522,21 +2522,19 @@ def install_miniconda(ctx, **kwargs):
                 progfile=ctx.args.progress_file,
                 **kwargs)
     else:
+        cmds = ['mkdir {}'                  .format(ctx.basedir),
+                'tar xjf miniconda.sh -C {}'.format(ctx.basedir)]
         with Progress(label='%',
                       fmt='{:.0f}',
                       total=1,
                       transform=Progress.percent,
                       **kwargs) as prog:
-
-            with tarfile.open('miniconda.sh') as f:
-                # from 3.12 onwards, we must pass filter='data'
-                # to avoid security/safety warnings/errors
-                if PYVER >= (3, 12): f.extractall(ctx.basedir, filter='data')
-                else:                f.extractall(ctx.basedir)
-            prog.update(1)
+            for cmd in cmds:
+                ctx.run(Process.check_call, cmd)
+                prog.update(0.5)
 
     # Avoid WSL filesystem issue
-    # https://github.com/conda/conda/issues/9948
+    # https://github.com/conda/conda/issues/9948#issuecomment-909989810
     cmd = 'find {} -type f -exec touch {{}} +'.format(ctx.basedir)
     ctx.run(Process.check_call, cmd)
 
@@ -2554,10 +2552,10 @@ def install_wrapper_scripts(ctx, **kwargs):
     """
     thisdir              = op.dirname(__file__)
     destdir              = op.join(ctx.destdir, 'share', 'fsl', 'sbin')
-    createFSLWrapperDest = op.join(destdir, 'createFSLWrapper')
-    removeFSLWrapperDest = op.join(destdir, 'removeFSLWrapper')
     createFSLWrapperSrc  = op.join(thisdir, 'createFSLWrapper.py')
     removeFSLWrapperSrc  = op.join(thisdir, 'removeFSLWrapper.py')
+    createFSLWrapperDest = op.join(destdir, 'createFSLWrapper')
+    removeFSLWrapperDest = op.join(destdir, 'removeFSLWrapper')
     createFSLWrapperText = FSL_CREATE_WRAPPER_SCRIPT
     removeFSLWrapperText = FSL_REMOVE_WRAPPER_SCRIPT
 
@@ -2580,17 +2578,19 @@ def install_wrapper_scripts(ctx, **kwargs):
             with open(removeFSLWrapperSrc, 'rt') as f:
                 removeFSLWrapperText = f.read().strip()
 
-        # os.makedirs(exist_ok) argument isn't available in py27
-        if not op.exists(destdir):
-            os.makedirs(destdir)
-
-        with open(createFSLWrapperDest, 'wt') as f:
+        with open('createFSLWrapper', 'wt') as f:
             f.write(createFSLWrapperText)
-        with open(removeFSLWrapperDest, 'wt') as f:
+        with open('removeFSLWrapper', 'wt') as f:
             f.write(removeFSLWrapperText)
 
-        os.chmod(createFSLWrapperDest, 0o755)
-        os.chmod(removeFSLWrapperDest, 0o755)
+        cmds = ['mkdir -p {}'           .format(destdir),
+                'cp createFSLWrapper {}'.format(createFSLWrapperDest),
+                'cp removeFSLWrapper {}'.format(removeFSLWrapperDest),
+                'chmod 755 {}'          .format(createFSLWrapperDest),
+                'chmod 755 {}'          .format(removeFSLWrapperDest)]
+
+        for cmd in cmds:
+            ctx.run(Process.check_call, cmd)
         prog.update(1)
 
 
