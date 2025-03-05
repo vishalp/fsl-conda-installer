@@ -20,6 +20,20 @@ The `fslinstaller.py` script in this repository is the successor to the `fslinst
     curl https://some_url/fslinstaller.py | python
     ```
 
+
+# Dependencies
+
+The `fslinstaller.py` script requires Python 2.7 or newer, and some basic UNIX utilities, including:
+ - `bash`
+ - `mkdir`
+ - `cp`
+ - `mv`
+ - `rm`
+ - `chmod`
+ - `find`
+ - `tar`
+ - `bzip2`
+
 # Customising the FSL installation location
 
 By default, FSL will be installed to your home directory, at `~/fsl/`. The `fslinstaller.py` script will ask for confirmation of the destination directory, or it can be specified via the `-d` option, e.g.:

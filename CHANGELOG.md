@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.16.7 (Wednesday 5th March 2025)
+
+ - Fixed some bugs when installing into a location requiring administrative
+   privileges.
+
+
 # 3.16.6 (Friday 28th February 2025)
 
  - Use the `--rc-file` option to `conda` commands to try and convince it
