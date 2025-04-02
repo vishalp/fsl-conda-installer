@@ -49,15 +49,14 @@ def run(cmd, **kwargs):
 
 
 @contextlib.contextmanager
-def temp_fsldir(wrapperdir=None, prefix=None):
+def temp_fsldir(wrapperdir=None, prefix=None, symlink=False):
 
     if wrapperdir is None:
         wrapperdir = op.join('share', 'fsl', 'bin')
 
-    testdir    = tempfile.mkdtemp()
-    prevdir    = os.getcwd()
-    fsldir     = op.join(testdir, 'fsl')
-    wrapperdir = op.join(fsldir, wrapperdir)
+    testdir = tempfile.mkdtemp()
+    prevdir = os.getcwd()
+    fsldir  = op.join(testdir, 'fsl')
 
     if prefix is None: prefix = fsldir
     else:              prefix = op.join(fsldir, prefix)
@@ -66,6 +65,13 @@ def temp_fsldir(wrapperdir=None, prefix=None):
 
         os.chdir(testdir)
         os.mkdir(fsldir)
+
+        if symlink:
+            linkdir = op.join(testdir, 'linked-fsl')
+            os.symlink(fsldir, linkdir)
+            fsldir = linkdir
+
+        wrapperdir = op.join(fsldir, wrapperdir)
 
         with mock.patch.dict(os.environ, {
                 'FSLDIR'                     : fsldir,
@@ -527,3 +533,19 @@ def test_create_wrappers_extra_args():
             got = f.read().strip()
 
         assert got == expect, got
+
+
+def test_create_wrappers_symlink():
+    with temp_fsldir(symlink=True) as (fsldir, wrapperdir):
+        touch(op.join(fsldir, 'bin', 'test_script1'))
+        touch(op.join(fsldir, 'bin', 'test_script2'))
+
+        assert createWrapper('test_script1', 'test_script2')
+
+        assert op.exists(op.join(wrapperdir, 'test_script1'))
+        assert op.exists(op.join(wrapperdir, 'test_script2'))
+
+        assert removeWrapper('test_script1', 'test_script2')
+
+        assert not op.exists(op.join(wrapperdir, 'test_script1'))
+        assert not op.exists(op.join(wrapperdir, 'test_script2'))

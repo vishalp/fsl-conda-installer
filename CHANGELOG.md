@@ -1,6 +1,12 @@
 # FSL installer script release history
 
 
+# 3.16.8 (Wednesday 2nd April 2025)
+
+ - Fixes to the `createFSLWrapper`/`removeFSLWrapper` scripts when FSL is being
+   installed into a sym-linked location.
+
+
 # 3.16.7 (Wednesday 5th March 2025)
 
  - Fixed some bugs when installing into a location requiring administrative

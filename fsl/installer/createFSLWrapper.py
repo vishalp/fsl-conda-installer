@@ -280,8 +280,8 @@ def main(argv=None):
     fsldir = os.environ.get('FSLDIR', None)
     prefix = os.environ.get('PREFIX', None)
 
-    if fsldir is not None: fsldir = op.abspath(fsldir)
-    if prefix is not None: prefix = op.abspath(prefix)
+    if fsldir is not None: fsldir = op.realpath(op.abspath(fsldir))
+    if prefix is not None: prefix = op.realpath(op.abspath(prefix))
 
     # Only create wrappers if the FSL_CREATE_WRAPPER_SCRIPTS
     # environment variable is set
