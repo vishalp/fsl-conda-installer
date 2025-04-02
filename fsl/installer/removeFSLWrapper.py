@@ -32,8 +32,8 @@ def main(argv=None):
     fsldir  = os.environ.get('FSLDIR', None)
     prefix  = os.environ.get('PREFIX', None)
 
-    if fsldir is not None: fsldir = op.abspath(fsldir)
-    if prefix is not None: prefix = op.abspath(prefix)
+    if fsldir is not None: fsldir = op.realpath(op.abspath(fsldir))
+    if prefix is not None: prefix = op.realpath(op.abspath(prefix))
 
     # Only remove wrappers if FSLDIR
     # exists and if PREFIX is equal to
