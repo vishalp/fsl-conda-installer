@@ -83,7 +83,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.16.8'
+__version__ = '3.17.0'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -119,7 +119,7 @@ for more details.
 """
 
 TEMPLATE_IDENTIFIER = '%%%%%%%%%%%%%'
-"""String used when generating the standalone fslinstaler.py script to identify
+"""String used when generating the standalone fslinstaller.py script to identify
 content that is to be inserted. See the .ci/new_release.py script.
 """
 
@@ -394,6 +394,7 @@ def identify_platform():
     identifier string - one of:
 
       - "linux-64" (Linux, x86_64)
+      - "linux-aarch64" (Linux, aarch64)
       - "macos-64" (macOS, x86_64)
       - "macos-M1" (macOS, M1)
 
@@ -402,9 +403,10 @@ def identify_platform():
     """
 
     platforms = {
-        ('linux',  'x86_64') : 'linux-64',
-        ('darwin', 'x86_64') : 'macos-64',
-        ('darwin', 'arm64')  : 'macos-M1',
+        ('linux',  'x86_64')  : 'linux-64',
+        ('linux',  'aarch64') : 'linux-aarch64',
+        ('darwin', 'x86_64')  : 'macos-64',
+        ('darwin', 'arm64')   : 'macos-M1',
     }
 
     system = platform.system().lower()
