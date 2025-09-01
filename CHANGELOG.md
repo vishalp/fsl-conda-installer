@@ -1,6 +1,11 @@
 # FSL installer script release history
 
 
+# 3.17.0 (Monday 1st September 2025)
+
+ - Added support for Linux/aarch64 installations.
+
+
 # 3.16.8 (Wednesday 2nd April 2025)
 
  - Fixes to the `createFSLWrapper`/`removeFSLWrapper` scripts when FSL is being
