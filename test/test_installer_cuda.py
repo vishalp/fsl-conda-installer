@@ -17,6 +17,9 @@ try:                from unittest import mock
 except ImportError: import mock
 
 
+PLATFORM = fi.identify_platform()
+
+
 def reset_caches(func):
     def decorator(*args, **kwargs):
         try:
@@ -36,12 +39,12 @@ mock_manifest = {
         'license_url'      : 'http://licenseurl'
     },
 
-    'miniconda' : { 'linux-64' : { 'python3.11' : {
+    'miniconda' : { PLATFORM : { 'python3.11' : {
         'url'    : None,  # populated below
         'sha256' : None
     }}},
     'versions' : { 'latest' : '6.1.0', '6.1.0'  : [ {
-        'platform'     : 'linux-64',
+        'platform'     : PLATFORM,
         'environment'  : None,  # populated below
         'sha256'       : None,
         'cuda_enabled' : True
@@ -75,7 +78,7 @@ def mock_server(cwd=None, patches=None, extras=None):
                 f.write(yml)
 
         manifest            = copy.deepcopy(mock_manifest)
-        miniconda           = manifest['miniconda']['linux-64']['python3.11']
+        miniconda           = manifest['miniconda'][PLATFORM]['python3.11']
         env                 = manifest['versions']['6.1.0'][0]
         miniconda['url']    = '{}/miniconda.sh'.format(srv.url)
         miniconda['sha256'] = fi.sha256('miniconda.sh')

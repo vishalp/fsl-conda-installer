@@ -17,6 +17,9 @@ from . import (server,
                mock_miniconda_installer)
 
 
+PLATFORM = inst.identify_platform()
+
+
 mock_manifest = {
     'installer' : {
         'version'          : inst.__version__,
@@ -26,12 +29,12 @@ mock_manifest = {
         'license_url'      : 'http://licenseurl'
     },
 
-    'miniconda' : { 'linux-64' : { 'python3.11' : {
+    'miniconda' : { PLATFORM : { 'python3.11' : {
         'url'    : None,  # populated below
         'sha256' : None
     }}},
     'versions' : { 'latest' : '6.1.0', '6.1.0'  : [ {
-        'platform'    : 'linux-64',
+        'platform'    : PLATFORM,
         'environment' : None,  # populated below
         'sha256'      : None,
         'extras'      : {
@@ -83,7 +86,7 @@ def mock_server(cwd=None):
         with open('env_extra2.yml', 'wt') as f: f.write(mock_env_yml_extra2)
 
         manifest                 = copy.deepcopy(mock_manifest)
-        miniconda                = manifest['miniconda']['linux-64']['python3.11']
+        miniconda                = manifest['miniconda'][PLATFORM]['python3.11']
         env                      = manifest['versions']['6.1.0'][0]
         extra1env                = env['extras']['extra1']
         extra2env                = env['extras']['extra2']
