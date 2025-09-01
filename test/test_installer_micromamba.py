@@ -18,6 +18,8 @@ try:                from unittest import mock
 except ImportError: import mock
 
 
+PLATFORM = fi.identify_platform()
+
 mock_manifest = {
     'installer' : {
         'version'          : fi.__version__,
@@ -27,7 +29,7 @@ mock_manifest = {
         'license_url'      : 'http://licenseurl'
     },
 
-    'miniconda' : { 'linux-64' : {
+    'miniconda' : { PLATFORM : {
         'python3.11' : {
             'url'    : "invalid",
             'sha256' : "invalid"
@@ -38,7 +40,7 @@ mock_manifest = {
         }
     }},
     'versions' : { 'latest' : '6.1.0', '6.1.0'  : [ {
-        'platform'     : 'linux-64',
+        'platform'     : PLATFORM,
         'environment'  : None,  # populated below
         'sha256'       : None,
         'cuda_enabled' : True
@@ -113,7 +115,7 @@ def mock_server(cwd=None, patches=None, extras=None):
                 f.write(yml)
 
         manifest             = copy.deepcopy(mock_manifest)
-        micromamba           = manifest['miniconda']['linux-64']['micromamba']
+        micromamba           = manifest['miniconda'][PLATFORM]['micromamba']
         env                  = manifest['versions']['6.1.0'][0]
         micromamba['url']    = '{}/micromamba.tar'.format(srv.url)
         micromamba['sha256'] = fi.sha256('micromamba.tar')

@@ -57,7 +57,7 @@ variables:
   stage: fsl-ci-test
   tags:
     - fsl-ci
-    - docker
+    - linux
   rules:
     - if: '$CI_COMMIT_TAG == null'
   script:
@@ -112,7 +112,7 @@ check-version:
   image: python:3.9
   tags:
     - fsl-ci
-    - docker
+    - linux
   rules:
     - if: '$CI_COMMIT_TAG == null && $CI_COMMIT_BRANCH != "main"'
   script:
@@ -138,7 +138,7 @@ update-fsl-manifest:
   image: python:3.9
   tags:
     - fsl-ci
-    - docker
+    - linux
   rules:
     - if: '$CI_COMMIT_TAG != null'
       when: manual
