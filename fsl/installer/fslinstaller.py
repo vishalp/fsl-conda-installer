@@ -83,7 +83,7 @@ log = logging.getLogger(__name__)
 __absfile__ = op.abspath(__file__).rstrip('c')
 
 
-__version__ = '3.17.0'
+__version__ = '3.17.0-1'
 """Installer script version number. This must be updated
 whenever a new version of the installer script is released.
 """
@@ -3008,7 +3008,7 @@ def install_extra(ctx, name, **kwargs):
         ctx, ctx.build['extras'][name], destdir)
 
     printmsg('Installing {} into {}...'.format(name, destdir))
-    ctx.run(Process.monitor_progress, cmd,
+    ctx.run(Process.monitor_progress, cmd, append_env=env,
             timeout=2, total=progval, progfunc=progfunc,
             proglabel='install_{}'.format(name),
             progfile=ctx.args.progress_file,
